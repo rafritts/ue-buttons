@@ -174,6 +174,29 @@ and intent space already agree. Keep it that thin.
 - Placement DSL grows two path-aware terms usable by `add`/`scatter`:
   `along=(path_label, fraction, side, offset_cm)` and `facing=path_label`.
 
+### Map perception — the grounding for every [x,y] in this spec
+
+`landscape` features and `path` waypoints take raw 2D map coordinates — the one place
+this spec permits them, because terrain design is inherently cartographic and there is
+no prior object to relate to when the landscape is the first thing in the level. But
+the blender-buttons lesson stands: coordinates are only intent-space when the agent can
+*read* them off something rather than invent them blind.
+
+So `view` grows one action alongside this spec (build it in E3, before `path`):
+
+- `view(action="map")` — top-down orthographic capture of the landscape extent with a
+  **labeled coordinate grid** burned in (gridlines every 20 m at hamlet scale, axis
+  labels in map cm), plus markers for existing labeled actors, paths (drawn through
+  their waypoints), and scatter-region outlines. Optionally `overlay="height"` to
+  shade elevation.
+
+Workflow this enables: `view(map)` → agent reads the terrain like a site plan → picks
+waypoints/feature centers *off the map* → `path(create)` → `view(map)` again to verify
+the drawn path matches the read intent. Choosing `[x,y]` becomes reading, not guessing.
+Implementation: capture from a top-down ortho camera (or sample the heightfield
+directly and render server-side with PIL/matplotlib — server-side is likely easier to
+label and has no async-screenshot dependency; G8 doesn't block it).
+
 ## Verb 4: `scatter` — populations, not actors
 
 A forest is a population with rules, not 3,000 placement decisions. The agent declares
