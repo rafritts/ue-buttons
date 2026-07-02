@@ -114,7 +114,9 @@ def _status_block(verb, params, result):
         fd = validatemod.feel_delta(focus)
         if fd:
             lines.append(fd)
-        v = validatemod.run_validate([focus] if focus else None)
+        # Delta scope only — an unresolved focus gets B4's attributed "nothing to check"
+        # line, never a whole-scene sweep masquerading as this op's delta.
+        v = validatemod.run_validate([focus] if focus else [])
         if v.get("line"):
             lines.append(("" if v.get("passed") else "⚠ ") + v["line"])
     elif verb in SPATIAL:

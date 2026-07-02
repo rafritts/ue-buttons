@@ -2,9 +2,12 @@
 
 Every friction point the agent hits while driving UE becomes a numbered gap here.
 Ported discipline from blender-buttons: a gap is **fixed and live-verified against the
-running editor before it is cleared** (checked box). "Verified" means the fix was
-exercised over the RC bridge and the log/screenshot/`feel` confirms the new behavior —
-not that it compiles. Keep the reasoning, not just the diff.
+running editor**, then **PRUNED from this file** — a completed gap is deleted, not left
+behind with a FIXED banner. This file is the live worklist of what's still friction; the
+reasoning behind a resolved gap lives in git history and the code, not here. "Verified"
+means the fix was exercised over the RC bridge and the log/screenshot/`feel` confirms the
+new behavior — not that it compiles. `G<n>` numbers are never reused (grep git history for
+a retired one). Keep the reasoning while a gap is open, not just the diff.
 
 Format: `### G<n> — <title>` · status line · what/why · resolution.
 
@@ -26,25 +29,6 @@ M1 mitigation: keep history strictly 1:1 (read-only/nav verbs never log, never p
 transaction). Post-M1: detect external mutation (blender-buttons SPEC-15 interlock) and
 refuse to undo across a foreign edit rather than silently eating it.
 
-### G2 — `get_actor_bounds` on non-spatial actors returns zero AABB
-Status: FIXED 2026-07-02 — zero-extent actors filtered in scene + feel
-
-`WorldDataLayers` and similar management actors report origin/extent = 0. Resolution:
-`_v_scene` skips any actor whose bounds size is `[0,0,0]`, and `relational._describe` skips
-zero-extent *others* when listing relations — so the tree isn't polluted and no relation math
-runs against a degenerate AABB. The distance/gap/align ops are min/max/centre arithmetic (no
-division by an extent), so there was never an actual divide-by-zero to guard; the real risk was
-noise, and the filters remove it. Verified in passing: hamlet `scene`/`feel` report only
-real-footprint actors.
-
-### G3 — Deprecated world getter
-Status: FIXED 2026-07-02 — single non-deprecated world getter
-
-`EditorLevelLibrary.get_editor_world()` warns deprecated in 5.8. Resolution: `_ue.editor_world()`
-is the one world getter and uses
-`unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()`; every call site
-routes through it. Grep confirms no deprecated `get_editor_world` remains in the runtime.
-
 ### G4 — `transform` on a non-centered-pivot foreign actor
 Status: OPEN (M1 add only spawns centered-pivot BasicShapes)
 
@@ -60,21 +44,6 @@ Status: OPEN (M1 approximation)
 blender-buttons' distance_between(axis=ANY) returns true nearest-surface distance via a
 BVH query both directions. M1 returns centre-to-centre (labelled as such in the result).
 Port the BVH/geometry nearest-surface path when perception depth is needed (M2).
-
-### G7 — Perception drowns in engine scaffolding (Open World template)
-Status: FIXED 2026-07-02 (live-verified) — tag-scoping
-
-First live `feel describe` reported `table_top` "rests_on" three `WorldPartitionHLOD`
-proxies: the default map is Open World, so ~135 `LandscapeStreamingProxy` /
-`WorldPartitionHLOD` actors have real, sprawling AABBs crossing z≈0. blender-buttons
-never had this — its scene was essentially all agent-created. The zero-extent filter
-(G2) doesn't catch them (they have real bounds).
-
-Fix: `_ue.spawn_basic_shape` tags every spawn `ueb`; `scene` and `feel` scope to
-ueb-tagged actors by default (with an `include_all` escape hatch), reporting the count
-of untracked actors so the scaffolding is acknowledged, not hidden. Tags live on the
-actor (survive editor restart, unlike an in-memory registry). Verified: after the fix,
-`feel table_top` in an arrangement reports relations only to other ueb parts.
 
 ### G8 — Async screenshot never lands when editor is backgrounded
 Status: OPEN (M1 partial — camera works, file capture unreliable headless)
@@ -101,36 +70,6 @@ blender-buttons E1: a shallow (32-step) undo buffer + history↔undo desync wipe
 build. UE's transaction buffer is byte-sized (default ~32 MB), not step-count, so the
 step trap likely doesn't apply — but VERIFY a long M1 build (table = 5 ops, then a
 bigger arrangement) undoes fully via repeated `TRANSACTION UNDO` before trusting it.
-
-### G9 — `asset inventory` full-pack measurement blocks the bridge; payload too heavy
-Status: FIXED 2026-07-02 (live-verified) — lazy measurement + disk cache + compact return
-
-First `inventory` of Megaplant (381 static meshes) loaded every mesh synchronously in one
-RC call to read bounds/pivot. Two problems, both observed live:
-- **Blocks the bridge for minutes.** RC serialises calls; the load ran >120 s, so every
-  other verb queued behind it and timed out. "Acceptable once" (SPEC-01) is true for the
-  *work*, but not when it's one un-interruptible RC call — the editor kept churning after
-  the HTTP client gave up.
-- **94 KB return.** Full per-variant dicts × 381 meshes is far past "keep per-asset dicts
-  small; let describe carry the detail" (SPEC-01). Too heavy to hand an agent.
-
-Fix (three parts):
-- **Disk-persistent dims cache** (`Saved/ueb_dims_cache.json`): measured dims survive
-  editor restart, so the load cost is paid once *ever*, not once per session. Loaded lazily
-  into `_state.dims_cache` on first use; re-measurement re-invalidated by `whats_new`.
-- **Lazy, bounded measurement.** `inventory` is registry-cheap by default: families +
-  variant names + tris + Nanite come free from the registry (no load); dims/pivot are
-  filled from cache where present, `null` otherwise. `inventory(measure=true, budget=N)`
-  measures up to N *uncached* meshes this call (default 60 ≈ well under the RC timeout),
-  persists, and returns `{measured, remaining, complete}` so repeated calls converge
-  without ever blocking. `describe`/`inventory(family=…)` measure just the few they touch.
-- **Compact return.** Top-level `inventory` returns one compact dict per family
-  (count, variant names, height/dims range, pivot, Nanite); `inventory(family=…)` drills
-  into full per-variant detail. Payload for all of Megaplant drops from 94 KB to a few KB.
-
-Verified: cold `inventory` returns instantly with dims=null flags; `measure=true` warms
-~60/call and reports progress; warmed re-inventory is 0.04 s; cache reload survives a
-runtime hot-reload (dims_cache lives in the never-reloaded `_state`).
 
 ### G10 — modular room composition isn't expressible in the pure relational DSL
 Status: OPEN (design note; E2 used derived-grid `at`, which is legitimate)
@@ -163,49 +102,6 @@ from modular pieces as E2 did. Flagged for Ryan (asset curation): if whole-cabin
 wanted, they'd need to be authored from the World assets, or a `level-instance` placement
 path added behind `add`.
 
-### G12 — Landscape Python surface is unscriptable in 5.8; terrain is a GeometryScript mesh
-Status: FIXED 2026-07-02 (spike + live-verified) — escape hatch taken, per SPEC-01
-
-SPEC-01 flagged `landscape` as highest-API-risk and told me to spike before building. The
-spike found the real landscape path is not viable from 5.8 Python:
-- **No landscape-creation factory.** `LandscapeImportHelper`, `LandscapeSubsystem`,
-  `NewLandscapeParameters`, `LandscapeEditorObject` are all absent from the Python API. You
-  cannot instantiate/initialise a blank Landscape's components from script.
-- **Height import is render-target-only.** `LandscapeProxy.landscape_import_heightmap_from_
-  render_target` needs an *existing* landscape and a GPU render target; there's no file/PNG
-  import (the helper class is gone) and no CPU per-pixel RT fill.
-- **No numpy.** SPEC-01 assumed "numpy is available in UE's Python — use it." It is NOT.
-  All heightfield math must be pure Python (or computed server-side).
-
-Decision (SPEC-01's documented escape hatch): terrain is a **DynamicMesh** built with
-Geometry Script — `append_rectangle_xy` (subdivided grid) → `apply_displace_from_per_
-vertex_vectors` (heights computed by a pure-Python `height_at(x,y)`) → complex collision on
-the DynamicMeshComponent. Live-verified: an 80×80 valley mesh traces at exactly the computed
-height (edge z=3840.3 vs computed 3840.0). Consequences, accepted for the hamlet: no
-landscape-material layer blending and no landscape foliage painting — but scatter is HISM
-(not foliage painting) and ground-conform is a world trace (works on any collidable mesh),
-so neither blocks E4/E5/E6. Because the SAME `height_at` drives the mesh, `describe`
-sampling, and `view(map)`, they agree with traces by construction. Revisit if the full
-valley later needs real landscape materials (a rung-1 problem, not a hamlet one).
-
-### G13 — no editor SplineComponent from Python; path is a pure-Python spline
-Status: FIXED 2026-07-02 (live-verified) — Catmull-Rom over stored waypoints
-
-SPEC-01 E3 says `path(create)` should "spawn an actor with a SplineComponent." In 5.8 editor
-Python you cannot add a component to a spawned actor at edit time — `add_component_by_class`
-and `add_instance_component` are both absent from `Actor`, and constructing a
-`SplineComponent` with the actor as outer then registering it doesn't stick. So there is no
-clean path to a real, editor-visible SplineComponent purely from script.
-
-Resolution: a path IS its waypoints (SPEC-01's own framing), so the path is modelled as a
-pure-Python Catmull-Rom spline over waypoints stored in `_state.paths` — which delivers every
-mechanical requirement without a UE spline: draped z (per-waypoint ground trace), `describe`
-position+tangent at any fraction, `carve` (flatten the terrain along the curve), and the
-`along=`/`facing=` placement terms. Visibility is real too: `carve` cuts a visible bed into
-the terrain, and `view(map)` draws the polyline. If an editor-editable spline is later wanted
-(human tweaking waypoints in-viewport), the route is a tiny Blueprint with a SplineComponent
-that we spawn and push points into — deferred until a human actually needs to drag them.
-
 ### G8 update — hamlet 3D hero shot still blocked by background throttle (E6)
 Status: OPEN (reconfirmed 2026-07-02) — view(map) is the working visual; 3D shot needs foreground
 
@@ -221,63 +117,6 @@ PIE. The determinism check holds by construction and was verified for its one st
 (scatter: same seed ⇒ identical 801/665/… instance counts on re-run); terrain (pure height
 function) and relational placement are deterministic, so rebuilding from the same calls
 reproduces the hamlet within tolerance.
-
-### G14 — scatter HISM instances have data but DON'T RENDER (scatter is invisible)
-Status: FIXED 2026-07-02 (live-verified through dispatch) — instances routed through the editor
-foliage subsystem, which registers the component
-
-Live truth that opened this (screenshot, editor foregrounded): terrain, cabins, outhouses, and
-a control StaticMeshActor all rendered — but the entire scatter (665 trees + 1627 shrubs + 327
-rocks) was invisible. The instances were real (correct world transforms, meshes assigned,
-visible=True, counts right) but the HISM had **no render proxy**: a component created via the
-outer-constructor trick (`HierarchicalInstancedStaticMeshComponent(actor)`) shows up in the
-actor's component list yet was never registered with the rendering scene. Same root cause as
-the spline (G13): editor Python exposes no `register_component` / `add_instance_component`
-(confirmed live — `register_component` is absent from the HISM binding).
-
-Fix (the "right" instanced path, not the bake fallback): route every instance through the
-editor's own foliage subsystem — `InstancedFoliageActor.add_instances(world, FoliageType,
-transforms)`. That call creates a **properly-registered** `FoliageInstancedStaticMeshComponent`
-(real per-instance culling, per-mesh materials, Nanite), so the population actually draws. The
-prior foliage attempt (logged here as a dead end) failed for two fixable reasons, both now
-addressed: it spawned the IFA by hand and used an *inline transient* FoliageType. The working
-recipe:
-- **A saved `FoliageType_InstancedStaticMesh` asset per variant** (`AssetTools.create_asset`
-  under `/Game/UEB_Foliage`, `mesh` set), namespaced per scatter (`FT_<label>__<idx>`) so each
-  scatter's components are distinct even when two scatters share a species.
-- **Let `add_instances` find/create the level IFA** — don't spawn one manually.
-- **Tag the freshly-created component** `ueb_scatter:<label>` (diff the IFA's FISMC set before/
-  after the add). `remove`/`regenerate` then `clear_instances()` exactly the tagged components
-  and delete the FoliageType assets — surgical teardown of one population, and it survives a
-  runtime reimport because the tag lives on the component (saved with the level), not in _state.
-
-Design note: foliage lives in the level's IFA, not a ueb-tagged actor, so it never pollutes
-`scene`/`feel` — the "populations, not actors" intent is preserved (better than the old
-one-actor-per-scatter model, which still showed up as an actor). Everything else the verb does
-(sampling, slope/clearance filtering, seed determinism, describe) was already correct and is
-unchanged — only the final "put geometry on screen" step swapped from HISM to foliage.
-
-WP gotcha (cost a flaky-tagging bug mid-build): World Partition **shards foliage into one IFA
-per grid cell**, and component names restart at `_0` inside each IFA — so the "which component
-did this add create?" diff must key on `get_path_name()` (globally unique), not `get_name()`.
-Keying on the short name collided across cells and silently skipped tagging new components, so
-`remove` found nothing to clear for scatters placed in certain cells. Also: one `add_instances`
-call can touch more than one cell, so tag *every* genuinely-new component, not just the first.
-
-Verified live over the RC bridge through the real `dispatch` path: `scatter create` on a test
-terrain placed 272 instances across 8 registered FISMCs, all tagged and instance-counts
-agreeing with the reported total; the explicit per-instance transform was respected (instance
-readback x=300.0, not re-randomised by the foliage type); `regenerate` reseeded (272→271);
-`remove` cleared all tagged components to 0 and deleted the FoliageType assets with no orphans.
-After the path-name fix, the full create→tag→remove cycle was re-run in three separate WP cells
-(placed==tagged==87 each, all cleared to 0) — tagging is cell-independent.
-Rendering itself is verified *by construction*: this is the identical registered-component path
-the editor uses for hand-painted foliage — categorically different from the unregistered HISM —
-so the render proxy that was missing now exists. (The on-screen confirmation is still a
-foreground frame away per G8, but the render-scene registration is the thing that was broken,
-and it is now present.) Minor residue: `clear_instances` empties a component but Python can't
-destroy it, so repeated `regenerate` leaves 0-instance FISMC shells in the IFA (all cleared on
-`remove`) — harmless clutter, noted not fixed.
 
 ### G15 — `landscape describe` reports the feature height-function, not the post-carve/flatten mesh
 Status: OPEN (found 2026-07-02, Level 1 dogfood)
@@ -353,30 +192,8 @@ This is small, not a spec — the design fits here:
   not logged, `undoable` untouched. A camera nudge must never shift the shared undo
   stack (G1).
 
-### G18 — validate ground check traces from the sky, so overhead geometry reads as "ground"
-Status: OPEN (found 2026-07-02 live-verifying SPEC-02's validate floor)
-
-`validate._ground_findings` calls `_ue.trace_ground(cx, cy)`, which traces from z=+200000
-straight down and returns the FIRST surface hit at (x,y). That's the topmost thing at that
-column — not necessarily the ground beneath the actor's base. Repro (live): a cube `zf` at
-z=[0,200] with another cube `floater` parked directly above it at z=[550,650] reported
-"zf buried 650.0cm (ground z=650.0)" — the trace hit the floater's top, not the floor.
-
-Consequence: the FLOAT case (base above the surface below it) is correct — that's the
-dogfood failure mode (floating trees) and it works. But the BURIED case is fooled by any
-actor stacked overhead, and "ground z" can be a neighbour's roof rather than terrain.
-
-Fix options: (1) trace from just above the actor's base downward (`top = base_z + ε`) to
-find the nearest support surface BENEATH — correct for float, but then buried (base below
-the terrain surface, which is *above* the base) needs a second upward probe or a
-terrain-specific query; (2) restrict the ground trace to substrate collision (the
-`landscape`/terrain mesh) so neighbour actors can't answer it — cleaner, needs a
-collision-channel or actor-filter on `SceneTools._trace_world`. Ties into SPEC-03's
-renderability-gated read: the support-surface pick should also skip non-renderable actors
-(blender-buttons G147).
-
-### G18 — z-fight against the ground surface is undetectable (the spec's own "floor at exactly terrain height" case can never fire)
-Status: OPEN (found by SPEC-02 implementation review, 2026-07-02)
+### G21 — z-fight against the ground surface is undetectable (the spec's own "floor at exactly terrain height" case can never fire)
+Status: OPEN (found by SPEC-02 implementation review, 2026-07-02; deferred — needs placer-epsilon coordination first)
 
 Two design choices, each individually correct, compose into a blind spot. (1) Substrates
 (terrain, scatter stands, paths) are excluded from the neighbor pool because their AABBs
@@ -396,18 +213,8 @@ is a bug, not a coincidence" lesson made mechanical. One nuance: ground-snapped 
 should seat with a deliberate epsilon (or auto-declare the intent) so the floor and the
 placer don't fight.
 
-### G19 — Sense 1 (`feel:` delta) is blind to ground support: an actor resting on terrain reports "(no contacts)"
-Status: OPEN (found by SPEC-02 implementation review, 2026-07-02)
-
-`validate.feel_delta` computes relations via `relational._relations` — pure AABB-face
-contact math — against all ueb actors. For the single most common relationship in an
-environment build (thing sits on terrain), that math can never fire: the terrain AABB's
-top face is its highest ridge, not the surface under the actor. So the feel line for a
-freshly ground-snapped cabin says "(no contacts)" — Sense 1 actively suggesting the
-opposite of the truth, on nearly every placement. (The ground *check* knows better — it
-traces — but it only speaks when something's wrong.) Two fixes, both cheap: exclude
-substrates from the relation pool (their AABB faces can also produce spurious `flush_*`
-relations near the terrain's outer boundary), and fold the already-computed ground trace
-into the feel line as perception: `feel: cabin_2 — 400×800×300cm · rests_on ground
-(traced, gap 0.4cm) · flush_left_of cabin_1`. Same trace the floor runs — no new cost,
-one more reader.
+Deferred deliberately (not shipped in the G18/G19 pass): the naive third band would fire a
+z-fight on EVERY ground-snapped actor, louder than the silence it replaces. Its prerequisite
+— a substrate-only ground trace — now exists (G18), but the safe version needs the placer to
+seat with a known epsilon (or auto-declare) FIRST, else detector and placer fight. Land the
+placer-epsilon convention, then add the band.

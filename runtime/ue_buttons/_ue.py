@@ -130,9 +130,16 @@ def trace_ground(x, y, ignore=None, top=200000.0, bottom=-200000.0):
     Delegates to Epic EditorToolset's `SceneTools._trace_world` (M2 eval: adopt as a hidden
     backend — it's a physics-aware world query that beats what we'd hand-roll against RC,
     and unlike raw KismetSystemLibrary line traces it actually hits WorldPartition landscape
-    proxies). Ignores `ignore` so an actor never snaps to itself."""
+    proxies). `ignore` is a single actor OR an iterable of actors excluded from the trace
+    — so a caller can hit the SUBSTRATE beneath by ignoring every placed actor (gaps.md
+    G18), not just skip self."""
     from editor_toolset.toolsets.scene import SceneTools
-    ignore_list = [ignore] if ignore is not None else []
+    if ignore is None:
+        ignore_list = []
+    elif isinstance(ignore, (list, tuple, set)):
+        ignore_list = [a for a in ignore if a is not None]
+    else:
+        ignore_list = [ignore]
     hit = SceneTools._trace_world(
         editor_world(), unreal.Vector(x, y, top), unreal.Vector(x, y, bottom), ignore_list)
     return None if hit is None else hit.z

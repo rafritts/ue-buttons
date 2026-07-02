@@ -229,15 +229,26 @@ def _pen_depth(a_label, b_label):
 
 # ── the three detectors ────────────────────────────────────────────────────────
 
+def _ground_ignore():
+    """Every placed (non-substrate) ueb actor — the trace excludes them all so the ground
+    check reads the SUBSTRATE beneath, never a neighbour's roof or the actor's own top
+    (gaps.md G18). Substrates (terrain/scatter/path) stay hittable; the engine's own
+    landscape proxies aren't ueb actors, so they answer too."""
+    subs = _substrates()
+    return [a for a in _ue.ueb_actors() if a.get_actor_label() not in subs]
+
+
 def _ground_findings(scope):
-    """Trace under each touched actor's base-centre and compare to its own min-z. A miss
-    (nothing beneath, or collision not yet cooked — see bugs.md B3) is reported as an
-    HONEST can't-verify, never silently passed."""
+    """Trace under each touched actor's base-centre, against the SUBSTRATE only (every
+    placed actor ignored — G18), and compare to its own min-z. A miss (nothing beneath, or
+    collision not yet cooked — see bugs.md B3) is reported as an HONEST can't-verify, never
+    silently passed."""
     out = []
+    ignore = _ground_ignore()
     for lbl, b in scope:
         cx, cy = b["center"][0], b["center"][1]
         base_z = b["min"][2]
-        gz = _ue.trace_ground(cx, cy, ignore=_ue.find_by_label(lbl))
+        gz = _ue.trace_ground(cx, cy, ignore=ignore)
         if gz is None:
             out.append({"check": GROUND, "a": lbl, "b": GROUND, "kind": "unverifiable",
                         "message": f"{lbl}: nothing traced beneath the base — no ground, or "
@@ -348,15 +359,24 @@ def run_validate(touched_labels=None, scene_wide=False, verbose=False):
     the declared-intent registry. verbose (op=run) lists every finding, uncapped."""
     _prune_dead_intents()
 
-    if scene_wide or not touched_labels:
+    # Scene vs delta is an EXPLICIT choice, never inferred from a falsy label list (B4):
+    # a typo'd delta target must not silently flip into a whole-scene sweep.
+    if scene_wide:
         scope = _neighbors()
+        if not scope:
+            return {"passed": True, "intent_free": [], "ground": _empty(GROUND),
+                    "penetration": _empty("penetration"),
+                    "line": "validate: clean — no placed actors in scope"}
     else:
-        scope = _spatial_actors(touched_labels)
+        labels = touched_labels or []
+        scope = _spatial_actors(labels)
+        if not scope:
+            # Empty delta scope is its OWN verdict, attributed — never a clean pass (B4).
+            # silence-because-nothing must never read as silence-because-clean.
+            return {"passed": None, "intent_free": [], "ground": _empty(GROUND),
+                    "penetration": _empty("penetration"),
+                    "line": f"validate: nothing to check — {_unresolved_reason(labels)}"}
     neighbors = _neighbors()
-
-    if not scope:
-        return {"passed": True, "intent_free": [], "ground": _empty(GROUND),
-                "penetration": _empty("penetration"), "line": ""}
 
     zfight = _zfight_findings(scope, neighbors)
     ground = _classify(GROUND, _ground_findings(scope), scope)
@@ -367,6 +387,23 @@ def run_validate(touched_labels=None, scene_wide=False, verbose=False):
     line = _render_line(zfight, ground, pen, verbose)
     return {"passed": passed, "intent_free": zfight, "ground": ground,
             "penetration": pen, "line": line}
+
+
+def _unresolved_reason(labels):
+    """Attribute WHY a delta scope came up empty (B4) — a misspelled name must read as
+    'no such actor', never as a clean scene."""
+    if not labels:
+        return "no resolvable focus for this edit"
+    subs = _substrates()
+    bits = []
+    for lbl in labels:
+        if lbl in subs:
+            bits.append(f"{lbl} is a substrate (checked by trace, not as an actor)")
+        elif _ue.find_by_label(lbl) is None:
+            bits.append(f"{lbl}: no such actor (missing or renamed)")
+        else:
+            bits.append(f"{lbl}: zero-extent (non-spatial)")
+    return "; ".join(bits)
 
 
 def _empty(check):
@@ -389,7 +426,7 @@ def _classify(check, findings, scope):
     for f in findings:
         a, b = f["a"], f["b"]
         live_pairs.add(frozenset((a, b)))
-        e = _intent_for(check, a, b) if b == GROUND else _intent_for(check, a, b)
+        e = _intent_for(check, a, b)
         if e is None:
             new.append(f)
             continue
@@ -404,9 +441,16 @@ def _classify(check, findings, scope):
             continue
         e["status"] = "holding"
         intended += 1
+        # DEEPER tripwire (B5): the declare-first flow ("gravel WILL seat into terrain" →
+        # then place it) records depth_at_decl = 0 — falsy, so a fixed `d0 and …` guard is
+        # dead for exactly those intents. Treat 0 as "not yet observed": latch the first
+        # nonzero depth as the baseline, then arm the 2× escalation against it.
         d0 = e.get("depth_at_decl")
-        if check == "penetration" and d is not None and d0 and d > 2 * d0 + PEN_FLOOR:
-            deeper.append({"a": a, "b": b, "now": d, "then": d0})
+        if check == "penetration" and d:
+            if not d0:
+                e["depth_at_decl"] = d0 = d
+            elif d > 2 * d0 + PEN_FLOOR:
+                deeper.append({"a": a, "b": b, "now": d, "then": d0})
 
     # bidirectional invariant — a declared pair this op TOUCHED that no longer shows the
     # finding is VANISHED (blessings can't rot silently). Only object pairs actually in
@@ -500,8 +544,26 @@ def feel_delta(label):
         return None
     dims = "×".join(str(round(v, 1)) for v in b["size"])
     rels = []
+    # Ground support first — the single most common relationship in an environment build
+    # (thing sits on terrain), which AABB-face math can NEVER see because a terrain's AABB
+    # top is its highest ridge, not the surface under the actor (gaps.md G19). Same trace
+    # the floor runs, folded in as PERCEPTION (no verdict — the validate line judges).
+    gz = _ue.trace_ground(b["center"][0], b["center"][1], ignore=_ground_ignore())
+    if gz is not None:
+        gap = round(b["min"][2] - gz, 1)
+        if abs(gap) <= GROUND_EPS:
+            rels.append(f"rests_on ground (traced, gap {abs(gap)}cm)")
+        elif gap > 0:
+            rels.append(f"{gap}cm above traced ground")
+        else:
+            rels.append(f"{-gap}cm into traced ground")
+    subs = _substrates()
     for other in _ue.ueb_actors():
         if other == a:
+            continue
+        # Substrates out of the relation pool: their AABB faces produce spurious flush_*
+        # relations near the terrain's outer boundary and never a real contact (G19).
+        if other.get_actor_label() in subs:
             continue
         ob = _ue.bounds(other)
         if ob["size"] == [0, 0, 0]:

@@ -19,6 +19,12 @@ mkdir -p "$DEST/ue_buttons"
 # runtime package
 rm -rf "$DEST/ue_buttons"
 cp -r "$REPO/runtime/ue_buttons" "$DEST/ue_buttons"
+# Strip ALL bytecode from the deployed copy. A stray __pycache__ (e.g. from a local
+# `py_compile`) copied in, or one the editor wrote earlier, gets served by
+# importlib.reload ahead of the fresh source when NTFS mtimes collide — so a synced edit
+# silently runs stale (cost real debugging time; see gaps.md G20). The runtime also sets
+# sys.dont_write_bytecode, but clear here too so no pre-existing .pyc can win.
+find "$DEST/ue_buttons" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
 # bootstrap (only if the repo ships one; keep any hand-edited project init otherwise)
 if [[ -f "$REPO/runtime/init_unreal.py" ]]; then
   cp "$REPO/runtime/init_unreal.py" "$DEST/init_unreal.py"

@@ -14,7 +14,14 @@ noise. Python-side errors become {"error": ...} so the server never scrapes trac
 """
 import importlib
 import json
+import sys
 import traceback
+
+# DEV_RELOAD re-execs handler modules each dispatch. importlib.reload trusts a cached .pyc
+# when its recorded source mtime matches the source — and on WSL→NTFS those mtimes collide
+# after a re-sync, so reload silently runs STALE bytecode (gaps.md G20, hours lost). Writing
+# no bytecode at all removes the trap: every reload compiles straight from source.
+sys.dont_write_bytecode = True
 
 from . import _state          # NEVER reloaded — holds history + label state (Q2/G-reload)
 from . import _ue
