@@ -19,10 +19,16 @@ import traceback
 from . import _state          # NEVER reloaded — holds history + label state (Q2/G-reload)
 from . import _ue
 from . import relational
+from . import asset
+from . import terrain
+from . import landscape
+from . import map_ref
+from . import path
+from . import scatter
 from . import verbs
 
 # Reload order matters: dependencies before dependents, and _state is absent by design.
-_RELOADABLE = [_ue, relational, verbs]
+_RELOADABLE = [_ue, relational, asset, terrain, landscape, map_ref, path, scatter, verbs]
 
 SENTINEL = "UEB>>>"
 

@@ -83,6 +83,61 @@ def set_scale_for_dims(actor, dims_cm):
     actor.set_actor_scale3d(s)
 
 
+# ── project-asset spawning (SPEC-01 E2) ─────────────────────────────────────────
+def spawn_static_mesh(mesh_path, location):
+    """Spawn a project StaticMesh actor at a world location (cm), tagged ueb. Placed at
+    NATIVE scale — marketplace dims are placement information, not a resize invitation."""
+    mesh = unreal.EditorAssetLibrary.load_asset(mesh_path)
+    if not isinstance(mesh, unreal.StaticMesh):
+        raise ValueError(f"'{mesh_path}' is not a StaticMesh ({type(mesh).__name__})")
+    actor = actor_subsystem().spawn_actor_from_object(
+        mesh, unreal.Vector(location[0], location[1], location[2]))
+    actor.tags = [unreal.Name(UEB_TAG)]
+    return actor
+
+
+def spawn_blueprint(class_path, location):
+    """Spawn a Blueprint actor from its generated class at a world location (cm). A prebuilt
+    cabin BP comes in as ONE actor — one thing to relate to (SPEC-01)."""
+    cls = unreal.EditorAssetLibrary.load_blueprint_class(class_path)
+    if cls is None:
+        raise ValueError(f"'{class_path}' has no Blueprint class")
+    actor = actor_subsystem().spawn_actor_from_class(
+        cls, unreal.Vector(location[0], location[1], location[2]))
+    actor.tags = [unreal.Name(UEB_TAG)]
+    return actor
+
+
+def native_size(actor):
+    """World-space size (cm) of an actor at its current scale — used to derive a scale
+    factor when the caller explicitly overrides dims on an arbitrary mesh."""
+    return bounds(actor)["size"]
+
+
+def pivot_to_center_delta(actor):
+    """Vector (world AABB center − actor location). Zero for centered-pivot BasicShapes,
+    but a base-pivot tree/wall has its centre well above (and off from) its origin. Callers
+    that want the *bounds centre* at a target must set location = target − this delta
+    (gaps.md G4). Read it AFTER scale+rotation so it reflects the actor's real footprint."""
+    c = bounds(actor)["center"]
+    loc = actor.get_actor_location()
+    return [c[0] - loc.x, c[1] - loc.y, c[2] - loc.z]
+
+
+def trace_ground(x, y, ignore=None, top=200000.0, bottom=-200000.0):
+    """World z of the ground directly under (x, y), or None if nothing is beneath the ray.
+
+    Delegates to Epic EditorToolset's `SceneTools._trace_world` (M2 eval: adopt as a hidden
+    backend — it's a physics-aware world query that beats what we'd hand-roll against RC,
+    and unlike raw KismetSystemLibrary line traces it actually hits WorldPartition landscape
+    proxies). Ignores `ignore` so an actor never snaps to itself."""
+    from editor_toolset.toolsets.scene import SceneTools
+    ignore_list = [ignore] if ignore is not None else []
+    hit = SceneTools._trace_world(
+        editor_world(), unreal.Vector(x, y, top), unreal.Vector(x, y, bottom), ignore_list)
+    return None if hit is None else hit.z
+
+
 def undo(n=1):
     """Drive the editor's undo from Python — the ONLY verified path (probed live 2026-07-02):
     the console command `TRANSACTION UNDO`. No `unreal.*` undo primitive exists. Each call

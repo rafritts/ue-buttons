@@ -5,6 +5,7 @@ description = "blender-buttons philosophy projected onto Unreal Engine 5 via Rem
 requires-python = ">=3.11"
 dependencies = [
     "mcp[cli]",
+    "pillow",
 ]
 
 [project.scripts]

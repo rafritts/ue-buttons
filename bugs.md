@@ -33,3 +33,21 @@ gives forward·to_target **dot = 1.00000 (0.00° off)** — the camera points ex
 target. (Splitting set/readback across two separate RC calls can read a different
 perspective viewport's state — a measurement artifact only; `view` sets location +
 rotation atomically in one dispatch, so real use is exact.)
+
+### B2 — `add(asset=)` silently resolved an ambiguous exact name to the first match
+Status: FIXED 2026-07-02 (live-verified)
+
+Repro: `add(asset="Wall_4m", …)` spawned the StaticMesh `…/Modular/Wall_4m` with no
+warning — but the pack also ships a Blueprint named exactly `Wall_4m`
+(`…/Modular/Blueprints/Wall_4m`). The caller had no way to know which they got, and which
+"won" depended on asset-registry iteration order.
+
+Root cause: `asset._resolve_asset_path` returned on the FIRST exact name match inside its
+loop, so a same-name StaticMesh/Blueprint collision was resolved non-deterministically
+instead of surfaced.
+
+Fix: collect ALL exact-name matches; one → resolve, more than one → return them as
+`candidates` (the same ambiguity path fuzzy matches already used). Exact still beats fuzzy.
+
+Verification: `add(asset="Wall_4m")` now errors "ambiguous" listing both the SM and BP
+paths; unique names (`Outhouse`, `Branch_Norway_Maple_Live_03`) still resolve directly.

@@ -117,6 +117,40 @@ uv run python server/main.py     # or let the Claude Code host start it from .mc
 
 `scripts/probe.sh` still verifies the bare bridge / runs one-shot editor Python.
 
+## SPEC-01 — built (2026-07-02)
+
+The environment surface from `docs/SPEC-01-Environment.md` is implemented and live-verified
+against the running editor. Surface grows 7 → 11 verbs; `add` grows `asset=`. New runtime
+modules:
+
+```
+asset.py       perception over Content — packs/inventory/describe/find/whats_new. Families
+               + variants, dims/pivot/tris/Nanite; lazy disk-cached measurement (G9).
+terrain.py     pure-Python heightfield engine (no numpy) — the one height_at() that backs
+               the mesh, describe sampling, and view(map); + region math for flatten/scatter.
+landscape.py   terrain as a GeometryScript DynamicMesh (G12: Landscape API unscriptable) —
+               create/shape/flatten/describe; complex collision so traces conform.
+map_ref.py     map-position resolver — polar {from,bearing,distance} + absolute [x,y].
+path.py        splines as Catmull-Rom over waypoints (G13) — create/carve/describe; route
+               walking; drape/carve; along=/facing= placement terms.
+scatter.py     HISM populations — create/describe/regenerate/remove; seeded jittered-grid
+               sampling, per-point ground trace + slope, auto-clears paths & buildings.
+server/mapview.py  PIL renderer for view(map): shaded height + 20 m grid + labelled markers.
+```
+
+Verbs added: `asset`, `landscape`, `path`, `scatter`; `add(asset=, yaw=, facing=, place.along/
+ground)`; `view(action="map")`. Spatial verbs carry an honest `undoable: false` (DynamicMesh/
+HISM edits don't sit in the transaction stack). **Exit test (the hamlet) passes end-to-end
+through the verbs**: a 200 m valley-edge terrain (rocky ridge, gentle floor, noise), a
+5-waypoint winding lane carved to grade, three cabins placed along+facing it on flattened
+pads (one composed wall-by-wall from the modular kit on the 4 m grid, two prebuilt BPs), and
+~2,600 scatter instances (3 tree species + undergrowth + rocks) that clear the lane and
+cabins. Verified mechanically (`feel`: front↔back 400.0 cm, roof over walls; scatter counts;
+nearest tree 990 cm vs a 575 cm clearance) and visually via server-rendered `view(map)`. The
+3D "does it read as a place?" shot + PIE walk are Ryan's step (`view(shot=)` is G8-blocked
+while the editor is backgrounded; the camera is positioned). New friction is in `gaps.md`
+(G9–G13) and `bugs.md` (B2).
+
 ## Next design step
 
 The two genuinely novel fronts:

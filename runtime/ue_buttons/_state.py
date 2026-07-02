@@ -68,3 +68,44 @@ def next_shot_id():
     consume an op id (that would put cosmetic gaps in the history numbering)."""
     _shot_counter[0] += 1
     return f"shot{_shot_counter[0]:03d}"
+
+
+# ── asset measurement cache (SPEC-01 E1) ───────────────────────────────────────
+# Loading a StaticMesh to read its bounds/pivot/materials is the one expensive step in
+# the `asset` verb (registry tags give Nanite/tris for free, but not dimensions). The
+# measured dict is cached here keyed by asset package path, so the first `inventory` of a
+# 381-mesh pack pays the load once and every later call is registry-cheap. Lives in
+# _state precisely so a handler hot-reload (which reloads asset.py) never drops it. The
+# on-disk `whats_new` snapshot is separate (survives editor restart); this in-memory
+# cache is invalidated when whats_new detects the registry changed under it.
+dims_cache = {}       # {asset_path: {measured dict}}
+dims_cache_loaded = [False]   # disk cache hydrated into dims_cache exactly once per session
+
+# ── SPEC-01 domain registries (survive handler hot-reload; live in never-reloaded _state) ──
+# Terrain / path / scatter carry declarative state the actor alone can't reconstruct — the
+# feature list that synthesised a heightfield, the waypoints behind a spline, the seed+rules
+# behind a scatter population. Keyed by label so describe/regenerate/view(map) can reason
+# about them and rebuild deterministically. Persisted to disk by their verbs where restart
+# survival matters (terrain heightfields especially).
+landscapes = {}       # {label: {origin, size, base_height, resolution, features:[...]}}
+paths = {}            # {label: {points:[[x,y,z],...], width, tangents:[[x,y],...]}}
+scatters = {}         # {label: {meshes, region, density, seed, rules, counts}}
+
+
+def cache_dims(path, measured):
+    dims_cache[path] = measured
+    return measured
+
+
+def cached_dims(path):
+    return dims_cache.get(path)
+
+
+def invalidate_dims(paths=None):
+    """Drop measured dims for `paths` (list) or the whole cache (None). Called by
+    whats_new when the registry changed, so re-measurement picks up re-imports."""
+    if paths is None:
+        dims_cache.clear()
+    else:
+        for p in paths:
+            dims_cache.pop(p, None)
