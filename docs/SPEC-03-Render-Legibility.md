@@ -1,165 +1,244 @@
 # SPEC-03 — Render legibility: the third sense
 
-Status: proposal, 2026-07-02. Written the moment the surface's blindness became
-undeniable: a `scatter` reported 6,236 instances — mesh assigned, `visible=true`,
-`inst_z == ground_z` at every checkpoint, spread across the whole terrain — and *nothing*
-drew in the viewport. Every data probe said "forest." The renderer said "empty." The
-server had no verb that could tell the difference. This spec is the verb surface that
-closes that gap **without ever needing a rendered frame.**
+Status: proposal, 2026-07-02. Rewritten after studying how blender-buttons solves the
+same problem — because it already does, maturely, and this spec is mostly a port with
+UE-specific links added. Written the moment the surface's blindness became undeniable: a
+`scatter` reported 6,236 instances — mesh assigned, `visible=true`, `inst_z == ground_z`
+at every checkpoint, spread across the whole terrain — and *nothing* drew. Every data
+probe said "forest." The renderer said "empty." No verb could tell the difference.
 
-Ground truth to read first: SPEC-02 (the status block + spatial lint) — this is its
-sibling sense, not a replacement. blender-buttons never needed this (CPU meshes, one
-process, immediate registration); UE's async render/streaming/asset chain makes
-"present in data" and "drawn on screen" two different facts, and only the first is
-currently perceivable.
+Read first: SPEC-02 (status block + spatial lint — this is its sibling sense). Sister-repo
+ground truth to read before implementing, with the exact code this ports:
+`blender-buttons/extension/common.py:470-571`, `extension/introspect.py:524-713`,
+`extension/lint.py`, `extension/validation.py`, `server/_core.py:180-329`,
+`extension/handles.py:1-135`, and its `docs/SPEC-16` (forced senses) + `SPEC-20`
+(provenance). blender-buttons never needed a *streaming* concept (CPU meshes, one process,
+immediate registration); UE's async register/stream/asset chain is what makes "present in
+data" and "drawn on screen" two different facts — so the port keeps its whole doctrine and
+adds the residency links that have no Blender ancestor.
 
-## The root problem: placement-correct is not render-correct
+## The borrowed doctrine: verify without a frame, and never verify *with* one
 
-SPEC-02's validate floor answers *is it in the right place relative to other things* —
-buried, floating, penetrating, z-fighting. It is a **spatial** sense, and its own
-non-goals exclude renderability. But whether a primitive actually draws is gated by a
-second, orthogonal chain of state that spatial lint never touches. An actor can be
-perfectly placed and still be invisible for a reason that has nothing to do with
-geometry:
+blender-buttons' lint module opens with the thesis this spec exists to bring to UE
+(`extension/lint.py` header): return *"compiler-style verdicts the agent can act on
+**without a render** — instead of burning renders and image tokens on a question with an
+exact geometric answer."* And its render verb is blunter still (`server/verbs/render.py`):
+*"THE IMAGE IS FOR THE HUMAN, NOT THE AGENT. Do NOT read it back… LLM vision is unreliable
+at this level of precision, and it self-confirms… The render cannot catch your own mistake;
+it launders it. Verify with GROUND TRUTH instead."*
 
-- its component was never **registered** with the render scene (the G14 HISM bug —
-  data-correct, no scene proxy);
-- it lives in a World Partition cell that isn't **streamed/resident**, or a data layer
-  that's **unloaded/hidden** (present in the actor tree, absent from the renderer);
-- a **hide flag** is set — `is_temporarily_hidden_in_editor` is a *different* flag from
-  `is_visible()`, and checking one while trusting the other is exactly the miss that
-  produced this spec;
-- it's outside its **cull distance** or `min_draw_distance`, or its **bounds** are zero;
-- its **material** slot is null / the default is substituting / opacity resolves to 0;
-- the **mesh asset** itself has no render data (empty LOD0, zero render bounds);
-- it draws fine but is **sub-pixel** from the actual camera — present, correct, and
-  smaller than one pixel, which is visually identical to absent.
+That is the posture SPEC-03 adopts wholesale: the rendered frame is an output for the
+human, never the agent's verification path. Everything below answers "will this draw, is it
+framed, is it seen, is it big enough" as **numbers and booleans**, computed from the state
+that produces the image — because that state is legible and the image is not.
 
-Every one of those is a *fact the editor already knows* and the server currently cannot
-ask. The disposition SPEC-02 diagnosed — the model is a reactor, not an inspector —
-means this can't be fixed by "remember to check rendering." It has to become a forced
-sense, reported by exception, on the same footing as the spatial floor.
+## The core steal: renderability is a *filter at the source*, not a separate query
 
-## The gating chain (the thing the sense reports)
+The single most important design decision in blender-buttons is not a verb. It is that
+"will this show up" is applied at the **source of every physical read**, so a
+non-renderable object can never silently poison a spatial answer. One predicate defines
+"in the renderable scene," and resting/contact/support/validate/framing all consume it
+(`extension/common.py:470-494`, `scene_mesh_objects`):
 
-A primitive draws **iff every link holds.** The sense's job is to walk the chain and
-name the first broken link, as data. Ordered from cheapest/most-common failure to rarest:
+```python
+def _hidden(o):
+    if o.hide_viewport or o.hide_render:   # data flags — never raise
+        return True
+    try:
+        return o.hide_get()                # view-layer eval — CAN raise…
+    except RuntimeError:
+        return True                        # …and a raise means "excluded here" = hidden
+```
 
-1. **Resident** — the owning actor's WP cell is streamed in and its data layer is
-   active + editor-visible. (collection-scoped; see `streaming` below)
-2. **Registered** — the component has a scene proxy (registered with the world). The
-   G14 check, promoted to a first-class field.
-3. **Shown** — none of `is_temporarily_hidden_in_editor` / `hidden` / `hidden_in_game`
-   is set on the actor, and the component's `visible` / `should_render` is true.
-4. **Bounded** — world AABB extent is non-zero.
-5. **In range** — start/end cull distance and `min_draw_distance` don't exclude it at
-   the observing distance; `bounds_scale` sane.
-6. **Materialised** — every material slot resolves to a real material (no default
-   substitution), and the blend/opacity won't render it invisible.
-7. **Has render data** — the mesh asset has LOD0 geometry (tri count > 0) and non-zero
-   render bounds; Nanite enabled or a fallback mesh present.
-8. **On-screen size** — from a given observer, projected pixel size ≥ ~1 px.
+The docstring records the bug that forced it (G147): a hidden scatter-source mesh at the
+origin was being chosen as the support surface under a plate. **This is exactly the class
+of defect Level 1 is exposed to** — `trace_ground` has no renderability gate, so it will
+snap an actor (or a scatter instance) to whatever collision the ray hits first, visible or
+not. The fix is architectural, not a new verb:
 
-Links 1–7 are boolean facts; link 8 is a computed number. None require a frame.
+> **Every physical read in the UE runtime — `trace_ground`, scatter ground-sampling,
+> `scene`, `feel`, placement — filters to renderable actors first, and names anything it
+> skipped.** A trace that could only have hit a non-renderable / unstreamed / hidden actor
+> returns "no renderable ground here," not a silent z.
 
-## The verbs
+The UE renderability predicate (the analogue of `_hidden`, richer because UE has more ways
+to be invisible): an actor/component contributes to the rendered scene **iff** it is
+*resident* (its WP cell is streamed in, its data layer active + editor-visible),
+*registered* (has a scene proxy), *shown* (no `is_temporarily_hidden_in_editor` / `hidden`
+/ `hidden_in_game`; component `visible`), *bounded* (non-zero AABB), and *materialised*
+(no null slots / default-material substitution). Links marked ★ are UE-only, no Blender
+ancestor.
 
-Four read-only verbs (they carry no status block — they *are* perception, per SPEC-02).
-Each names the UE backing so this is implementable, not a wish list; where a binding is
-thin, the interim backend is named in the same spirit as the trace/undo adoptions
-(`SceneTools._trace_world`, console `TRANSACTION UNDO`).
+## The gating chain (what the sense reports)
 
-### `render_state(target)` — the per-object draw verdict (links 2–7)
+A primitive draws **iff every link holds.** The sense walks the chain and names the first
+break, as data — cheapest/most-common failure first:
 
-Input: an actor label, a component, or a population label (scatter). Output: the gating
-chain as a per-link verdict, plus a one-line `verdict` ("DRAWS" / "HIDDEN: temporarily
-hidden in editor" / "NO PROXY: component unregistered" / …). Report by exception — a
-clean object is one line; a broken one shows the first failed link *and* the fix, the
-way spatial-lint findings carry their correction.
+1. ★ **Resident** — owning WP cell streamed in; data layer active + editor-visible.
+2. ★ **Registered** — component has a scene proxy (the G14 HISM bug, promoted to a field).
+3. **Shown** — no hide flag set; `is_temporarily_hidden_in_editor` is a *different* flag
+   from `is_visible()`, and checking one while trusting the other is the miss that made
+   this spec. blender-buttons keeps `viewport_visible` and `render_visible` as **separate
+   fields, never conflated** (`extension/objects.py:1126-1131`) — do the same.
+4. **Bounded** — world AABB extent non-zero.
+5. ★ **In range** — start/end cull distance, `min_draw_distance`, `bounds_scale`.
+6. **Materialised** — every slot resolves to a real material; flag when the engine
+   **default material is substituting** (the "someone forgot to assign" tell —
+   blender-buttons flags `"no material slot"` at `extension/lint.py:345`).
+7. ★ **Has render data** — mesh LOD0 tri-count > 0, non-zero render bounds; Nanite enabled
+   or fallback present.
+8. **On-screen size** — from an observer, projected pixel size ≥ ~1 px (§ computed
+   visibility).
 
-Fields and backing:
-- registered / has proxy — `component.is_registered()` where exposed; else infer from
-  the foliage/ISM path (G14 recipe guarantees it).
-- hide flags — `actor.is_temporarily_hidden_in_editor()`, `is_hidden_ed()`,
-  `get_editor_property("hidden")`, component `is_visible()`, `is_visible_in_editor()`.
-- bounds — `actor.get_actor_bounds()` / component bounds; zero extent ⇒ finding.
-- cull — component `instance_start/end_cull_distance`, `LDMaxDrawDistance`,
-  `min_draw_distance`, `bounds_scale`.
-- materials — `component.get_materials()`; per slot null-check; `material.get_base_material()`
-  / blend mode via the material's `get_editor_property("blend_mode")`; flag when the
-  engine default material is the resolved material (the "someone forgot to assign" tell).
-- mesh render data — `StaticMeshEditorSubsystem.get_number_triangles(mesh, 0)`,
-  `get_number_verts`; `mesh.get_bounding_box()`; Nanite via
-  `mesh.get_editor_property("nanite_settings").enabled`.
+Links 1–7 are booleans; link 8 is a number. None require a frame.
 
-For a population, this runs per-FoliageType/component and folds to a summary
-("32 components, all DRAWS" or "3 components NO PROXY: FT_… unregistered").
+## Where it plugs in: the third forced sense (not a pile of new verbs)
 
-### `streaming(target?)` — World Partition residency (link 1, the collection sense)
+SPEC-05's verb-collapse rule holds — this adds **no top-level verbs**. It extends the three
+perception verbs and the validate floor, exactly as blender-buttons folds renderability
+into `feel`/`validate`/`scene` and puts a `render:` line in its status block
+(`server/_core.py:227-285`, which also carries a `viewport:` shading line and an
+`engine_unavailable` warning that never presents a dead render engine as clean).
 
-The one the current surface is most blind to, and the prime suspect whenever a
-correct-by-every-metric build renders as nothing. Two modes:
+- **The status block gains a `render:` line** (SPEC-02 Sense 2's sibling): after a
+  geometry/placement op, the touched delta is walked through the gating chain.
+  `render: DRAWS` when clean; by exception, `render: 32 foliage comps unregistered → …` or
+  `render: population in unloaded data layer 'Foliage' → streaming(activate)`. Same
+  discipline as validate: **clean is printed, not silent** (blender-buttons prints
+  `validate: clean` as literal text, `extension/validation.py:626`), and **OFF announces
+  itself on every block** (`render: OFF — floor is down`) so silence-because-disabled can
+  never read as silence-because-drawing.
+- **`scene` gains streaming/residency** — WP grid load state, data layers + runtime state,
+  the editor's loaded region, and per-actor "which cell/layer owns it, is it resident."
+  This is the collection-scoped blindness the surface most lacks and the prime suspect
+  whenever a correct-by-every-metric build renders as nothing. Backing:
+  `WorldPartitionSubsystem`, `DataLayerManager.get_data_layer_runtime_state`; where the
+  binding can't reach the editor cell hash, parse `wp.info` console output (the same
+  adoption pattern as the `SceneTools._trace_world` trace backend and console
+  `TRANSACTION UNDO`).
+- **`feel` gains a render-state deep-dive** — `feel(op="render_state", target=…)` walks the
+  full chain for one actor/component/population and returns the per-link verdict + the fix,
+  the on-demand detail behind the block's one-line summary (as `feel` is the detail behind
+  the spatial line).
+- **`view` gains computed visibility** — below.
 
-- `streaming()` — enumerate WP grid state: cells and their load state, data layers and
-  their runtime state (Activated / Loaded / Unloaded) + editor visibility, and the
-  editor's currently-loaded region(s). Backing: `unreal.WorldPartitionSubsystem`,
-  `DataLayerManager` / `DataLayerSubsystem.get_data_layer_runtime_state(...)`. Where the
-  Python binding can't reach the editor cell hash, fall back to parsing the `wp.info` /
-  streaming-status console command output (same adoption pattern as the trace backend).
-- `streaming(target=label)` — for one actor: which cell and data layer own it, and
-  whether both are resident right now. This is the verb that says, in words, "your
-  6,236 instances are in cells that aren't streamed in — that's why the renderer never
-  saw them," and turns a day of blind guessing into one call.
+## Computed visibility: the camera family (port almost verbatim)
 
-### `observe(from)` — camera-relative visibility, computed not seen (link 8)
+blender-buttons computes framing/occlusion/size entirely from matrix math + raycasts over
+the evaluated geometry — never a screenshot. Port these into `view` (which already owns the
+camera: `orbit`, `map`; add `framing` / `visible`):
 
-The sense most in the repo's spirit: instead of *looking* at whether a thing is visible,
-*compute* it. Input: a target population/actor + an observer (the live editor perspective
-viewport by default, or an explicit `[x,y,z]` + look-at). Output, all numbers:
-- nearest-instance distance, and how many instances fall inside the camera frustum;
-- **projected pixel size** of a representative instance — pinhole projection from world
-  size, distance, viewport FOV and pixel height. "Representative tree projects to 0.8 px
-  at the current camera" is a precise, deterministic diagnosis of *present-but-sub-pixel*
-  — visually identical to absent, but now a legible fact.
-- behind-camera / off-frustum count, so "camera pointed at empty sky" is distinguishable
-  from "trees too small" is distinguishable from "trees genuinely absent."
+**(a) Projected screen size + clipping + behind-camera** — `camera_coverage`
+(`extension/common.py:545-571`): project the world AABB corners through the view, take the
+frame-space min/max.
 
-Backing: `UnrealEditorSubsystem.get_level_viewport_camera_info()` (already used by
-`view`) for the transform; FOV from the viewport client (or a documented default);
-object world-size from `render_state` bounds. Pure server-side math — no frame, no async
-screenshot, immune to G8.
+```python
+for c in world_bbox_corners(obj):
+    co = world_to_camera_view(scene, cam, c)     # UE: FSceneView::WorldToScreen / project
+    us.append(co.x); vs.append(co.y); depths.append(co.z)
+return {"frac_w": umax-umin, "frac_h": vmax-vmin,        # screen size as frame fraction
+        "in_front": any(d>0 for d in depths),
+        "clipped": [edges where u/v spill past 0..1]}
+```
 
-### `reconcile(scope?)` — the editor's own registries vs `_state`
+`frac_w`/`frac_h` are the "too small to see" and "is it framed" numbers, computed. UE has
+every primitive (`FSceneView::WorldToScreen`, actor bounds).
 
-Cross-check the server's memory against the editor's ground truth, so counts are never
-self-reported in a vacuum. Read the Foliage subsystem's *own* per-type instance tally and
-the asset/actor registries; diff against `_state.scatters` / `paths` / actors. Catches
-(a) the "I re-derived 6,236, does the editor agree?" question, and (b) the G16 ghosts —
-`_state` entries whose actors/foliage don't exist in this level — mechanically instead of
-by eye. This is the render-legibility analogue of SPEC-02's provenance rule: a count
-names its source and is checked against the authority.
+**(b) Occlusion — is it actually seen or hidden behind terrain** — raycast from the camera
+to sampled target points; a hit on a *different* actor = occluded
+(`_occlusion_fraction`, `extension/common.py:524-547`). UE already has the ray:
+`SceneTools._trace_world` / `LineTraceSingle`. "Is the tree behind the ridge from here" is
+a trace, not a render.
 
-## How it composes with SPEC-02
+**(c) Visible *front-facing* surface (the subtle one, G131)** — whole-bbox occlusion reads
+~100% for a recessed-but-visible part (liquid seen through a mug's mouth). Sample only
+front-facing points (normal toward camera) and count unoccluded ones
+(`_visible_surface`, `extension/common.py:550-582`). Port it: a valley floor seen through a
+gap in the canopy shouldn't read as hidden.
 
-Render legibility is the **third forced sense**, slotting into the same channel order:
+**(d) Provenance for the number (G22/G36) — the number is meaningless without its
+reference.** `world_to_camera_view` fits to the render aspect, so coverage % silently
+shifts with resolution; blender-buttons makes the reference explicit on every reading
+(`_frame_ref`, `extension/introspect.py:635-651`) and **resolves the camera exactly as
+render does** so the preflight *is* the render's ground truth (G36). UE port: every framing
+number states the viewport it was projected against (resolution + FOV), and reads the
+*actual* editor perspective-viewport camera
+(`UnrealEditorSubsystem.get_level_viewport_camera_info` — already used by `view`).
 
-- SPEC-02 Sense 2 (validate) stays the *spatial* floor: placement correctness.
-- This adds a *renderability* floor: after a geometry/placement op, the touched delta is
-  walked through the gating chain, and the status block gains a `render:` line —
-  `render: DRAWS` when clean, or `render: 32 foliage comps unregistered → …` by
-  exception. Same discipline as validate: **OFF must announce itself** ("render: OFF")
-  so silence-because-disabled never reads as silence-because-drawing.
-- `render_state` / `streaming` / `observe` / `reconcile` are the on-demand deep-dives the
-  floor points you toward, exactly as `feel` is the deep-dive behind the spatial line.
+Together these distinguish, as numbers, the four cases I could not tell apart in Level 1:
+*sub-pixel* vs *off-frustum* vs *occluded* vs *genuinely absent*.
 
-The through-line, and the reason this is a server concern before it's a scene concern:
-**"the data all looks right" is the failure mode, not the success signal.** Until the
-server can walk the render-gating chain as data, every build is verified by construction —
-and by construction is precisely the proof that this spec exists to retire.
+## Suppression discipline (port verbatim — the self-policing part)
+
+blender-buttons allows **no "ignore."** Its taxonomy maps cleanly onto render findings:
+
+- **Intent-free render defects are never suppressible at all** — unregistered component,
+  null material slot, empty render data, sub-pixel-when-it-should-be-hero. These are the
+  render analogue of z-fights/non-manifold (`_INTENT_FREE`,
+  `extension/validation.py:38-39`): there is deliberately no "false-positive" or
+  "tolerance" tag, "those would just be the easy dodge wearing a different hat" (SPEC-16).
+- **The few genuinely intentional cases are blessed by a reasoned positive assertion, never
+  an ignore** — e.g. "this population lives in a data layer that's intentionally streamed
+  out for this shot." The only affordance is `validate(op="expect", …, reason=…)` — a
+  *required* reason ("an assertion you can't justify is a bug you're hiding"), **scoped to
+  the specific `(check, subject)` pair** (not the bare actor, so blessing one hidden LOD
+  proxy doesn't blind the next), that **collapses to a count** ("1 intended") rather than
+  silencing, and is a **bidirectional tripwire**: a blessed-hidden population that becomes
+  *visible* is itself a finding, just as a declared-intended clip that vanishes fires in
+  blender-buttons (`validation.py:543-554`). Over-blessing produces a visible pile, not
+  quiet.
+
+## Provenance (SPEC-20 ported): every render number names its basis
+
+blender-buttons stamps every spatial measurement with the geometry it was read on —
+`evaluated` (what renders) vs `cage` (editable), plus which modifiers were live
+(`measurement_provenance`, `extension/common.py:78-94`; `↳ measured on …`,
+`server/_core.py:288-293`). The rule (SPEC-20 R3): derive from the build, never from model
+memory — "version-stale and self-confirming, the same failure mode as reading your own
+renders." UE analogues to stamp:
+
+- which **component** answered (path-name, since WP shards names — the G14 lesson);
+- **simple vs complex collision** answered a trace (SPEC-02 already calls for this);
+- **LOD0 / Nanite-fallback** for a tri/bounds read;
+- for a framing number, **which camera + which frame reference** (resolution + FOV).
+
+A render/coverage number is never silent about what produced it.
+
+## State reconciliation: clean / dirty / orphaned (ports handles.py; closes G16)
+
+blender-buttons keeps **no parallel server-side store** — the Blender datablocks *are* the
+registry, and named anchors diff against them (`extension/handles.py:1-135`). On every read
+it recomputes a provenance signature and classifies:
+
+- **clean** — matches the mint-time snapshot within ε; use silently.
+- **dirty** — moved under it, but still resolves; flagged with drift *attribution*
+  (**self** = an agent op explains it / **external** = the loud alarm).
+- **orphaned** — the provenance won't replay (backing gone).
+
+Dead entries auto-GC (`_prune_dead_intents`, `validation.py:103-114`) so a deleted subject
+never leaves a permanent un-clearable tripwire. This is the mechanical cure for **G16**
+(ueb `_state` outliving the level — the phantom hamlet scatters): a `reconcile` read (folded
+into `scene`/`validate`, not a new verb) diffs `_state.scatters`/`paths`/actors against the
+editor's *own* foliage tally and actor registry, classifies each clean/dirty/orphaned with
+attribution, and GCs the orphans — instead of trusting a self-reported count in a vacuum
+(the 6,236 I re-derived should have been checked against what the editor thinks it has).
+
+## How the three senses now compose (SPEC-02 + this)
+
+- **feel delta** (Sense 1): what you changed, as perception, no verdict.
+- **validate** (Sense 2): the *spatial* floor — buried/floating/penetration/z-fight.
+- **render** (Sense 3, this spec): the *renderability* floor — the gating chain verdict.
+
+All three report by exception, print "clean" as text, and announce themselves when OFF.
+The through-line, and why this is a server concern before a scene concern: **"the data all
+looks right" is the failure mode, not the success signal.** Until the server walks the
+render-gating chain as data, every build is verified by construction — and by construction
+is exactly the proof this spec exists to retire.
 
 ## Non-goals
 
-Aesthetic judgment (Ryan's). Pixel-accurate render correctness (that needs the frame we're
-declining to depend on). Lighting/shadow/exposure quality. Perf budgets. Anything that
-requires *interpreting* an image rather than *querying* the state that produced it — the
-entire premise here is that the state is legible and the image is not.
+Aesthetic judgment (Ryan's). Pixel-accurate render correctness, lighting/shadow/exposure
+quality (blender-buttons *does* model exposure/DoF deterministically — a later spec may
+port that; out of scope here). Perf budgets. Anything that requires *interpreting* an image
+rather than *querying* the state that produced it — the entire premise is that the state is
+legible and the image is not.
