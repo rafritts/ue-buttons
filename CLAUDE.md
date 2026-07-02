@@ -8,15 +8,6 @@ Start with `README.md` (topology: Claude in WSL → mirrored localhost:30010 →
 Windows) and `docs/SPEC-00-Initial.md` (the foundation spec). `scripts/probe.sh` is the
 fastest way to verify the bridge is alive and run one-shot editor Python.
 
-## PRIME DIRECTIVE: the scene is dogfood, not the deliverable
-
-The purpose of building a scene is not the scene — it's to dogfood the MCP server.
-Ryan cares only about the server. When something in the scene is wrong: research
-briefly (enough to characterize the cause), log a numbered gap or bug, and move on —
-or stop and report if it's a showstopper. Fix inline only when the fix is easy or the
-issue is part of your direct task. Never spend a long tail of calls polishing or
-rescuing a scene; once the friction is logged, the build has already done its job.
-
 ## Sister project: blender-buttons
 
 `~/workspace/blender-buttons` (github.com/rafritts/blender-buttons) is the origin and
