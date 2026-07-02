@@ -313,6 +313,20 @@ filed gap documents why):
 Ryan judges the screenshots — "does this read as a place?" — and walks it in-editor
 (PIE) for feel. The agent proves the numbers; the human judges the place.
 
+## Deferred to SPEC-02: spatial lint (decided 2026-07-02)
+
+Deterministic validation of placement results — derived coordinates can still be wrong
+(stale anchor, pivot surprise, terrain edited after placement), and UE's collision/
+trace machinery makes catching that cheap. Two tiers: **inline** (ground-relationship
+trace + AABB/penetration fast pass riding the auto-status block on every mutation —
+"leg_3 penetrates top by 12 cm along −Z; base at z=0 but terrain is 55.4 m above —
+set z=5540") and **sweep** (a `check` verb: whole-scene pass incl. z-fight heuristics —
+overlapping bounds with parallel faces within ~2 mm). Findings always carry the
+corrected value, not just the complaint — the trace that found the problem knows the
+fix. Epsilon band distinguishes intended contact (rests-on/flush, ≲1 cm — consult
+`feel`'s relations) from defects. Nothing in SPEC-01 should block it; E-milestone
+implementers should keep bounds/trace helpers factored so lint can reuse them.
+
 ## Risks / open questions
 
 - **Landscape Python surface** (named above) — highest risk; spike before building.
