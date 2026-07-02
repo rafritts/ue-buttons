@@ -47,18 +47,21 @@ soft spot:
 
 Expected yield: a fistful of gaps before anything looks like a cave. That's success.
 
-## Level 3 — TBD
+## Level 3 — Cabin on a lake
 
-Ryan hasn't decided yet. Candidates worth considering when the time comes, ranked by
-what they'd newly exercise rather than by looks:
+A calm mountain lake with a cabin on the shore. A wooden dock reaches out over the
+water. A stream feeds the lake from the hills, and a rowboat sits tied at the dock.
+Trees come down to the waterline except around the cabin's clearing.
 
-- **Castle approach** (rung 1's finale) — large modular kit composition at scale,
-  asset acquisition workflow (5.8-filtered Fab pack), silhouette/landmark placement
-  read off the map.
-- **Lakeside hamlet** — water (nothing in the surface touches water yet), shoreline
-  scatter rules, reflections making vision judgment calls harder.
-- **Obstacle course** (rung 2's donut) — the first level with *logic*: triggers,
-  moving platforms, respawn. Gated on the Blueprint logic verb; would mark the jump
-  from environments to game systems.
+That's the whole brief — deliberately. Nobody involved knows how water works in UE5,
+and **no one is allowed to find out before the build starts.** The vision comes first,
+stated naively; discovering how the engine realizes it (and what the verb surface is
+missing) IS the dogfood. Researching water up front to write a more "implementable"
+level would launder the friction out of the fixture.
 
-Whatever it becomes, pick it for the verbs it breaks, not the postcard it makes.
+---
+
+A note on all three levels: they're artist visions to be *carried out*, not
+negotiated. If the surface can't express part of a vision, that's a gap to log — not
+a reason to bend the vision toward what's easy. Pick and build them for the verbs
+they break, not the postcard they make.
