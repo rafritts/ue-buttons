@@ -92,10 +92,14 @@ uv run python server/main.py     # or let the Claude Code host start it from .mc
 
 ## Next design step
 
-Then the two genuinely novel fronts, where the projection must be invented rather than
-ported:
+The two genuinely novel fronts:
 
-- **Logic**: Blueprint graphs are not Python-authorable — the path is generated C++ +
-  Live Coding, or a text DSL compiled server-side. This is the moonshot crux.
+- **Logic**: targets Blueprints (decision 2026-07-02; Verse/UE6 deliberately deferred).
+  The projection no longer needs inventing — the M2 eval
+  (`docs/M2-epic-toolset-evaluation.md`) found UE 5.8's `EditorToolset` ships a
+  round-trippable Blueprint **text DSL** (`write_graph_dsl`/`read_graph_dsl`,
+  S-expressions, transpile→compile→decompile). The logic spec wraps that behind a
+  ue-buttons verb (backend, never surface); generated C++ + Live Coding stays the
+  fallback for systems-level logic.
 - **Temporal feel**: mechanical ground truth from automation/functional tests, Visual
   Logger, navmesh/EQS queries — the agent proves "it works"; the human judges "it feels".
