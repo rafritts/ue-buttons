@@ -374,3 +374,40 @@ terrain-specific query; (2) restrict the ground trace to substrate collision (th
 collision-channel or actor-filter on `SceneTools._trace_world`. Ties into SPEC-03's
 renderability-gated read: the support-surface pick should also skip non-renderable actors
 (blender-buttons G147).
+
+### G18 — z-fight against the ground surface is undetectable (the spec's own "floor at exactly terrain height" case can never fire)
+Status: OPEN (found by SPEC-02 implementation review, 2026-07-02)
+
+Two design choices, each individually correct, compose into a blind spot. (1) Substrates
+(terrain, scatter stands, paths) are excluded from the neighbor pool because their AABBs
+are meaningless for overlap — right call. (2) z-fight detection is AABB-face coplanarity —
+right call for actor↔actor. Together: an actor coplanar with the *ground surface* — SPEC-02
+explicitly lists "floors at exact terrain height" as a target case — has no detector. The
+AABB method couldn't catch it anyway (a terrain's AABB max-z is its peak, not the local
+surface).
+
+But the ground detector already holds the number: `gap = base_z − trace_z`. Today
+`|gap| ≤ GROUND_EPS` (2 cm) all reads as "resting". The fix is a third band:
+`|gap| ≤ COPLANAR` (~2 mm) is *coplanar with ground* — an intent-free z-fight finding
+("base exactly at terrain surface → sink 1–2 cm or raise"), distinct from resting
+(COPLANAR < |gap| ≤ GROUND_EPS, fine). This is also the GUIDANCE_FOR_LLMS "exact equality
+is a bug, not a coincidence" lesson made mechanical. One nuance: ground-snapped placement
+(`place={"ground": true}`) intentionally produces base ≈ surface — the placement verb
+should seat with a deliberate epsilon (or auto-declare the intent) so the floor and the
+placer don't fight.
+
+### G19 — Sense 1 (`feel:` delta) is blind to ground support: an actor resting on terrain reports "(no contacts)"
+Status: OPEN (found by SPEC-02 implementation review, 2026-07-02)
+
+`validate.feel_delta` computes relations via `relational._relations` — pure AABB-face
+contact math — against all ueb actors. For the single most common relationship in an
+environment build (thing sits on terrain), that math can never fire: the terrain AABB's
+top face is its highest ridge, not the surface under the actor. So the feel line for a
+freshly ground-snapped cabin says "(no contacts)" — Sense 1 actively suggesting the
+opposite of the truth, on nearly every placement. (The ground *check* knows better — it
+traces — but it only speaks when something's wrong.) Two fixes, both cheap: exclude
+substrates from the relation pool (their AABB faces can also produce spurious `flush_*`
+relations near the terrain's outer boundary), and fold the already-computed ground trace
+into the feel line as perception: `feel: cabin_2 — 400×800×300cm · rests_on ground
+(traced, gap 0.4cm) · flush_left_of cabin_1`. Same trace the floor runs — no new cost,
+one more reader.

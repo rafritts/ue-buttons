@@ -79,3 +79,40 @@ until it stabilizes, or force a collision-cook wait), and `_drape` should *warn*
 never silently write 0.0. (2) `carve` should refuse (or warn) when a target waypoint z looks
 like a miss sentinel rather than grading to it. Blender-buttons' drape has no cook race
 (CPU mesh, immediate) — this is UE-specific (async physics cook).
+
+### B4 — empty validate scope reads as a clean pass (typo'd target ⇒ `passed: true`; unresolvable focus ⇒ the validate line silently disappears)
+Status: OPEN (found by code review of the SPEC-02 implementation, 2026-07-02 — not yet reproduced live)
+
+`validate.run_validate` returns `{"passed": True, …, "line": ""}` whenever its scope
+resolves to nothing (`validate.py` `if not scope:` early return). Three ways in, all bad:
+
+- **`validate op=run targets=cabin_9` with a typo'd / deleted / substrate label** → the
+  sweep reports `passed: true` with no line. A misspelled name reads as a clean scene —
+  the exact "silence-because-nothing reads as silence-because-clean" failure SPEC-02
+  exists to kill, produced by the floor itself.
+- **Per-op: a mutating verb whose focus can't resolve to a spatial actor** (zero-extent
+  at check time, renamed, etc.) → `line` is empty, and `verbs._status_block` only appends
+  the line `if v.get("line")` — so Sense 2 vanishes from the block with no `validate:
+  OFF` announcement. Silence must always be attributed (clean | OFF | can't-check).
+- **Per-op: focus is `None` on a MUTATING verb** → `run_validate(None)` quietly becomes a
+  *whole-scene* sweep presented as the op's delta (scope semantics flip on a falsy arg).
+
+Fix direction: empty scope is its own honest verdict — `passed` omitted/None (not True)
+and `line: "validate: nothing to check (unresolved targets: cabin_9 — missing or
+substrate)"`; per-op, an unresolved focus prints that line rather than nothing; and
+`run_validate`'s delta-vs-scene mode should be an explicit flag, never inferred from a
+falsy label list.
+
+### B5 — the "DEEPER than at declaration" tripwire never arms when the intent was declared before contact existed
+Status: OPEN (found by code review of the SPEC-02 implementation, 2026-07-02 — not yet reproduced live)
+
+`add_intent` records `depth_at_decl = _pen_depth(a, b)` at declaration time. The natural
+declare-then-build flow ("path gravel will seat 3 cm into terrain by design" → *then*
+place the gravel) records `depth_at_decl = 0.0`, and `_classify`'s tripwire is guarded by
+`d0 and d > 2 * d0 + PEN_FLOOR` — `0.0` is falsy, so the escalation check is dead for
+exactly the declarations made in the recommended order (tag tokens too: `_pen_depth` on a
+tag returns 0.0). Only `max_depth` still protects those pairs, and it's optional.
+
+Fix direction: treat `depth_at_decl == 0` as "not yet observed" and set it on the first
+*nonzero* observed depth (lazily, in `_classify`), so the 2× escalation tripwire arms for
+declare-first intents instead of never.
