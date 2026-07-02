@@ -59,6 +59,52 @@ swappable later precisely because placement is relational, not baked coordinates
 
 ---
 
+## Map positions — governs every 2D position in this spec
+
+`landscape` feature centers, `path` waypoints, `scatter` region centers, and `add`'s
+`at=` all take a **map position**. Two forms are legal everywhere and resolve to the
+same internal point:
+
+- **Polar (preferred)**: `{"from": <anchor>, "bearing": <deg>, "distance": <cm>}` —
+  anchor is a labeled actor, `("path_label", fraction)`, a named landscape feature, or
+  `"center"` (map center). This is how humans give directions and surveyors lay out
+  sites; it keeps the agent relating to things it already placed instead of inventing
+  grid numbers.
+- **Absolute**: `[x, y]` in map cm — legal, expected to be *read off* `view(map)`
+  (below), not invented. Terrain design is inherently cartographic, and when the
+  landscape is the first thing in the level there is no prior object to relate to —
+  but a coordinate is only intent-space when the agent read it off something.
+
+**The governing principle (Ryan, 2026-07-02): derived coordinates, never divined
+coordinates.** A number is legitimate when the agent can trace it back to a perception
+or a prior placement (an anchor, a measurement, a map it read, a bearing from a known
+point). It's illegitimate when the model conjures it from thin air — divined numbers
+look exactly as precise as derived ones, which is what makes them dangerous. Apply
+this test to every parameter in every future verb: not "does it contain numbers?"
+but "where would the agent have gotten this number?" Any resolution math (route
+walking, relational offsets) happens in the runtime and returns its results — the
+substrate does arithmetic so the model never dead-reckons in its head.
+
+**Compass convention (decide once, bake into every docstring): north = +X (UE
+forward), east = +Y, azimuth/bearing measured clockwise from north.** This makes
+bearing numerically identical to UE yaw — one rotation vocabulary everywhere.
+
+### Map perception: `view(action="map")`
+
+The grounding for every absolute `[x,y]`. Ships with E3 (alongside `landscape`, before
+`path`):
+
+- Top-down orthographic capture of the landscape extent with a **labeled coordinate
+  grid** burned in (gridlines every 20 m at hamlet scale, axis labels in map cm), plus
+  markers for existing labeled actors, paths (drawn through their waypoints), and
+  scatter-region outlines. Optionally `overlay="height"` to shade elevation.
+- Workflow: `view(map)` → agent reads the terrain like a site plan → picks waypoints/
+  feature centers *off the map* → acts → `view(map)` again to verify the result matches
+  the read intent. Choosing `[x,y]` becomes reading, not guessing.
+- Implementation: capture from a top-down ortho camera, or sample the heightfield
+  directly and render server-side with PIL/matplotlib — server-side is likely easier
+  to label and has no async-screenshot dependency (G8 doesn't block it).
+
 ## Verb 1: `asset` — perception over the project's content
 
 The question this verb answers: **"what can I build with, and how big is it?"**
@@ -161,9 +207,17 @@ Implementation reality check (spike first — this is the highest-API-risk verb)
 A path IS a list of waypoints — the rare case where the natural UE primitive (spline)
 and intent space already agree. Keep it that thin.
 
-- `path(action="create", label=..., points=[[x,y],...], width=...)` — spawn an actor
-  with a SplineComponent through the points (z resolved by ground-sampling each point
-  against the landscape — the agent thinks in 2D map coordinates, the runtime drapes).
+- `path(action="create", label=..., points=[...], width=...)` — spawn an actor with a
+  SplineComponent through the points (each a map position, polar or absolute; z
+  resolved by ground-sampling against the landscape — the agent thinks in 2D, the
+  runtime drapes).
+- **Route form** (alternative to `points=`): `route={"start": <map position>, "steps":
+  [...]}`, each step `{"bearing": deg, "distance": cm}` (absolute compass) or
+  `{"turn": ±deg, "distance": cm}` (relative to current heading — the natural encoding
+  of "winding": alternate gentle turns). The runtime walks the route, resolves every
+  waypoint, and **returns all resolved positions** so the agent knows exactly where
+  the chain ended up; `view(map)` is the visual confirm. Route headings double as the
+  tangent data `along=`/`facing=` placement uses.
 - `path(action="carve")` — flatten/smooth the landscape under the spline (delegates to
   `landscape` internals: flatten along the spline with blend margins) and assign the
   path its ground look. First slice: carving + a dirt material zone is enough; spline
@@ -173,65 +227,6 @@ and intent space already agree. Keep it that thin.
   cabin_2 left of the path at fraction 0.4, facing it" needs positions + tangents.
 - Placement DSL grows two path-aware terms usable by `add`/`scatter`:
   `along=(path_label, fraction, side, offset_cm)` and `facing=path_label`.
-
-### Map positions: polar first, grid second
-
-Anywhere this spec accepts a 2D map position (`landscape` feature `at`, `path`
-waypoints, `scatter` region centers), two forms are legal and resolve to the same
-internal point:
-
-- **Polar (preferred)**: `{"from": <anchor>, "bearing": <deg>, "distance": <cm>}` —
-  anchor is a labeled actor, `("path_label", fraction)`, a named landscape feature, or
-  `"center"` (map center). This is how humans give directions and surveyors lay out
-  sites; it keeps the agent relating to things it already placed instead of inventing
-  grid numbers.
-- **Absolute**: `[x, y]` in map cm — legal, expected to be *read off* `view(map)`
-  (below), not invented.
-
-**The governing principle (Ryan, 2026-07-02): derived coordinates, never divined
-coordinates.** A number is legitimate when the agent can trace it back to a perception
-or a prior placement (an anchor, a measurement, a map it read, a bearing from a known
-point). It's illegitimate when the model conjures it from thin air — divined numbers
-look exactly as precise as derived ones, which is what makes them dangerous. Apply
-this test to every parameter in every future verb: not "does it contain numbers?"
-but "where would the agent have gotten this number?" Any resolution math (route
-walking, relational offsets) happens in the runtime and returns its results — the
-substrate does arithmetic so the model never dead-reckons in its head.
-
-**Compass convention (decide once, bake into every docstring): north = +X (UE
-forward), east = +Y, azimuth/bearing measured clockwise from north.** This makes
-bearing numerically identical to UE yaw — one rotation vocabulary everywhere.
-
-`path` additionally accepts a **route form** instead of a waypoint list: a start
-position plus steps, each `{"bearing": deg, "distance": cm}` (absolute compass) or
-`{"turn": ±deg, "distance": cm}` (relative to current heading — the natural encoding
-of "winding": alternate gentle turns). The runtime walks the route, resolves every
-waypoint, and returns all resolved positions so the agent knows exactly where the
-chain ended up; `view(map)` is the visual confirm. Route headings double as the
-tangent data `along=`/`facing=` placement uses.
-
-### Map perception — the grounding for every [x,y] in this spec
-
-`landscape` features and `path` waypoints take raw 2D map coordinates — the one place
-this spec permits them, because terrain design is inherently cartographic and there is
-no prior object to relate to when the landscape is the first thing in the level. But
-the blender-buttons lesson stands: coordinates are only intent-space when the agent can
-*read* them off something rather than invent them blind.
-
-So `view` grows one action alongside this spec (build it in E3, before `path`):
-
-- `view(action="map")` — top-down orthographic capture of the landscape extent with a
-  **labeled coordinate grid** burned in (gridlines every 20 m at hamlet scale, axis
-  labels in map cm), plus markers for existing labeled actors, paths (drawn through
-  their waypoints), and scatter-region outlines. Optionally `overlay="height"` to
-  shade elevation.
-
-Workflow this enables: `view(map)` → agent reads the terrain like a site plan → picks
-waypoints/feature centers *off the map* → `path(create)` → `view(map)` again to verify
-the drawn path matches the read intent. Choosing `[x,y]` becomes reading, not guessing.
-Implementation: capture from a top-down ortho camera (or sample the heightfield
-directly and render server-side with PIL/matplotlib — server-side is likely easier to
-label and has no async-screenshot dependency; G8 doesn't block it).
 
 ## Verb 4: `scatter` — populations, not actors
 
@@ -275,9 +270,10 @@ placed.
 - **E2 — `add(asset=)`** (needs E1's inventory). Exit: compose one cabin from wall/
   gable pieces on the 4 m grid using relational placement only; spawn one prebuilt
   cabin Blueprint next to it; both ground-snapped.
-- **E3 — `landscape`** (spike first, then verb). Exit: 200 m × 200 m landscape with a
-  gentle valley profile + noise; `describe` height sampling agrees with trace results;
-  `flatten` carves a clean building pad.
+- **E3 — `landscape` + `view(map)`** (spike first, then verb). Exit: 200 m × 200 m
+  landscape with a gentle valley profile + noise; `describe` height sampling agrees
+  with trace results; `flatten` carves a clean building pad; `view(map)` renders the
+  shaped terrain with labeled grid + the pad marked.
 - **E4 — `path`** (needs E3). Exit: 5-waypoint winding path draped over terrain,
   carved, queryable at fractions.
 - **E5 — `scatter`** (needs E3+E4 for ground + clearances). Exit: mixed-species stand
