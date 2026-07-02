@@ -16,9 +16,16 @@ meshes; this is its UE-scale equivalent.
 Checkpoints toward it (the "donut tutorial" ladder — UE has no single donut, it has two,
 and we take both):
 
-1. **The environment donut** — an Unreal Sensei-class scene: landscape, assets placed
-   relationally, materials, lighting, a judgeable beauty shot. Exercises the M1/M2
-   perception + placement surface at real-scene scale.
+1. **The environment donut** — decided 2026-07-02: **a forest in a mountainous valley,
+   with a winding path through the trees, across hamlets, arriving at a castle.** No
+   NPCs or systems — pure environment. This crosses four domains the surface doesn't
+   have yet (landscape/heightfield, scatter-at-scale via foliage/PCG, splines for the
+   path, asset-library perception over Fab packs), so its donut-sized first slice is
+   **one hamlet**: a sculpted terrain patch, a scattered tree stand, a spline path,
+   3–4 buildings placed relationally along it, lit and screenshotted. That slice forces
+   all four domains at toy scale; the full valley is then repetition + PCG. Partnership
+   split: Ryan curates the asset palette (Fab is a launcher/web click — human step);
+   the agent inventories and builds.
 2. **The game-systems donut** — Epic's "Your First Game in UE5" shape: ThirdPerson
    template, blocked-out obstacle course, moving platform, button-opens-door, pickups,
    win state. Gated on the logic verb (Blueprint text DSL wrap); serves as its exit test.
