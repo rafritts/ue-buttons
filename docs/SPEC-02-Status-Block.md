@@ -1,9 +1,23 @@
 # SPEC-02 — The status block, REPL-style
 
-Status: rough outline, 2026-07-02. Full spec after SPEC-01's E-milestones land.
-Ground truth: blender-buttons' SPEC-16 ("the two forced senses") and `_core.py
-_status()` — read both before implementing. Spatial lint is a *part* of this spec,
-not the other way around.
+Status: **core implemented + live-verified 2026-07-02** (see "Implementation status"
+below). Ground truth: blender-buttons' SPEC-16 ("the two forced senses") and `_core.py
+_status()` — read both before extending. Spatial lint is a *part* of this spec, not the
+other way around.
+
+## Sequencing (SPEC-02 → SPEC-03)
+
+SPEC-02 goes first; SPEC-03 (render legibility) is authored as "the third forced sense"
+and is a strict extension of the machinery here — it adds a `render:` line to this status
+block and reuses this spec's `expect()` suppression grammar, channel discipline, and
+provenance. It has no coherent home until the two-senses scaffold exists. The one SPEC-03
+primitive that must land *inside* this spec's foundation is the **renderability-gated
+read**: this floor runs its own traces (ground check) and AABB reads, and if those reads
+aren't filtered to renderable actors they inherit the invisible-poison bug SPEC-03 exists
+to kill (blender-buttons G147 — a hidden mesh chosen as a support surface). The
+`[N excluded]` slot on the validate line (below) is already wired for that predicate;
+SPEC-03 fills it. Build order: SPEC-02 scaffold + the minimal source-filter → SPEC-03's
+full render sense on top.
 
 ## Why this is the spec that matters
 
@@ -124,3 +138,43 @@ sweep-only. Silence discipline: clean = one line; no lint section that always pr
 Aesthetic judgment (Ryan's), render-artifact detection beyond the coplanar heuristic,
 physics-sim correctness, perf budgets. M1's status block already exists — this spec
 upgrades it to the full two-senses form rather than inventing a new mechanism.
+
+## Implementation status (2026-07-02)
+
+Landed in the runtime and live-verified over the RC bridge. New module
+`runtime/ue_buttons/validate.py` (the floor + intent registry + feel delta + drift
+re-ground), the registry/accumulator in never-reloaded `_state` (`intents`, `drift`), the
+full anatomy in `verbs._status_block`, a `validate` verb, and the `validate` MCP tool in
+`server/main.py`.
+
+**Done + verified live:**
+
+- The REPL block on every mutating verb: warnings → Sense 1 (`feel:` delta) → Sense 2
+  (`validate:` line) → periodic re-ground → the single-object spotlight (acted-on bounds,
+  blender-buttons G76). Read-only verbs carry no block.
+- The three detectors, each finding carrying its FIX, rebuilt on UE AABB + world trace
+  (cm): **ground** (`floater floats 350.0cm above ground … → drop base to z=200.0`;
+  buried is symmetric; a trace miss is an HONEST "can't verify", never a silent pass —
+  closes the B3 class of silence), **penetration** (`jammer penetrates probe_a by 40.0cm
+  along X → nudge [40,0,0]`), **z_fight** (coplanar overlapping faces; full coincidence →
+  "DUPLICATE transform").
+- Suppression grammar: `expect` requires a reason, rejects intent-free `z_fight`, collapses
+  a blessed contact to a count ("1 intended"), honours a `max_depth` envelope (deeper than
+  blessed still fires), and a tag token blesses a whole class. `forget` retires it.
+- Bidirectional VANISHED tripwire (a declared contact that moves apart fires), the ≥6
+  class-declaration hint (blender-buttons G125), auto-GC of dead-subject intents.
+- Sweep tier `validate op=run [targets] [verbose]`; report-by-exception (`validate: clean`
+  when clean, `[N excluded]` slot reserved for SPEC-03's predicate).
+
+**Deliberately deferred (honest gaps, tracked):**
+
+- **Spatial-verb floor** — `landscape`/`path`/`scatter` currently ANNOUNCE that the actor
+  floor is off for the edit ("validate: OFF for this edit — … `validate op=run` to sweep")
+  rather than validating at generation time. SPEC-02 wants scatter instances validated as
+  they're placed (the per-point trace already runs) and a terrain reshape to re-flag actors
+  it buried. Next milestone.
+- **Provenance line** — the block names the acted-on actor, but a returned trace does not
+  yet carry `↳ measured on <actor/component>, simple|complex collision`. SPEC-20 shape.
+- **Registry lifetime** — `intents`/`drift` live in `_state`, so they survive a hot-reload
+  but not a level change (no level-load hook — gaps.md G16). Persist-into-level +
+  clear-on-load is future, shared with SPEC-03's state reconciliation.

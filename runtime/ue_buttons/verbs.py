@@ -15,6 +15,7 @@ from . import landscape
 from . import map_ref
 from . import path as pathmod
 from . import scatter as scattermod
+from . import validate as validatemod
 
 # Verbs that mutate the world: they log an op, run inside a ueb:<id> transaction, and get
 # the status block appended. Everything else is a pure read / navigation.
@@ -38,7 +39,7 @@ def handle(verb, params):
     result = fn(params)
     if (verb in MUTATING or verb in STATUS_ONLY or verb in SPATIAL) \
             and isinstance(result, dict) and "error" not in result:
-        result["status"] = _status_block()
+        result["status"] = _status_block(verb, params, result)
     return result
 
 
@@ -61,30 +62,122 @@ class _Txn:
         return False
 
 
-# ── auto-status ───────────────────────────────────────────────────────────────
-def _status_block():
-    """The ── ue status ── block appended to mutating verbs (SPEC-00 format)."""
+# ── auto-status: the REPL block (SPEC-02) ───────────────────────────────────────
+# Every mutating verb returns, in order: result text (the json head, rendered by the
+# server) → warnings → the two forced senses (feel delta, validate line) → a periodic
+# re-ground recap → the status block. This turns call-and-response into a REPL: the agent
+# acts and, in the same round-trip, SEES what changed and what's now broken — it never
+# operates blind and can never mistake silence for success (SPEC-02; blender-buttons
+# SPEC-16). The block itself is a single-object spotlight; relational defects (penetration,
+# z-fight) can't live there, which is exactly why validate is its own forced channel.
+
+def _focus_label(verb, params, result):
+    """The actor/subject this op acted on — what the forced senses and the block describe."""
+    if verb == "add":
+        return result.get("added")
+    if verb == "transform":
+        return result.get("transformed") or params.get("target")
+    if verb == "select":
+        sel = result.get("selected") or []
+        return sel[-1] if sel else None
+    if verb in SPATIAL:
+        return result.get("label") or params.get("label")
+    return None
+
+
+def _warnings(result):
+    """Pull the dedicated warning channels out of the result (and OFF the json head, so
+    each is surfaced exactly once, ahead of the block where it can't be lost): a no-op
+    that changed nothing, a degraded success, and generic postcondition notes."""
+    out = []
+    for key in ("no_op_warning", "degraded_warning"):
+        w = result.pop(key, None)
+        if w:
+            out.append(w)
+    for n in (result.pop("notes", None) or []):
+        out.append(n)
+    return out
+
+
+def _status_block(verb, params, result):
+    focus = _focus_label(verb, params, result)
+    lines = []
+
+    # 1. warnings channel — ahead of everything, ⚠-marked, never lost.
+    for w in _warnings(result):
+        lines.append("⚠ " + w)
+
+    # 2 & 3. the two forced senses. They run on GEOMETRY/PLACEMENT ops — a `select`
+    # rearranges nothing to validate, and a spatial (terrain/population) edit isn't an
+    # actor the per-actor floor can check, so it says so rather than faking a clean pass.
+    if verb in MUTATING:
+        fd = validatemod.feel_delta(focus)
+        if fd:
+            lines.append(fd)
+        v = validatemod.run_validate([focus] if focus else None)
+        if v.get("line"):
+            lines.append(("" if v.get("passed") else "⚠ ") + v["line"])
+    elif verb in SPATIAL:
+        fd = result.get("feel") or validatemod.feel_delta(focus)
+        if fd:
+            lines.append(fd)
+        lines.append("validate: OFF for this edit — the actor floor checks placed actors "
+                     "(add/transform), not the terrain/population itself; `validate op=run` "
+                     "to sweep placed actors against it")
+    elif verb in STATUS_ONLY:
+        fd = validatemod.feel_delta(focus)
+        if fd:
+            lines.append(fd)
+
+    # 4. periodic re-ground — enough has changed that a stale mental model is a liability.
+    if verb in MUTATING or verb in SPATIAL:
+        rg = validatemod.accrue_drift(verb)
+        if rg:
+            lines.append("── re-ground (significant changes since the last checkpoint) ──")
+            lines.append(f"  scene: {rg['actor_count']} placed actor(s): {rg['actors']}")
+            if rg["declared_holding"]:
+                lines.append(f"  intended contacts holding: {', '.join(rg['declared_holding'])}")
+            if rg["declared_vanished"]:
+                lines.append(f"  ⚠ intended contacts VANISHED: {', '.join(rg['declared_vanished'])}")
+            lines.append("  re-read anything you haven't felt in a while before building on it.")
+
+    # 5. the block itself — a single-object spotlight on the acted-on actor.
+    lines += _block_lines(result, focus)
+    return "\n".join(lines)
+
+
+def _block_lines(result, focus):
     eas = _ue.actor_subsystem()
     sel = eas.get_selected_level_actors()
     sel_labels = [a.get_actor_label() for a in sel]
-    active = sel[-1] if sel else None
-    lines = ["── ue status ───────────────────────────────"]
-    lines.append(f"  level:      {_ue.level_name()}")
-    lines.append(f"  selected:   {sel_labels}")
-    if active is not None:
-        b = _ue.bounds(active)
+    # Bounds always describe the ACTED-ON actor, even if the viewport-active one lags
+    # (blender-buttons G76). Fall back to the viewport-active selection when there's no
+    # name-addressed focus (e.g. a spatial edit whose subject isn't a spotlightable actor).
+    acted = _ue.find_by_label(focus) if focus else None
+    vp_active = sel[-1] if sel else None
+    show = acted or vp_active
+    lines = ["── ue status ───────────────────────────────",
+             f"  level:      {_ue.level_name()}",
+             f"  selected:   {sel_labels}"]
+    if acted is not None and vp_active is not None and \
+            acted.get_actor_label() != vp_active.get_actor_label():
+        lines.append(f"  acted_on:   {acted.get_actor_label()}  ⟵ bounds below are THIS actor")
+        lines.append(f"  vp_active:  {vp_active.get_actor_label()}  (viewport-active lags)")
+    if show is not None:
+        b = _ue.bounds(show)
         sz = [round(v, 1) for v in b["size"]]
         bx = [round(b['min'][0], 1), round(b['max'][0], 1)]
         by = [round(b['min'][1], 1), round(b['max'][1], 1)]
         bz = [round(b['min'][2], 1), round(b['max'][2], 1)]
-        lines.append(f"  active:     {active.get_actor_label()}  dims: {sz} cm  "
-                     f"bounds: x={bx} y={by} z={bz}")
+        label = show.get_actor_label()
+        prefix = "  active:    " if acted is None else "  bounds of: "
+        lines.append(f"{prefix} {label}  dims: {sz} cm")
+        lines.append(f"              bounds: x={bx} y={by} z={bz}")
     else:
         lines.append("  active:     (none)")
-    last = _state.last_op()
-    lines.append(f"  last_action: {last}")
+    lines.append(f"  last_action: {_state.last_op()}")
     lines.append("────────────────────────────────────────────")
-    return "\n".join(lines)
+    return lines
 
 
 # ── verbs ───────────────────────────────────────────────────────────────────
@@ -344,6 +437,18 @@ def _v_scatter(p):
     return scattermod.handle(p)
 
 
+def _v_validate(p):
+    """The correctness floor as a verb (SPEC-02). Read-only / registry-only — it IS
+    perception, so it carries no status block of its own.
+      op="run" (targets, verbose): sweep the whole scene (or targets) — the on-demand,
+        uncapped tier of the always-on floor. Verdict + one finding per line, each w/ its fix.
+      op="expect" (a, b, reason, check=penetration|ground, max_depth): declare a contact
+        INTENDED — the only way to quiet a laden finding. z_fight is intent-free (rejected).
+      op="forget" (a, b, check): retire a declaration (re-arms the finding).
+      op="intended": list the live declared-intent registry."""
+    return validatemod.handle(p)
+
+
 def _map_data(p):
     """Assemble the top-down site map (SPEC-01 E3): a height grid over the terrain extent plus
     every labelled ueb actor, path, and scatter region — enough for the server to render a
@@ -420,4 +525,5 @@ _VERBS = {
     "landscape": _v_landscape,
     "path": _v_path,
     "scatter": _v_scatter,
+    "validate": _v_validate,
 }

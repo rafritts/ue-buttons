@@ -91,6 +91,15 @@ landscapes = {}       # {label: {origin, size, base_height, resolution, features
 paths = {}            # {label: {points:[[x,y,z],...], width, tangents:[[x,y],...]}}
 scatters = {}         # {label: {meshes, region, density, seed, rules, counts}}
 
+# ── SPEC-02 validate floor (lives here so a handler hot-reload never wipes it) ──
+# The declared-intent registry (`validate op=expect`) and the epistemic-drift accumulator
+# behind the periodic re-ground. Both describe THIS level's arrangement; they are correct
+# to survive a runtime edit but should reset on level load — there is no level-load hook
+# yet (gaps.md G16), so for now they die only on editor restart. Auto-GC in validate.py
+# (`_prune_dead_intents`) keeps the registry from accumulating dead subjects.
+intents = []          # [{check, a, b, reason, status, source, max_depth?, depth_at_decl?}]
+drift = [0.0]         # single-cell accumulator (list so it survives `from . import _state`)
+
 
 def cache_dims(path, measured):
     dims_cache[path] = measured

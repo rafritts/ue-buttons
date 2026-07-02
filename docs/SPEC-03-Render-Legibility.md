@@ -7,6 +7,15 @@ UE-specific links added. Written the moment the surface's blindness became unden
 at every checkpoint, spread across the whole terrain — and *nothing* drew. Every data
 probe said "forest." The renderer said "empty." No verb could tell the difference.
 
+Sequencing: **SPEC-02 lands first** (its two-senses scaffold is now implemented +
+live-verified). This spec is a strict extension of it — it adds a `render:` line to
+SPEC-02's status block and reuses SPEC-02's `expect()` suppression grammar, channel
+discipline, and provenance. The one primitive shared in both directions is the
+**renderability-gated read**: SPEC-02 adopts the minimal source-filter (registered +
+not-hidden + resident) so its own traces don't pick a non-renderable support surface
+(blender-buttons G147); SPEC-03 extends that same predicate into the full gating-chain
+verdict and fills SPEC-02's reserved `[N excluded]` slot.
+
 Read first: SPEC-02 (status block + spatial lint — this is its sibling sense). Sister-repo
 ground truth to read before implementing, with the exact code this ports:
 `blender-buttons/extension/common.py:470-571`, `extension/introspect.py:524-713`,

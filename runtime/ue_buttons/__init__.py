@@ -25,10 +25,12 @@ from . import landscape
 from . import map_ref
 from . import path
 from . import scatter
+from . import validate
 from . import verbs
 
 # Reload order matters: dependencies before dependents, and _state is absent by design.
-_RELOADABLE = [_ue, relational, asset, terrain, landscape, map_ref, path, scatter, verbs]
+_RELOADABLE = [_ue, relational, asset, terrain, landscape, map_ref, path, scatter,
+               validate, verbs]
 
 SENTINEL = "UEB>>>"
 

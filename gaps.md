@@ -352,3 +352,25 @@ This is small, not a spec — the design fits here:
 - **Never enters history.** The camera move is perception-side: no `ueb:` transaction,
   not logged, `undoable` untouched. A camera nudge must never shift the shared undo
   stack (G1).
+
+### G18 — validate ground check traces from the sky, so overhead geometry reads as "ground"
+Status: OPEN (found 2026-07-02 live-verifying SPEC-02's validate floor)
+
+`validate._ground_findings` calls `_ue.trace_ground(cx, cy)`, which traces from z=+200000
+straight down and returns the FIRST surface hit at (x,y). That's the topmost thing at that
+column — not necessarily the ground beneath the actor's base. Repro (live): a cube `zf` at
+z=[0,200] with another cube `floater` parked directly above it at z=[550,650] reported
+"zf buried 650.0cm (ground z=650.0)" — the trace hit the floater's top, not the floor.
+
+Consequence: the FLOAT case (base above the surface below it) is correct — that's the
+dogfood failure mode (floating trees) and it works. But the BURIED case is fooled by any
+actor stacked overhead, and "ground z" can be a neighbour's roof rather than terrain.
+
+Fix options: (1) trace from just above the actor's base downward (`top = base_z + ε`) to
+find the nearest support surface BENEATH — correct for float, but then buried (base below
+the terrain surface, which is *above* the base) needs a second upward probe or a
+terrain-specific query; (2) restrict the ground trace to substrate collision (the
+`landscape`/terrain mesh) so neighbour actors can't answer it — cleaner, needs a
+collision-channel or actor-filter on `SceneTools._trace_world`. Ties into SPEC-03's
+renderability-gated read: the support-surface pick should also skip non-renderable actors
+(blender-buttons G147).

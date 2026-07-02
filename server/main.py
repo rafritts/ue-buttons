@@ -308,6 +308,35 @@ def history(op: str = "list", id: str = None) -> str:
     return render(call_ue("history", {"op": op, "id": id}))
 
 
+@mcp.tool()
+def validate(op: str = "run", targets: str = None, a: str = None, b: str = None,
+             reason: str = None, check: str = "penetration", max_depth: float = None,
+             verbose: bool = False) -> str:
+    """The always-on correctness floor — the second forced sense (SPEC-02).
+
+    A spatial-lint floor runs AUTOMATICALLY on the touched delta after every add/transform
+    and reports by exception on the status block; this verb is its on-demand + declaration
+    surface. Three checks: ground (float/bury vs a trace), penetration (AABB depth), and
+    z_fight (coplanar overlapping faces). Every finding carries its fix.
+
+    op="run" (targets, verbose):  sweep the whole scene, or a comma-separated `targets`
+        list. verbose lists every finding uncapped. Run before screenshots / at milestones.
+    op="expect" (a, b, reason, check, max_depth):  declare a contact INTENDED — the only
+        way to quiet a laden finding (there is no "ignore"). reason is required — a
+        falsifiable design claim. check=penetration (a↔b) | ground (a↔"ground"). max_depth
+        (cm) bounds a blessed penetration so a deeper one still surfaces. a/b may name an
+        actor TAG to bless a whole scatter class at once. z_fight is intent-free (rejected).
+    op="forget" (a, b, check):  retire a declaration (re-arms the finding).
+    op="intended":  list the live declared-intent registry.
+    """
+    p = {"op": op, "check": check, "verbose": verbose}
+    for k, v in (("targets", targets), ("a", a), ("b", b), ("reason", reason),
+                 ("max_depth", max_depth)):
+        if v is not None:
+            p[k] = v
+    return render(call_ue("validate", p))
+
+
 @mcp.resource("guidance://llms")
 def guidance_for_llms() -> str:
     """GUIDANCE_FOR_LLMS.md — battle-tested loops and failure modes, served verbatim.
