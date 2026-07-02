@@ -124,6 +124,25 @@ def pivot_to_center_delta(actor):
     return [c[0] - loc.x, c[1] - loc.y, c[2] - loc.z]
 
 
+def _ignore_list(ignore):
+    """Normalize the `ignore` arg (None | actor | iterable-of-actors) → a clean list."""
+    if ignore is None:
+        return []
+    if isinstance(ignore, (list, tuple, set)):
+        return [a for a in ignore if a is not None]
+    return [ignore]
+
+
+def trace_hit(start, end, ignore=None):
+    """Physics-aware world ray trace start→end (both [x,y,z] cm), returning the hit point
+    as an `unreal.Vector` or None. Same EditorToolset backend as `trace_ground` (hits WP
+    landscape proxies; raw KismetSystemLibrary line traces don't). `ignore` excludes actors
+    — pass the target to test what's BETWEEN the camera and it (SPEC-03 occlusion)."""
+    from editor_toolset.toolsets.scene import SceneTools
+    return SceneTools._trace_world(editor_world(), unreal.Vector(*start),
+                                   unreal.Vector(*end), _ignore_list(ignore))
+
+
 def trace_ground(x, y, ignore=None, top=200000.0, bottom=-200000.0):
     """World z of the ground directly under (x, y), or None if nothing is beneath the ray.
 
@@ -133,15 +152,7 @@ def trace_ground(x, y, ignore=None, top=200000.0, bottom=-200000.0):
     proxies). `ignore` is a single actor OR an iterable of actors excluded from the trace
     — so a caller can hit the SUBSTRATE beneath by ignoring every placed actor (gaps.md
     G18), not just skip self."""
-    from editor_toolset.toolsets.scene import SceneTools
-    if ignore is None:
-        ignore_list = []
-    elif isinstance(ignore, (list, tuple, set)):
-        ignore_list = [a for a in ignore if a is not None]
-    else:
-        ignore_list = [ignore]
-    hit = SceneTools._trace_world(
-        editor_world(), unreal.Vector(x, y, top), unreal.Vector(x, y, bottom), ignore_list)
+    hit = trace_hit((x, y, top), (x, y, bottom), ignore)
     return None if hit is None else hit.z
 
 

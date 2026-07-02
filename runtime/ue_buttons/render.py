@@ -37,6 +37,8 @@ Everything here was probed live against UE 5.8 before being coded (derived, not 
 `get_editor_property`, `get_num_materials` / `get_material(i)`, StaticMesh
 `get_num_triangles(0)` / `get_num_lods()` / `nanite_settings.enabled`.
 """
+import math
+
 import unreal
 
 from . import _ue
@@ -300,3 +302,138 @@ def population_line(label):
     if st.get("draws"):
         return f"render: DRAWS — population '{label}' {st['instances']} instances / {st['components']} comps"
     return "⚠ render: " + f"population '{label}' — {st['verdict']}"
+
+
+# ── link 8: computed visibility — the camera family (SPEC-03 §computed visibility) ──
+# blender-buttons computes framing / occlusion / size entirely from matrix math + raycasts
+# over the evaluated geometry — NEVER a screenshot (world_to_camera_view, common.py:545;
+# _occlusion_fraction, introspect.py:524). Ported: project the world AABB through the editor
+# perspective viewport camera to answer "is it framed, is it big enough, is it actually
+# seen" as numbers. This distinguishes, without a frame, the four cases the surface couldn't
+# tell apart in Level 1: sub-pixel vs off-frustum vs occluded vs genuinely absent.
+#
+# Provenance (SPEC-20 / G22/G36): a coverage % is meaningless without its reference — it
+# shifts silently with resolution/FOV — so every framing number states the viewport it was
+# projected against (resolution + FOV) and reads the ACTUAL editor viewport camera. UE's
+# editor perspective viewport FOV is not queryable via the Python subsystems, so it defaults
+# to the editor's 90° and is OVERRIDABLE + always stamped, never hidden.
+
+EDITOR_FOV_DEG = 90.0   # UE editor perspective viewport default (horizontal); stamped in provenance
+
+
+def _camera(hfov_deg=EDITOR_FOV_DEG):
+    """The live editor perspective-viewport camera — the render's own ground truth (G36).
+    Returns (loc, fwd, rgt, up, (w,h), hfov_deg)."""
+    ues = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem)
+    loc, rot = ues.get_level_viewport_camera_info()
+    vp = ues.get_level_viewport_size()
+    w, h = (vp.x or 1920), (vp.y or 1080)
+    return (loc, rot.get_forward_vector(), rot.get_right_vector(), rot.get_up_vector(),
+            (w, h), hfov_deg)
+
+
+def _corner_pts(b):
+    """The 8 world-space AABB corners as [x,y,z]."""
+    xs = (b["min"][0], b["max"][0]); ys = (b["min"][1], b["max"][1]); zs = (b["min"][2], b["max"][2])
+    return [[x, y, z] for x in xs for y in ys for z in zs]
+
+
+def _provenance(cam):
+    loc, fwd, _, _, (w, h), hfov = cam
+    return {"camera": [round(loc.x, 1), round(loc.y, 1), round(loc.z, 1)],
+            "resolution": [w, h], "fov_h_deg": hfov,
+            "basis": "editor perspective viewport (get_level_viewport_camera_info); FOV is "
+                     "the editor default unless overridden — every coverage % is relative to it"}
+
+
+def framing(target, hfov_deg=EDITOR_FOV_DEG):
+    """Project a target's world AABB through the editor viewport camera → screen coverage,
+    clipping, and behind-camera, all as numbers (blender-buttons camera_coverage). frac_w/
+    frac_h are the 'too small to see' and 'is it framed' figures; est_px_* is the sub-pixel
+    tell. Never renders a frame."""
+    a = _ue.find_by_label(target)
+    if a is None:
+        return {"error": f"no actor labelled '{target}'"}
+    b = _ue.bounds(a)
+    if b["size"] == [0, 0, 0]:
+        return {"error": f"'{target}' has zero extent — nothing to frame"}
+    cam = _camera(hfov_deg)
+    loc, fwd, rgt, up, (w, h), hfov = cam
+    aspect = w / float(h)
+    th = math.tan(math.radians(hfov) / 2.0)
+    tv = th / aspect
+    us, vs, depths = [], [], []
+    for p in _corner_pts(b):
+        vx, vy, vz = p[0] - loc.x, p[1] - loc.y, p[2] - loc.z
+        depth = vx * fwd.x + vy * fwd.y + vz * fwd.z
+        depths.append(depth)
+        if depth > 1e-3:
+            rx = vx * rgt.x + vy * rgt.y + vz * rgt.z
+            uy = vx * up.x + vy * up.y + vz * up.z
+            us.append(((rx / depth) / th + 1) / 2.0)      # frame fraction, 0=left 1=right
+            vs.append((1 - (uy / depth) / tv) / 2.0)      # 0=top 1=bottom
+    in_front = any(d > 0 for d in depths)
+    if not us:      # every corner behind the camera
+        return {"target": target, "in_front": False, "on_frame": False,
+                "verdict": "OFF-FRAME — entirely behind the camera → orbit/point the view at it",
+                "provenance": _provenance(cam)}
+    umin, umax, vmin, vmax = min(us), max(us), min(vs), max(vs)
+    frac_w, frac_h = round(umax - umin, 4), round(vmax - vmin, 4)
+    est_px_w, est_px_h = round(frac_w * w, 1), round(frac_h * h, 1)
+    clipped = [e for e, cond in (("left", umin < 0), ("right", umax > 1),
+                                 ("top", vmin < 0), ("bottom", vmax > 1)) if cond]
+    on_frame = umax > 0 and umin < 1 and vmax > 0 and vmin < 1
+    partly_behind = any(d <= 0 for d in depths)
+    if not on_frame:
+        verdict = "OFF-FRAME — projects outside the viewport → recentre the camera"
+    elif est_px_w < 1 or est_px_h < 1:
+        verdict = f"SUB-PIXEL — ~{est_px_w}×{est_px_h}px, too small to see → move closer or scale up"
+    elif clipped:
+        verdict = f"CLIPPED on {'/'.join(clipped)} — spills past the frame edge"
+    else:
+        verdict = "FRAMED"
+    return {"target": target, "in_front": in_front, "on_frame": on_frame,
+            "frac_w": frac_w, "frac_h": frac_h, "est_px": [est_px_w, est_px_h],
+            "clipped": clipped, "partly_behind_camera": partly_behind,
+            "verdict": verdict, "provenance": _provenance(cam)}
+
+
+def visible(target, hfov_deg=EDITOR_FOV_DEG):
+    """Is the target actually SEEN from the viewport, or hidden behind other geometry — a
+    raycast question, not a render (blender-buttons _occlusion_fraction). Traces from the
+    camera to sampled points on the target's AABB, ignoring the target itself; a hit on
+    OTHER geometry nearer than the point = occluded. Composes with framing: off-frame or
+    sub-pixel is reported first (occlusion of an unframed thing is moot)."""
+    fr = framing(target, hfov_deg)
+    if "error" in fr:
+        return fr
+    a = _ue.find_by_label(target)
+    b = _ue.bounds(a)
+    cam = _camera(hfov_deg)
+    loc = cam[0]
+    start = (loc.x, loc.y, loc.z)
+    pts = [b["center"]] + _corner_pts(b)
+    occluded, total, behind = 0, 0, 0
+    for p in pts:
+        dpt = math.dist(start, p)
+        if dpt < 1.0:
+            continue
+        total += 1
+        hit = _ue.trace_hit(start, p, ignore=[a])
+        if hit is not None:
+            dhit = math.dist(start, (hit.x, hit.y, hit.z))
+            if dhit < dpt - 5.0:        # other geometry in the way (5cm noise floor)
+                occluded += 1
+    frac = round(occluded / total, 3) if total else 1.0
+    seen = fr["on_frame"] and frac < 1.0
+    if not fr["on_frame"]:
+        verdict = "NOT SEEN — " + fr["verdict"]
+    elif frac >= 1.0:
+        verdict = "NOT SEEN — fully occluded behind other geometry"
+    elif frac > 0:
+        verdict = f"PARTLY SEEN — {int(frac*100)}% of sampled points occluded"
+    else:
+        verdict = "SEEN — clear line of sight from the viewport"
+    return {"target": target, "seen": seen, "occluded_fraction": frac,
+            "samples": total, "framing": fr["verdict"], "verdict": verdict,
+            "provenance": _provenance(cam)}

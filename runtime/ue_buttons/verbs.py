@@ -398,8 +398,15 @@ def _v_view(p):
     """Camera by orbit + screenshot, or the top-down site map.
     action="map" (default "orbit"): return map data (height grid + labelled actor markers +
     paths + scatter regions) for the server to render — the grounding for absolute [x,y]."""
-    if p.get("action") == "map":
+    action = p.get("action")
+    if action == "map":
         return _map_data(p)
+    # SPEC-03 computed visibility (link 8): framing/occlusion as NUMBERS off the editor
+    # viewport camera — never a screenshot. Read-only, like the rest of view.
+    if action == "framing":
+        return rendermod.framing(p.get("target"), p.get("fov", rendermod.EDITOR_FOV_DEG))
+    if action == "visible":
+        return rendermod.visible(p.get("target"), p.get("fov", rendermod.EDITOR_FOV_DEG))
     import math
     target = p.get("target", [0, 0, 0])
     if isinstance(target, str):

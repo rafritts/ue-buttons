@@ -121,14 +121,25 @@ def feel(op: str, target: str = None, a: str = None, b: str = None,
 @mcp.tool()
 def view(action: str = "orbit", target: str = None, azimuth: float = 45.0,
          elevation: float = 25.0, distance: float = 500.0, shot: bool = False,
-         width: int = 1280, height: int = 720, label: str = "terrain"):
-    """Orbit the editor camera + screenshot, OR render the top-down site map.
+         width: int = 1280, height: int = 720, label: str = "terrain",
+         fov: float = 90.0):
+    """Orbit the editor camera + screenshot, OR the top-down site map, OR computed
+    visibility (framing/occlusion as NUMBERS — never read a render back).
 
     action="map" (label): a labelled top-down site plan of the terrain — shaded height, a
       coordinate grid every 20 m (axis labels in map cm), and markers for every ueb actor,
       path, and scatter region. North=+X (up), east=+Y (right), matching UE yaw. This is the
       grounding for absolute [x,y]: read waypoints/feature centres OFF the map (derived, not
       divined). Rendered server-side (no async-screenshot dependency).
+
+    action="framing" (target, fov): SPEC-03 — project the target's world AABB through the
+      editor viewport camera → frac_w/frac_h (screen coverage), est_px (the sub-pixel tell),
+      clipped edges, in_front, and a FRAMED / SUB-PIXEL / CLIPPED / OFF-FRAME verdict. Every
+      number is stamped with its frame reference (resolution + FOV) — coverage is meaningless
+      without it. Answers "is it framed, is it big enough" without rendering a frame.
+    action="visible" (target, fov): is the target actually SEEN or hidden behind other
+      geometry — raycasts from the camera to the target (occluded_fraction + verdict), not a
+      screenshot. Together these tell sub-pixel vs off-frustum vs occluded vs absent apart.
 
     action="orbit" (default):
       target:    actor label or [x,y,z] world point (default origin)
@@ -138,6 +149,8 @@ def view(action: str = "orbit", target: str = None, azimuth: float = 45.0,
       shot:      capture a screenshot (async; polled on the NTFS share — needs the editor
                  window foregrounded, gaps.md G8)
     """
+    if action in ("framing", "visible"):
+        return render(call_ue("view", {"action": action, "target": target, "fov": fov}))
     if action == "map":
         import os
         from server import mapview

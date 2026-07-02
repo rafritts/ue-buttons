@@ -1,7 +1,7 @@
 # SPEC-03 — Render legibility: the third sense
 
-Status: **spine implemented + live-verified 2026-07-02** (see "Implementation status"
-below); the camera family, scene streaming, and state reconciliation are the next
+Status: **spine + camera family implemented + live-verified 2026-07-02** (see
+"Implementation status" below); scene streaming and state reconciliation are the next
 increments. Rewritten after studying how blender-buttons solves the same problem — because
 it already does, maturely, and this spec is mostly a port with UE-specific links added. Written the moment the surface's blindness became undeniable: a
 `scatter` reported 6,236 instances — mesh assigned, `visible=true`, `inst_z == ground_z`
@@ -271,6 +271,17 @@ probed live before coding (derived, not divined).
 - **Population path** (`population_state`/`population_line`) — scatter foliage walked by
   tag for instance-count + visibility (the motivating "6,236 reported, nothing drew"
   case). Built on foliage-component APIs already proven in `scatter.py`.
+- **The camera family (link 8) — `view framing` / `view visible`.** Projects the world AABB
+  through the LIVE editor viewport camera in pure Python (no PlayerController, no frame):
+  `framing` returns frac_w/frac_h + est_px (the sub-pixel tell) + clipped edges + a FRAMED /
+  SUB-PIXEL / CLIPPED / OFF-FRAME verdict; `visible` raycasts camera→target for
+  occluded_fraction. Every number stamped with its frame reference (resolution + FOV) —
+  `project_world_to_screen` needs a PlayerController absent outside PIE, so matrix
+  projection off `get_level_viewport_camera_info` is both the robust path AND the honest
+  provenance basis (editor FOV isn't queryable → defaults to 90°, overridable, always
+  stamped). Verified live: FRAMED, SUB-PIXEL (~0.6px), OFF-FRAME (behind camera),
+  fully-OCCLUDED (wall between camera and target). Together these tell the four Level-1
+  cases apart as numbers: sub-pixel vs off-frustum vs occluded vs genuinely absent.
 
 **Deliberately deferred (honest gaps, NAMED on the line — see render.py header):**
 
@@ -280,9 +291,9 @@ probed live before coding (derived, not divined).
   streaming/residency additions (§"scene gains streaming/residency") ride on this.
 - **link 2 Registered** — no Python binding (`is_registered`/`is_render_state_created`
   absent); the scatter path already forces registration via the foliage subsystem (G14).
-- **link 8 On-screen size + the camera family** (framing / occlusion / visible-surface,
-  provenance) — `project_world_to_screen` is present; this is the next increment, folded
-  into `view` (`view framing` / `view visible`).
+- **link 8 visible front-facing surface (the G131 subtlety)** — `visible` samples whole-AABB
+  points; the normal-toward-camera refinement (a valley floor seen through a canopy gap
+  shouldn't read as hidden) is a later polish. The framing/occlusion core has landed.
 - **State reconciliation** (clean/dirty/orphaned, closes G16) — shares SPEC-02's
   registry-lifetime gap; a later pass.
 
