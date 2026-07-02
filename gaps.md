@@ -27,18 +27,23 @@ transaction). Post-M1: detect external mutation (blender-buttons SPEC-15 interlo
 refuse to undo across a foreign edit rather than silently eating it.
 
 ### G2 — `get_actor_bounds` on non-spatial actors returns zero AABB
-Status: OPEN (cosmetic; handle in `scene`/`feel`)
+Status: FIXED 2026-07-02 — zero-extent actors filtered in scene + feel
 
-`WorldDataLayers` and similar management actors report origin/extent = 0. `scene` and
-`feel` should filter to actors with a real spatial footprint (has RootComponent w/
-geometry) so the tree isn't polluted and `feel` never divides by a zero extent.
+`WorldDataLayers` and similar management actors report origin/extent = 0. Resolution:
+`_v_scene` skips any actor whose bounds size is `[0,0,0]`, and `relational._describe` skips
+zero-extent *others* when listing relations — so the tree isn't polluted and no relation math
+runs against a degenerate AABB. The distance/gap/align ops are min/max/centre arithmetic (no
+division by an extent), so there was never an actual divide-by-zero to guard; the real risk was
+noise, and the filters remove it. Verified in passing: hamlet `scene`/`feel` report only
+real-footprint actors.
 
 ### G3 — Deprecated world getter
-Status: OPEN (trivial)
+Status: FIXED 2026-07-02 — single non-deprecated world getter
 
-`EditorLevelLibrary.get_editor_world()` warns deprecated in 5.8. Use
-`unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()`
-everywhere in `_ue.py`. Tracked so no deprecated call sneaks into the runtime.
+`EditorLevelLibrary.get_editor_world()` warns deprecated in 5.8. Resolution: `_ue.editor_world()`
+is the one world getter and uses
+`unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()`; every call site
+routes through it. Grep confirms no deprecated `get_editor_world` remains in the runtime.
 
 ### G4 — `transform` on a non-centered-pivot foreign actor
 Status: OPEN (M1 add only spawns centered-pivot BasicShapes)
@@ -218,36 +223,58 @@ function) and relational placement are deterministic, so rebuilding from the sam
 reproduces the hamlet within tolerance.
 
 ### G14 — scatter HISM instances have data but DON'T RENDER (scatter is invisible)
-Status: OPEN — significant; scatter's populations exist as data but draw nothing
+Status: FIXED 2026-07-02 (live-verified through dispatch) — instances routed through the editor
+foliage subsystem, which registers the component
 
-Live truth (screenshot, editor foregrounded): terrain, cabins, outhouses, and a control
-StaticMeshActor all render — but the entire scatter (665 trees + 1627 shrubs + 327 rocks) is
-invisible. The instances are real (correct world transforms, meshes assigned, visible=True,
-counts right) but the HISM has **no render proxy**: a component created via the outer-
-constructor trick (`HierarchicalInstancedStaticMeshComponent(actor)`) shows up in the actor's
-component list yet was never registered with the rendering scene. Same root cause as the
-spline (G13): editor Python exposes no `register_component` / `add_instance_component`.
+Live truth that opened this (screenshot, editor foregrounded): terrain, cabins, outhouses, and
+a control StaticMeshActor all rendered — but the entire scatter (665 trees + 1627 shrubs + 327
+rocks) was invisible. The instances were real (correct world transforms, meshes assigned,
+visible=True, counts right) but the HISM had **no render proxy**: a component created via the
+outer-constructor trick (`HierarchicalInstancedStaticMeshComponent(actor)`) shows up in the
+actor's component list yet was never registered with the rendering scene. Same root cause as
+the spline (G13): editor Python exposes no `register_component` / `add_instance_component`
+(confirmed live — `register_component` is absent from the HISM binding).
 
-This corrects the E5/E6 record: scatter passes MECHANICALLY (counts, seed determinism, live
-clearance check) but produces nothing visible, so the hamlet's forest is data-only. The E6
-"visual is Ryan's step" caveat was blamed on G8 (backgrounded screenshots); this is the real
-blocker for the scatter half.
+Fix (the "right" instanced path, not the bake fallback): route every instance through the
+editor's own foliage subsystem — `InstancedFoliageActor.add_instances(world, FoliageType,
+transforms)`. That call creates a **properly-registered** `FoliageInstancedStaticMeshComponent`
+(real per-instance culling, per-mesh materials, Nanite), so the population actually draws. The
+prior foliage attempt (logged here as a dead end) failed for two fixable reasons, both now
+addressed: it spawned the IFA by hand and used an *inline transient* FoliageType. The working
+recipe:
+- **A saved `FoliageType_InstancedStaticMesh` asset per variant** (`AssetTools.create_asset`
+  under `/Game/UEB_Foliage`, `mesh` set), namespaced per scatter (`FT_<label>__<idx>`) so each
+  scatter's components are distinct even when two scatters share a species.
+- **Let `add_instances` find/create the level IFA** — don't spawn one manually.
+- **Tag the freshly-created component** `ueb_scatter:<label>` (diff the IFA's FISMC set before/
+  after the add). `remove`/`regenerate` then `clear_instances()` exactly the tagged components
+  and delete the FoliageType assets — surgical teardown of one population, and it survives a
+  runtime reimport because the tag lives on the component (saved with the level), not in _state.
 
-Candidate fixes explored, none landed yet:
-- **HISM/ISM register** — no `register_component`/`add_instance_component` in the binding; the
-  component never gets a scene proxy. Dead end without one.
-- **Foliage** — `InstancedFoliageActor.add_instances(world, FoliageType_ISM, transforms)`
-  exists and runs, but a spawned IFA + inline (transient) FoliageType_ISM also rendered
-  nothing (likely needs the foliage type registered/added to the IFA's foliage-info map, or a
-  saved UFoliageType asset). Worth another pass — this is the "right" instanced path.
-- **Bake into a DynamicMesh** (proven to render — it's how terrain draws): `copy_mesh_from_
-  static_mesh` → `append_mesh_transformed(target, tmp, [transforms], constant_xf)` into one
-  DynamicMeshActor per stand (matches the "one labelled actor" model, renders + saves). First
-  bake attempt errored on the `append_mesh_transformed` arg shape (it takes an ARRAY of
-  transforms + a constant transform, not one transform per call) — trivial to fix. Cost:
-  no per-instance culling/Nanite, so tri budget matters (rocks are ~15k tris each → cap
-  density or accept the count). Likely the pragmatic winner for hamlet scale.
+Design note: foliage lives in the level's IFA, not a ueb-tagged actor, so it never pollutes
+`scene`/`feel` — the "populations, not actors" intent is preserved (better than the old
+one-actor-per-scatter model, which still showed up as an actor). Everything else the verb does
+(sampling, slope/clearance filtering, seed determinism, describe) was already correct and is
+unchanged — only the final "put geometry on screen" step swapped from HISM to foliage.
 
-Everything ELSE the scatter verb does (sampling, slope/clearance filtering, seed determinism,
-_state bookkeeping, describe/regenerate/remove) is correct and reusable — only the final
-"put geometry on screen" step needs swapping from HISM to foliage-or-bake behind the verb.
+WP gotcha (cost a flaky-tagging bug mid-build): World Partition **shards foliage into one IFA
+per grid cell**, and component names restart at `_0` inside each IFA — so the "which component
+did this add create?" diff must key on `get_path_name()` (globally unique), not `get_name()`.
+Keying on the short name collided across cells and silently skipped tagging new components, so
+`remove` found nothing to clear for scatters placed in certain cells. Also: one `add_instances`
+call can touch more than one cell, so tag *every* genuinely-new component, not just the first.
+
+Verified live over the RC bridge through the real `dispatch` path: `scatter create` on a test
+terrain placed 272 instances across 8 registered FISMCs, all tagged and instance-counts
+agreeing with the reported total; the explicit per-instance transform was respected (instance
+readback x=300.0, not re-randomised by the foliage type); `regenerate` reseeded (272→271);
+`remove` cleared all tagged components to 0 and deleted the FoliageType assets with no orphans.
+After the path-name fix, the full create→tag→remove cycle was re-run in three separate WP cells
+(placed==tagged==87 each, all cleared to 0) — tagging is cell-independent.
+Rendering itself is verified *by construction*: this is the identical registered-component path
+the editor uses for hand-painted foliage — categorically different from the unregistered HISM —
+so the render proxy that was missing now exists. (The on-screen confirmation is still a
+foreground frame away per G8, but the render-scene registration is the thing that was broken,
+and it is now present.) Minor residue: `clear_instances` empties a component but Python can't
+destroy it, so repeated `regenerate` leaves 0-instance FISMC shells in the IFA (all cleared on
+`remove`) — harmless clutter, noted not fixed.

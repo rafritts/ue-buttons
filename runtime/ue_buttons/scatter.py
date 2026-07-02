@@ -2,8 +2,20 @@
 
 A forest is a population with rules, not thousands of placement decisions. The agent declares
 the rules; a seeded PRNG makes it reproducible; clearances protect the intent already placed.
-One actor holds one HierarchicalInstancedStaticMeshComponent per mesh variant — the whole
-population is a single labelled actor (never thousands, which would poison scene/undo).
+The whole population is instanced foliage — never thousands of actors (which would poison
+scene/undo).
+
+Rendering (G14): the first cut built one `HierarchicalInstancedStaticMeshComponent` per
+variant via the outer-constructor trick — the instance data was correct but NOTHING RENDERED,
+because editor Python can't register a hand-constructed component with the render scene (no
+`register_component`). The fix routes instances through the editor's own foliage subsystem:
+`InstancedFoliageActor.add_instances(world, FoliageType, transforms)`. That path creates a
+properly-registered `FoliageInstancedStaticMeshComponent` (real culling, per-mesh materials,
+Nanite) — so the population actually draws. Each scatter gets its own namespaced
+`FoliageType_InstancedStaticMesh` assets (under `/Game/UEB_Foliage`) so its components are
+distinct; those components are tagged `ueb_scatter:<label>` so `remove`/`regenerate` can clear
+exactly this population and nothing else. Foliage lives in the level's IFA, not a ueb actor,
+so it never pollutes `scene`/`feel` — the "populations, not actors" intent survives the swap.
 
 No numpy: sampling is a seeded jittered grid in pure Python; ground z + slope come from world
 traces so instances conform to the real terrain. Spatial verb — status block, not history-
@@ -18,6 +30,9 @@ from . import _state
 from . import _ue
 from . import terrain as terrain_mod
 from . import asset
+
+_FOLIAGE_DIR = "/Game/UEB_Foliage"     # where per-scatter FoliageType assets live
+_SCATTER_TAG = "ueb_scatter:"          # component-tag prefix: identifies a scatter's foliage
 
 
 def handle(p):
@@ -76,12 +91,13 @@ def _build_clearances(p):
         half = pdata.get("width", 300.0) / 2.0 + margin
         tests.append(("path:" + lbl, _near_polyline_test(poly, half)))
 
-    # existing buildings/actors — reject within footprint + margin
-    own_scatter_actors = {v.get("actor_label") for v in _state.scatters.values()}
+    # existing buildings/actors — reject within footprint + margin. Scatter populations are
+    # foliage (in the level IFA, not ueb actors), so they never appear here — only real
+    # placed geometry does; terrains are excluded (you scatter ONTO them, not around them).
     terrains = set(_state.landscapes.keys())
     for a in _ue.ueb_actors():
         lbl = a.get_actor_label()
-        if lbl in terrains or lbl in own_scatter_actors:
+        if lbl in terrains:
             continue
         b = _ue.bounds(a)
         if b["size"] == [0, 0, 0]:
@@ -172,6 +188,65 @@ def _sample_points(region, spacing, rng):
     return pts
 
 
+# ── foliage backend (G14: registered instances that actually render) ──────────────
+def _sanitize(s):
+    return "".join(ch if ch.isalnum() else "_" for ch in s)
+
+
+def _ifa_fismcs():
+    """Every foliage instanced-mesh component across the level's InstancedFoliageActors."""
+    out = []
+    for a in _ue.all_actors():
+        if isinstance(a, unreal.InstancedFoliageActor):
+            out.extend(a.get_components_by_class(unreal.InstancedStaticMeshComponent))
+    return out
+
+
+def _clear_tagged(tag):
+    """Empty every foliage component carrying `tag` (Python can't destroy the component, but a
+    cleared FISMC has zero instances → nothing drawn). Returns how many were cleared."""
+    cleared = 0
+    for c in _ifa_fismcs():
+        if tag in [str(t) for t in c.get_editor_property("component_tags")]:
+            c.clear_instances()
+            cleared += 1
+    return cleared
+
+
+def _foliage_type_for(label, idx, mesh_path):
+    """A per-scatter FoliageType_InstancedStaticMesh asset (namespaced by label+variant) with
+    its mesh set. Recreated fresh each build so it never carries stale settings/instances."""
+    name = f"FT_{_sanitize(label)}__{idx}"
+    full = f"{_FOLIAGE_DIR}/{name}"
+    if unreal.EditorAssetLibrary.does_asset_exist(full):
+        unreal.EditorAssetLibrary.delete_asset(full)
+    atools = unreal.AssetToolsHelpers.get_asset_tools()
+    ft = atools.create_asset(name, _FOLIAGE_DIR, unreal.FoliageType_InstancedStaticMesh,
+                             unreal.FoliageType_InstancedStaticMeshFactory())
+    ft.set_editor_property("mesh", unreal.EditorAssetLibrary.load_asset(mesh_path))
+    return ft, full
+
+
+def _add_tagged(world, ft, transforms, tag):
+    """Add instances through the foliage subsystem (which registers the component so it draws)
+    and tag the freshly-created component(s) so `remove` can find exactly this scatter's foliage.
+
+    Diff on `get_path_name()`, NOT `get_name()`: World Partition shards foliage into one
+    InstancedFoliageActor per grid cell, and component names restart at _0 inside each IFA — so
+    a plain-name before/after diff collides across cells and silently skips (fails to tag) new
+    components. The path name is globally unique. A single add may also touch more than one cell,
+    so tag every genuinely-new component, not just the first."""
+    before = {c.get_path_name() for c in _ifa_fismcs()}
+    unreal.InstancedFoliageActor.add_instances(world, ft, transforms)
+    for c in _ifa_fismcs():
+        if c.get_path_name() in before:
+            continue
+        existing = [str(t) for t in c.get_editor_property("component_tags")]
+        if tag not in existing:
+            c.set_editor_property("component_tags",
+                                  [unreal.Name(tag)] + [unreal.Name(t) for t in existing])
+
+
 # ── create ───────────────────────────────────────────────────────────────────────
 def _spacing_for(region, density, rules):
     if rules.get("min_spacing_cm"):
@@ -183,8 +258,11 @@ def _spacing_for(region, density, rules):
 
 def _create(p):
     label = p.get("label", "scatter")
-    if label in _state.scatters or _ue.find_by_label(label) is not None:
-        return {"error": f"scatter '{label}' already exists"}
+    tag = _SCATTER_TAG + label
+    live = any(tag in [str(t) for t in c.get_editor_property("component_tags")]
+               and c.get_instance_count() > 0 for c in _ifa_fismcs())
+    if label in _state.scatters or live:
+        return {"error": f"scatter '{label}' already exists (remove it first)"}
     region = p.get("region")
     if not region:
         return {"error": "scatter requires region={kind:circle|rect|polygon|landscape, ...}"}
@@ -217,18 +295,7 @@ def _generate(label, region, meshes, seed, rules, p):
     jit = rules.get("scale_jitter", [1.0, 1.0])
     yaw_random = rules.get("yaw_random", True)
 
-    # one HISM per variant across all families
-    actor = _ue.actor_subsystem().spawn_actor_from_class(
-        unreal.Actor, unreal.Vector(0, 0, 0))
-    actor.set_actor_label(label)
-    actor.tags = [unreal.Name(_ue.UEB_TAG)]
     variant_paths = [v for m in meshes for v in m["variants"]]
-    hisms = {}
-    for vp in variant_paths:
-        h = unreal.HierarchicalInstancedStaticMeshComponent(actor)
-        mesh = unreal.EditorAssetLibrary.load_asset(vp)
-        h.set_static_mesh(mesh)
-        hisms[vp] = h
 
     # weighted family picker
     fam_weights = [(m, m["weight"]) for m in meshes]
@@ -236,6 +303,7 @@ def _generate(label, region, meshes, seed, rules, p):
 
     placed = 0
     per_variant = {}
+    variant_transforms = {vp: [] for vp in variant_paths}   # foliage adds per variant in a batch
     rejected = {"region": 0, "slope": 0, "clear": 0, "no_ground": 0}
     for (x, y) in candidates:
         blocked = False
@@ -269,22 +337,39 @@ def _generate(label, region, meshes, seed, rules, p):
         t.set_editor_property("rotation",
                               unreal.Rotator(pitch=pitch, yaw=yaw, roll=roll).quaternion())
         t.set_editor_property("scale3d", unreal.Vector(s, s, s))
-        hisms[vp].add_instance(t, True)
+        variant_transforms[vp].append(t)
         per_variant[vp] = per_variant.get(vp, 0) + 1
         placed += 1
 
+    # Commit the population as registered foliage — one FoliageType asset + one component per
+    # variant that actually got instances. This is the step HISM couldn't do: draw (G14).
+    world = _ue.editor_world()
+    tag = _SCATTER_TAG + label
+    _clear_tagged(tag)                                   # drop any orphaned empties for this label
+    ft_paths = []
+    for idx, vp in enumerate(variant_paths):
+        tlist = variant_transforms.get(vp)
+        if not tlist:
+            continue
+        ft, full = _foliage_type_for(label, idx, vp)
+        ft_paths.append(full)
+        _add_tagged(world, ft, tlist, tag)
+
     _state.scatters[label] = {
-        "actor_label": label, "region": region,
+        "region": region,
         "meshes": [m["family"] for m in meshes],
         "seed": seed, "rules": rules, "count": placed,
         "per_family": _fold_families(per_variant, meshes),
         "density_per_100m2": p.get("density_per_100m2"),
         "terrain": p.get("terrain", "terrain"),
         "meshes_spec": p.get("meshes", []),
+        "foliage_types": ft_paths,
     }
     return {"scattered": label, "instances": placed, "species": len(meshes),
             "per_family": _state.scatters[label]["per_family"],
-            "seed": seed, "rejected": rejected, "undoable": False}
+            "seed": seed, "rejected": rejected, "foliage_types": len(ft_paths),
+            "undoable": False,
+            "note": "instanced foliage (registered) — renders in the viewport"}
 
 
 def _fold_families(per_variant, meshes):
@@ -323,11 +408,26 @@ def _regenerate(p):
 
 
 def _remove(p):
+    """Clear exactly this scatter's foliage (components tagged ueb_scatter:<label>) and delete
+    its FoliageType assets. Works even after a runtime reimport wiped _state — the tag lives on
+    the component (saved with the level), so the population is recoverable by tag alone."""
     label = p.get("label", "scatter")
-    if label not in _state.scatters:
-        return {"error": f"no scatter labelled '{label}'"}
-    a = _ue.find_by_label(label)
-    if a is not None:
-        _ue.actor_subsystem().destroy_actor(a)
+    s = _state.scatters.get(label)
+    tag = _SCATTER_TAG + label
+    cleared = _clear_tagged(tag)
+    ft_paths = list((s or {}).get("foliage_types", []))
+    if not ft_paths and unreal.EditorAssetLibrary.does_directory_exist(_FOLIAGE_DIR):
+        prefix = f"FT_{_sanitize(label)}__"
+        for a in unreal.EditorAssetLibrary.list_assets(_FOLIAGE_DIR, recursive=False):
+            if prefix in a:
+                ft_paths.append(a.split(".")[0])
+    for fp in ft_paths:
+        if unreal.EditorAssetLibrary.does_asset_exist(fp):
+            try:
+                unreal.EditorAssetLibrary.delete_asset(fp)
+            except Exception:
+                pass
     _state.scatters.pop(label, None)
-    return {"removed": label}
+    if s is None and cleared == 0:
+        return {"error": f"no scatter labelled '{label}'"}
+    return {"removed": label, "components_cleared": cleared, "undoable": False}

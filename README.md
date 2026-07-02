@@ -133,8 +133,10 @@ landscape.py   terrain as a GeometryScript DynamicMesh (G12: Landscape API unscr
 map_ref.py     map-position resolver — polar {from,bearing,distance} + absolute [x,y].
 path.py        splines as Catmull-Rom over waypoints (G13) — create/carve/describe; route
                walking; drape/carve; along=/facing= placement terms.
-scatter.py     HISM populations — create/describe/regenerate/remove; seeded jittered-grid
-               sampling, per-point ground trace + slope, auto-clears paths & buildings.
+scatter.py     instanced-foliage populations — create/describe/regenerate/remove; seeded
+               jittered-grid sampling, per-point ground trace + slope, auto-clears paths &
+               buildings. Instances go through the editor foliage subsystem so they render
+               (G14: a hand-built HISM has no render proxy from script).
 server/mapview.py  PIL renderer for view(map): shaded height + 20 m grid + labelled markers.
 ```
 
