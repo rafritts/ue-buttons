@@ -9,13 +9,23 @@ BASE="http://$HOST:30010"
 
 if [[ "${1:-}" == "py" ]]; then
   shift
-  jq -n --arg cmd "$*" '{
-    objectPath: "/Script/PythonScriptPlugin.Default__PythonScriptLibrary",
-    functionName: "ExecutePythonCommandEx",
-    parameters: { PythonCommand: $cmd, PythonCommandExecutionMode: "ExecuteStatement" }
-  }' | curl -s -X PUT "$BASE/remote/object/call" \
-         -H "Content-Type: application/json" -d @- \
-     | jq -r '.LogOutput[]?.Output // empty'
+  python3 - "$@" <<'EOF'
+import json, sys, urllib.request, os
+cmd = " ".join(sys.argv[1:])
+body = json.dumps({
+    "objectPath": "/Script/PythonScriptPlugin.Default__PythonScriptLibrary",
+    "functionName": "ExecutePythonCommandEx",
+    "parameters": {"PythonCommand": cmd, "PythonCommandExecutionMode": "ExecuteStatement"},
+}).encode()
+base = "http://%s:30010" % os.environ.get("UE_RC_HOST", "localhost")
+req = urllib.request.Request(base + "/remote/object/call", data=body,
+                             headers={"Content-Type": "application/json"}, method="PUT")
+resp = json.load(urllib.request.urlopen(req, timeout=30))
+for line in resp.get("LogOutput", []):
+    print(line.get("Output", ""), end="")
+if not resp.get("ReturnValue", True):
+    sys.exit(1)
+EOF
 else
-  curl -s "$BASE/remote/info" | jq .
+  curl -s "$BASE/remote/info" | python3 -m json.tool | head -5
 fi
