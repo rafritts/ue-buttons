@@ -174,6 +174,32 @@ and intent space already agree. Keep it that thin.
 - Placement DSL grows two path-aware terms usable by `add`/`scatter`:
   `along=(path_label, fraction, side, offset_cm)` and `facing=path_label`.
 
+### Map positions: polar first, grid second
+
+Anywhere this spec accepts a 2D map position (`landscape` feature `at`, `path`
+waypoints, `scatter` region centers), two forms are legal and resolve to the same
+internal point:
+
+- **Polar (preferred)**: `{"from": <anchor>, "bearing": <deg>, "distance": <cm>}` —
+  anchor is a labeled actor, `("path_label", fraction)`, a named landscape feature, or
+  `"center"` (map center). This is how humans give directions and surveyors lay out
+  sites; it keeps the agent relating to things it already placed instead of inventing
+  grid numbers.
+- **Absolute**: `[x, y]` in map cm — legal, expected to be *read off* `view(map)`
+  (below), not invented.
+
+**Compass convention (decide once, bake into every docstring): north = +X (UE
+forward), east = +Y, azimuth/bearing measured clockwise from north.** This makes
+bearing numerically identical to UE yaw — one rotation vocabulary everywhere.
+
+`path` additionally accepts a **route form** instead of a waypoint list: a start
+position plus steps, each `{"bearing": deg, "distance": cm}` (absolute compass) or
+`{"turn": ±deg, "distance": cm}` (relative to current heading — the natural encoding
+of "winding": alternate gentle turns). The runtime walks the route, resolves every
+waypoint, and returns all resolved positions so the agent knows exactly where the
+chain ended up; `view(map)` is the visual confirm. Route headings double as the
+tangent data `along=`/`facing=` placement uses.
+
 ### Map perception — the grounding for every [x,y] in this spec
 
 `landscape` features and `path` waypoints take raw 2D map coordinates — the one place
