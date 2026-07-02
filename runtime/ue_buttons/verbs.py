@@ -196,7 +196,17 @@ def _block_lines(result, focus):
 def _v_scene(p):
     """Actor tree grouped by type, counts, level name. Scoped to ueb-spawned actors by
     default (gaps.md G7); pass include_all:true to see the whole level. Untracked count
-    is always reported so the engine scaffolding is acknowledged, not hidden."""
+    is always reported so the engine scaffolding is acknowledged, not hidden.
+
+    op="streaming" (SPEC-03 link 1): the WorldPartition residency picture — partition status,
+    data layers + effective runtime state, per-actor is_spatially_loaded/grid.
+    op="reconcile" (SPEC-03, closes G16): diff the ueb registry against the editor's own
+    tally — clean/dirty/orphaned with attribution; GCs orphaned registry entries."""
+    op = p.get("op")
+    if op == "streaming":
+        return rendermod.streaming_report()
+    if op == "reconcile":
+        return validatemod.reconcile(gc=p.get("gc", True))
     include_all = p.get("include_all", False)
     pool = _ue.all_actors() if include_all else _ue.ueb_actors()
     groups = {}

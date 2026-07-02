@@ -19,13 +19,22 @@ from mcp.server.fastmcp import Image
 
 
 @mcp.tool()
-def scene(include_all: bool = False) -> str:
+def scene(include_all: bool = False, op: str = None) -> str:
     """List the scene's actors, grouped by type, with the level name.
 
     Scoped to ue-buttons-spawned actors by default; pass include_all=True to see the
     whole level (an Open World map has ~135 engine scaffolding actors). Always reports
     the count of untracked actors.
+
+    op="streaming" (SPEC-03 link 1): the WorldPartition residency picture — is the world
+      partitioned, its data layers + effective runtime state, and per-actor
+      is_spatially_loaded/runtime_grid. Says so plainly when the map isn't partitioned.
+    op="reconcile" (SPEC-03, closes G16): diff the ueb registry against the editor's own
+      tally — clean / dirty (self|external attribution) / orphaned / untracked — and GC
+      orphaned registry entries, so a level change can't leave a permanent phantom.
     """
+    if op in ("streaming", "reconcile"):
+        return render(call_ue("scene", {"op": op}))
     return render(call_ue("scene", {"include_all": include_all}))
 
 

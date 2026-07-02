@@ -304,6 +304,78 @@ def population_line(label):
     return "⚠ render: " + f"population '{label}' — {st['verdict']}"
 
 
+# ── link 1: streaming / residency (SPEC-03 §"scene gains streaming/residency") ──────
+# The collection-scoped blindness the surface most lacks: a build correct by every per-actor
+# metric that renders as nothing because its population lives in an unloaded data layer or an
+# unstreamed WP cell. `WorldPartitionBlueprintLibrary` is the reachable entry point (the
+# WorldPartitionSubsystem is a *world* subsystem, which Python's get_editor/engine_subsystem
+# can't fetch). Honest scope: this reports partition status + data-layer effective runtime
+# states + per-actor residency (is_spatially_loaded / runtime_grid) — all reliably testable.
+# GATING an actor non-renderable on an assigned data layer's Unloaded state is NOT wired: the
+# dogfood map is partitioned but has zero data layers, so the DataLayerAsset→instance
+# resolution call can't be derived against anything real yet (derived, not divined). Wire it
+# the day a map ships a data layer; until then residency is the is_spatially_loaded hint.
+
+def _data_layer_manager():
+    try:
+        return unreal.WorldPartitionBlueprintLibrary.get_data_layer_manager(_ue.editor_world())
+    except Exception:
+        return None
+
+
+def _spatially_loaded(actor):
+    try:
+        return bool(actor.is_spatially_loaded)
+    except Exception:
+        return True
+
+
+def streaming_report():
+    """The WorldPartition streaming/residency picture: is the world partitioned, its data
+    layers + effective runtime state, and per-ueb-actor residency. On a non-partitioned map,
+    says so plainly (everything is always resident) — silence-because-N/A never reads as a
+    clean streaming state."""
+    dlm = _data_layer_manager()
+    partitioned = dlm is not None
+    layers = []
+    if partitioned:
+        try:
+            for di in dlm.get_data_layer_instances():
+                try:
+                    st = str(dlm.get_data_layer_instance_effective_runtime_state(di)).split(".")[-1]
+                except Exception:
+                    st = "?"
+                layers.append({"layer": str(di), "effective_state": st})
+        except Exception:
+            pass
+    bounds = None
+    try:
+        b = unreal.WorldPartitionBlueprintLibrary.get_editor_world_bounds()
+        if getattr(b, "is_valid", False):
+            bounds = {"min": [round(b.min.x, 1), round(b.min.y, 1), round(b.min.z, 1)],
+                      "max": [round(b.max.x, 1), round(b.max.y, 1), round(b.max.z, 1)]}
+    except Exception:
+        pass
+    actors = []
+    for a in _ue.ueb_actors():
+        try:
+            grid = str(a.get_editor_property("runtime_grid"))
+            grid = None if grid in ("None", "") else grid
+        except Exception:
+            grid = None
+        actors.append({"label": a.get_actor_label(), "resident": _spatially_loaded(a),
+                       "runtime_grid": grid})
+    unloaded = [l for l in layers if l["effective_state"].upper() not in ("ACTIVATED", "?")]
+    note = ("world-partitioned; residency would gate on data-layer runtime state, but this "
+            "map has no data layers → every placed actor is resident"
+            if partitioned and not layers else
+            "world-partitioned" if partitioned else
+            "not world-partitioned — everything is always resident (streaming N/A)")
+    return {"partitioned": partitioned, "world_bounds": bounds,
+            "data_layers": layers, "data_layer_count": len(layers),
+            "unloaded_layers": unloaded, "actors": actors, "note": note}
+
+
 # ── link 8: computed visibility — the camera family (SPEC-03 §computed visibility) ──
 # blender-buttons computes framing / occlusion / size entirely from matrix math + raycasts
 # over the evaluated geometry — NEVER a screenshot (world_to_camera_view, common.py:545;

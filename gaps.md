@@ -139,27 +139,29 @@ flatten/carve edits have been applied since the feature list and describe may be
 Relates to B3 (the bad drape is what carve baked in) — fixing B3 removes the *wrong* carve,
 but describe-vs-mesh divergence remains for any legitimate carve.
 
-### G16 — no level lifecycle verb; ueb `_state` outlives the level (stale scatters/paths persist across a level change)
-Status: OPEN (found 2026-07-02; ties to the "scene controls" question — load/save/new/clear)
+### G16 — no level lifecycle verb (state-vs-level reconcile now exists; the missing piece is load/save/new/clear)
+Status: OPEN, NARROWED 2026-07-02 — want (2) reconcile is DONE (SPEC-03 `scene op=reconcile`);
+only want (1) the level lifecycle verb remains.
 
-Driving Level 1 in a fresh `Untitled_2` level, `view(map)` reported **2 paths / 4 scatters**
-when only 1 of each had been created this session. Cause: runtime `_state` (scatters, paths,
-history) lives in the editor Python process, **not** in the level — so the prior hamlet
-session's `trees`/`undergrowth`/`rocks` scatters and `lane` path were still in `_state` after
-the editor had been pointed at a different level, where none of their actors exist. `scene`
-correctly showed 0 ueb actors (state and reality had drifted apart); map/describe trusted the
-stale state. Removing the ghosts by hand (`scatter remove`, `path remove`) all returned
-`components_cleared: 0` — confirming pure state ghosts, no geometry.
+Original symptom (driving Level 1 in a fresh `Untitled_2`): `view(map)` reported **2 paths /
+4 scatters** when only 1 of each existed this session. Cause: runtime `_state` (scatters,
+paths, history) lives in the editor Python process, **not** in the level — so a prior
+session's scatters/paths persisted in `_state` after the editor was pointed at a different
+level. `scene` correctly showed 0 ueb actors; map/describe trusted the stale state.
 
-The surface has **no level lifecycle at all**: no new / open / load / save / clear verb
-(`LevelEditorSubsystem` + `EditorLoadingAndSavingUtils` *are* scriptable in 5.8, unlike
-Landscape). Two things wanted: (1) a `level` verb (or `scene(action=new|open|save)`) with a
-dirty-check guard so it can't silently discard unsaved work, and — for the WP template
-question — clone the WP map rather than start a non-WP blank; (2) reconcile `_state` against
-the actual level on a level change (drop or flag entries whose actors/foliage are absent), so
-perception never trusts ghosts. Until then: a session building in a fresh level inherits the
-previous session's phantom populations. Workaround used for Level 1: explicit `remove` of each
-stale label before trusting the map.
+**Resolved (SPEC-03 state reconciliation, `validate.reconcile` via `scene op=reconcile`):**
+diffs every registry (`scatters`/`landscapes`/`paths`) against the editor's own tally,
+classifies clean / dirty (with self|external attribution) / orphaned / untracked, and GCs the
+orphans — so a phantom is now clearable on demand instead of permanent. Verified live: it
+found and GC'd 14 real orphaned entries accumulated across prior sessions (incl. a 6,236-inst
+`valley_forest`), and a re-run came back empty.
+
+**Still OPEN (want 1):** no level lifecycle verb — no new / open / save / clear
+(`LevelEditorSubsystem` + `EditorLoadingAndSavingUtils` *are* scriptable in 5.8). Wanted: a
+`level` verb (or `scene(action=new|open|save)`) with a dirty-check guard so it can't silently
+discard unsaved work, cloning the WP map rather than starting a non-WP blank. Also nice: fold
+the orphan-GC into `view(map)`/`scene` default reads (silent, like `_prune_dead_intents`) so
+the phantom can't even momentarily appear before a manual `reconcile`.
 
 ### G17 — auto-follow camera: snap the viewport to whatever the agent just mutated (toggleable)
 Status: OPEN (requested by Ryan 2026-07-02 — "I never want to guess what the agent is doing")

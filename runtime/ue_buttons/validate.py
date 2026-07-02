@@ -621,6 +621,100 @@ def _reground_recap():
             "declared_holding": holding, "declared_vanished": vanished}
 
 
+# ── state reconciliation (SPEC-03 §"clean/dirty/orphaned"; closes G16) ─────────
+# blender-buttons keeps NO parallel server store — the datablocks ARE the registry
+# (handles.py). ueb can't: WP shards foliage into per-cell components and _state survives a
+# hot-reload (by design), so the registry can outlive the level it describes — the phantom
+# hamlet scatters (G16). reconcile diffs each registry against the editor's OWN tally and
+# classifies clean / dirty (drifted but resolves, with self|external attribution) / orphaned
+# (backing gone → GC'd, so a level change can't leave a permanent phantom) / untracked
+# (backing in the level with no registry entry — the reverse phantom).
+
+def _foliage_tally(label):
+    """(instances, components) the editor actually holds for a scatter label, by tag."""
+    from . import scatter as scattermod
+    tag = scattermod._SCATTER_TAG + label
+    comps = [c for c in scattermod._ifa_fismcs()
+             if tag in [str(t) for t in c.get_editor_property("component_tags")]]
+    return sum(c.get_instance_count() for c in comps), len(comps)
+
+
+def _editor_scatter_labels():
+    """Every scatter label the editor's foliage tags claim (may exceed the registry)."""
+    from . import scatter as scattermod
+    pref = scattermod._SCATTER_TAG
+    out = set()
+    for c in scattermod._ifa_fismcs():
+        for t in c.get_editor_property("component_tags"):
+            s = str(t)
+            if s.startswith(pref):
+                out.add(s[len(pref):])
+    return out
+
+
+def _drift_attribution(label):
+    """self = a logged ueb op references this label (the drift is ours); external = nothing
+    explains it (the loud alarm — a human or another session moved it)."""
+    for h in _state.history:
+        if label and (label in (h.get("label") or "") or label in (h.get("summary") or "")):
+            return "self (a ueb op references this label)"
+    return "external (no ueb op explains the drift — investigate before building on it)"
+
+
+def reconcile(gc=True):
+    """Diff the ueb registries (_state.scatters/landscapes/paths) against the editor's own
+    tally; classify + optionally GC orphans. The mechanical cure for G16 — a self-reported
+    count in a vacuum is exactly what let the phantom hamlet persist."""
+    report = {"clean": [], "dirty": [], "orphaned": [], "untracked": []}
+
+    for label, meta in list(_state.scatters.items()):
+        inst, comps = _foliage_tally(label)
+        recorded = meta.get("count", 0)
+        if comps == 0:
+            report["orphaned"].append({"kind": "scatter", "label": label,
+                "reason": f"registry claims {recorded} instances but the level has no foliage "
+                          f"for it (level changed or cleared)"})
+            if gc:
+                _state.scatters.pop(label, None)
+        elif inst == recorded:
+            report["clean"].append({"kind": "scatter", "label": label, "instances": inst})
+        else:
+            report["dirty"].append({"kind": "scatter", "label": label, "recorded": recorded,
+                "editor": inst, "attribution": _drift_attribution(label),
+                "reason": f"registry {recorded} vs editor {inst} instances"})
+
+    for label in list(_state.landscapes):
+        if _ue.find_by_label(label) is None:
+            report["orphaned"].append({"kind": "landscape", "label": label,
+                "reason": "no actor carries this label (level changed or the terrain was deleted)"})
+            if gc:
+                _state.landscapes.pop(label, None)
+        else:
+            report["clean"].append({"kind": "landscape", "label": label})
+
+    for label, pdata in list(_state.paths.items()):
+        terr = pdata.get("terrain", "terrain")
+        if terr not in _state.landscapes and _ue.find_by_label(terr) is None:
+            report["orphaned"].append({"kind": "path", "label": label,
+                "reason": f"the terrain '{terr}' it was carved into is gone"})
+            if gc:
+                _state.paths.pop(label, None)
+        else:
+            report["clean"].append({"kind": "path", "label": label})
+
+    for label in _editor_scatter_labels():
+        if label not in _state.scatters:
+            inst, _ = _foliage_tally(label)
+            report["untracked"].append({"kind": "scatter", "label": label, "instances": inst,
+                "reason": "foliage tagged in the level with no registry entry (registry wiped, "
+                          "or placed in another session) — `scatter remove` clears it by tag"})
+
+    report["summary"] = (f"{len(report['clean'])} clean, {len(report['dirty'])} dirty, "
+                         f"{len(report['orphaned'])} orphaned{' (GC’d from registry)' if gc else ''}, "
+                         f"{len(report['untracked'])} untracked")
+    return report
+
+
 # ── the agent verb (routed from verbs._v_validate) ─────────────────────────────
 
 def handle(p):

@@ -1,8 +1,10 @@
 # SPEC-03 — Render legibility: the third sense
 
-Status: **spine + camera family implemented + live-verified 2026-07-02** (see
-"Implementation status" below); scene streaming and state reconciliation are the next
-increments. Rewritten after studying how blender-buttons solves the same problem — because
+Status: **spine + camera family + streaming/residency + state reconciliation implemented +
+live-verified 2026-07-02** (see "Implementation status" below). Remaining: the data-layer
+runtime GATE (link 1's failure-firing half, blocked on a dogfood map that ships a data
+layer), the visible-front-facing-surface refinement (G131), and level lifecycle verbs (G16
+want 1). Rewritten after studying how blender-buttons solves the same problem — because
 it already does, maturely, and this spec is mostly a port with UE-specific links added. Written the moment the surface's blindness became undeniable: a
 `scatter` reported 6,236 instances — mesh assigned, `visible=true`, `inst_z == ground_z`
 at every checkpoint, spread across the whole terrain — and *nothing* drew. Every data
@@ -283,12 +285,25 @@ probed live before coding (derived, not divined).
   fully-OCCLUDED (wall between camera and target). Together these tell the four Level-1
   cases apart as numbers: sub-pixel vs off-frustum vs occluded vs genuinely absent.
 
+- **link 1 streaming/residency — `scene op=streaming`.** `WorldPartitionBlueprintLibrary` is
+  the reachable entry point (the WorldPartitionSubsystem is a *world* subsystem Python's
+  get_editor/engine_subsystem can't fetch). Reports partition status, world bounds, data
+  layers + effective runtime state, and per-actor `is_spatially_loaded`/`runtime_grid`;
+  says so plainly when a map isn't partitioned. Verified live (partitioned map, 0 data
+  layers, resident actors).
+- **state reconciliation (clean/dirty/orphaned) — `scene op=reconcile`, closes G16 want 2.**
+  Diffs `_state.scatters`/`landscapes`/`paths` against the editor's own foliage/actor tally,
+  classifies clean / dirty (self|external attribution) / orphaned / untracked, GCs orphans.
+  Verified live: found + GC'd 14 real phantom entries from prior sessions (incl. a 6,236-inst
+  scatter); re-run came back empty. The mechanical cure for the phantom-hamlet drift.
+
 **Deliberately deferred (honest gaps, NAMED on the line — see render.py header):**
 
-- **link 1 Resident** — full WorldPartition cell / data-layer residency needs the
-  WorldPartitionSubsystem; this editor's World exposes no `get_world_partition`, so
-  residency is the coarse actor `is_spatially_loaded` hint only. The `scene`
-  streaming/residency additions (§"scene gains streaming/residency") ride on this.
+- **link 1's data-layer GATE** — reporting residency is done; making an actor non-renderable
+  because its assigned data layer's effective runtime state is Unloaded is NOT wired: the
+  dogfood map is partitioned but has zero data layers, so the DataLayerAsset→instance
+  resolution can't be derived against anything real (derived, not divined). Wire it the day a
+  map ships a data layer.
 - **link 2 Registered** — no Python binding (`is_registered`/`is_render_state_created`
   absent); the scatter path already forces registration via the foliage subsystem (G14).
 - **link 8 visible front-facing surface (the G131 subtlety)** — `visible` samples whole-AABB
