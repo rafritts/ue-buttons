@@ -127,6 +127,57 @@ One `@mcp.tool` each, action-dict style like blender-buttons verbs
   brought to parity with blender-buttons `describe()`.
 - **M3 — start `gaps.md`** and let real use drive the ordering of the deferred list.
 
+## Addendum (2026-07-02, post-M1) — supersedes parts of the above
+
+Written after M1 shipped and after researching the 5.8 AI landscape. Three updates:
+
+### 1. Milestones M0/M1 are done
+
+Built and live-verified same-day (see README "M1 — built"). The exit test passes.
+Remaining milestone numbering continues from M2 as written.
+
+### 2. Epic ships a first-party MCP plugin in 5.8 — evaluate before building more
+
+Unknown when this spec was drafted: UE 5.8 includes an experimental **Unreal MCP**
+plugin — an MCP server inside the editor process (loopback HTTP `127.0.0.1:8000/mcp`,
+no auth), exposing tools via a Toolset Registry. Shipping toolsets: scene / actor /
+material-instance / object, mostly implemented in editor Python. Docs:
+https://dev.epicgames.com/documentation/unreal-engine/unreal-mcp-in-unreal-editor
+
+Implications:
+
+- **It does not replace ue-buttons.** Raw toolsets are exactly the 137-tool problem
+  blender-buttons' SPEC-05 collapsed. The substrate — verbs, relational placement,
+  auto-status, dimensions-over-coordinates — remains the differentiated layer.
+- **It may replace parts of our plumbing.** New task (slot into M2): enable it in
+  UEButtons, inventory the toolsets, and ride anything mature (e.g. material tools)
+  instead of rebuilding it. Both servers coexist (ours via RC :30010, Epic's :8000).
+- Caveats observed: experimental, toolset changes require editor restart, no
+  Resources/Prompts support.
+
+### 3. The logic moonshot reprices — and targets Blueprints (decision)
+
+The deferred-list framing ("Blueprint graphs are not Python-authorable") was too
+pessimistic. Findings:
+
+- Blueprint graphs **are plugin-authorable** via editor C++ APIs (`UEdGraph`/`UK2Node`,
+  K2 schema, `FKismetEditorUtilities`) — community-proven (e.g. chongdashu/unreal-mcp
+  authors nodes/wires agentically today). Brittle engine-internal surface, but
+  engineering, not research.
+- A **text serialization of graphs already exists**: copying BP nodes puts an
+  object-text export on the clipboard (how blueprintue.com works). A candidate seam
+  for reading and templated writing without a bespoke graph compiler.
+- Epic's first-party MCP has **no BP graph authoring yet**, but the direction is clear.
+
+**Decision (Ryan, 2026-07-02): target Blueprints now.** UE6 (EA end-2027) will move
+gameplay to Verse and eventually deprecate Blueprints; that horizon is explicitly
+deferred — do not redesign around Verse, do not propose waiting for it. Path ranking
+for the eventual logic spec: (1) Epic MCP toolsets where they exist, (2) clipboard-text
+seam + editor APIs for common patterns (trigger→animate→state-change chains),
+(3) generated C++ + Live Coding for systems-level logic. Avoid deep investment in a
+bespoke K2Node graph compiler — that's the brittlest option and targets the surface
+with a public end-of-life intention.
+
 ## Risks / open questions
 
 - `take_high_res_screenshot` is async (writes on a later frame) — server polls for the
