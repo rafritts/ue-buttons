@@ -1,0 +1,14 @@
+[project]
+name = "ue-buttons"
+version = "0.1.0"
+description = "blender-buttons philosophy projected onto Unreal Engine 5 via Remote Control + MCP"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp[cli]",
+]
+
+[project.scripts]
+ue-buttons = "server.main:main"
+
+[tool.uv]
+package = false

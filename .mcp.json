@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "ue-buttons": {
+      "command": "/home/restless/.local/bin/uv",
+      "args": [
+        "run",
+        "--directory",
+        "/home/restless/workspace/ue-buttons",
+        "python",
+        "server/main.py"
+      ],
+      "env": {
+        "UE_RC_HOST": "localhost"
+      }
+    }
+  }
+}

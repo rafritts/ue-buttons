@@ -59,13 +59,41 @@ response — a complete REPL. See `scripts/probe.sh`.
 First launch of a fresh project compiles shaders — allow several minutes before the
 probe answers.
 
+## M1 — built (2026-07-02)
+
+The foundation from `docs/SPEC-00-Initial.md` is implemented and live-verified against
+the running editor. Layout:
+
+```
+runtime/ue_buttons/     in-editor half (unreal.*): dispatch + hot reload, _state
+                        (never reloaded — holds history + counters), _ue helpers,
+                        relational math + placement DSL, the 7 verbs
+runtime/init_unreal.py  auto-run at editor startup → makes ue_buttons importable
+server/                 thin FastMCP server: 7 @mcp.tool verbs → Remote Control HTTP
+scripts/sync-runtime.sh deploy runtime/ → <project>/Content/Python/ (repo = source of truth)
+gaps.md / bugs.md       friction + defect worklists (fix → live-verify → clear)
+```
+
+Verbs: `scene`, `add`, `transform`, `select`, `feel`, `view`, `history`. Every mutating
+verb appends the auto-status block and runs inside a `ueb:<id>` transaction kept 1:1 with
+the editor undo stack. **Exit test passes**: an agent builds a table (top + 4 legs at
+corners) via relational placement only, confirms with `feel`, and `undo_to` tears it down
+cleanly. Open items live in `gaps.md` (notably G8 — async screenshot capture).
+
+### Running
+
+```bash
+scripts/sync-runtime.sh          # deploy runtime into the UE project
+# launch the editor (see below), then this repo's .mcp.json wires the MCP server:
+uv run python server/main.py     # or let the Claude Code host start it from .mcp.json
+```
+
+`scripts/probe.sh` still verifies the bare bridge / runs one-shot editor Python.
+
 ## Next design step
 
-Thin FastMCP server (same skeleton as blender-buttons `server/main.py`) speaking HTTP
-to Remote Control instead of a TCP socket to a Blender addon. Starting verbs:
-`scene` (what's here), `feel` (bounds/relations), `add` (spawn/place), `transform`
-(move/rotate by intent). Then the two genuinely novel fronts, where the projection
-must be invented rather than ported:
+Then the two genuinely novel fronts, where the projection must be invented rather than
+ported:
 
 - **Logic**: Blueprint graphs are not Python-authorable — the path is generated C++ +
   Live Coding, or a text DSL compiled server-side. This is the moonshot crux.
