@@ -108,6 +108,11 @@ def feel(op: str, target: str = None, a: str = None, b: str = None,
     op="gap_between" (a,b):        per-axis empty space (negative = overlap) + touching axes.
     op="is_aligned" (a,b,side):    side ∈ TOP|BOTTOM|FRONT|BACK|LEFT|RIGHT|CENTER_X|
                                    CENTER_Y|CENTER_Z (front/back = ±X, left/right = ±Y).
+    op="render_state" (target):    SPEC-03 — walk the render gating chain for one actor or
+                                   scatter population: per-link verdict (shown / bounded /
+                                   in-range / materialised / render-data) + the fix, and a
+                                   DRAWS / WILL-NOT-DRAW verdict. The deep-dive behind the
+                                   status block's one-line `render:` summary.
     """
     p = {"op": op, "target": target, "a": a, "b": b, "axis": axis, "side": side}
     return render(call_ue("feel", p))

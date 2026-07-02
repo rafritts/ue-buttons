@@ -31,6 +31,7 @@ import math
 from . import _ue
 from . import _state
 from . import relational
+from . import render
 
 # ── epsilons (cm — UE native; do NOT copy Blender's metre values) ──────────────
 CONTACT = 0.1        # resting/flush face contact — below this is "touching", not a defect
@@ -382,11 +383,28 @@ def run_validate(touched_labels=None, scene_wide=False, verbose=False):
     ground = _classify(GROUND, _ground_findings(scope), scope)
     pen = _classify("penetration", _penetration_findings(scope, neighbors), scope)
 
+    # SPEC-03 handshake: the floor names the non-renderable actors it SKIPPED (its own
+    # blind spot), rather than pretending it validated them. Count over the checked pool.
+    excluded = _excluded_count(scope, neighbors)
+
     passed = (not zfight and not ground["new"] and not ground["vanished"]
               and not pen["new"] and not pen["vanished"] and not pen.get("deeper"))
-    line = _render_line(zfight, ground, pen, verbose)
+    line = _render_line(zfight, ground, pen, verbose, excluded=excluded)
     return {"passed": passed, "intent_free": zfight, "ground": ground,
             "penetration": pen, "line": line}
+
+
+def _excluded_count(scope, neighbors):
+    """How many distinct actors in the checked pool are NON-renderable (SPEC-03's
+    predicate) — the floor's blind spot, surfaced as `[N excluded]` so a skipped actor is
+    never mistaken for a validated one."""
+    labels = {lbl for lbl, _ in scope} | {lbl for lbl, _ in neighbors}
+    n = 0
+    for lbl in labels:
+        a = _ue.find_by_label(lbl)
+        if a is not None and not render.is_renderable(a):
+            n += 1
+    return n
 
 
 def _unresolved_reason(labels):

@@ -15,6 +15,7 @@ from . import landscape
 from . import map_ref
 from . import path as pathmod
 from . import scatter as scattermod
+from . import render as rendermod
 from . import validate as validatemod
 
 # Verbs that mutate the world: they log an op, run inside a ueb:<id> transaction, and get
@@ -64,12 +65,13 @@ class _Txn:
 
 # ── auto-status: the REPL block (SPEC-02) ───────────────────────────────────────
 # Every mutating verb returns, in order: result text (the json head, rendered by the
-# server) → warnings → the two forced senses (feel delta, validate line) → a periodic
-# re-ground recap → the status block. This turns call-and-response into a REPL: the agent
-# acts and, in the same round-trip, SEES what changed and what's now broken — it never
-# operates blind and can never mistake silence for success (SPEC-02; blender-buttons
-# SPEC-16). The block itself is a single-object spotlight; relational defects (penetration,
-# z-fight) can't live there, which is exactly why validate is its own forced channel.
+# server) → warnings → the three forced senses (feel delta, validate line, render line) →
+# a periodic re-ground recap → the status block. This turns call-and-response into a REPL:
+# the agent acts and, in the same round-trip, SEES what changed, what's now broken, and
+# whether it will actually DRAW — it never operates blind and can never mistake silence for
+# success (SPEC-02/03; blender-buttons SPEC-16). The block itself is a single-object
+# spotlight; relational defects (penetration, z-fight) and renderability can't live there,
+# which is exactly why validate and render are their own forced channels.
 
 def _focus_label(verb, params, result):
     """The actor/subject this op acted on — what the forced senses and the block describe."""
@@ -119,6 +121,10 @@ def _status_block(verb, params, result):
         v = validatemod.run_validate([focus] if focus else [])
         if v.get("line"):
             lines.append(("" if v.get("passed") else "⚠ ") + v["line"])
+        # Sense 3 — the renderability floor (SPEC-03): will the delta actually DRAW.
+        rl = rendermod.render_line([focus] if focus else [])
+        if rl:
+            lines.append(rl)
     elif verb in SPATIAL:
         fd = result.get("feel") or validatemod.feel_delta(focus)
         if fd:
@@ -126,6 +132,10 @@ def _status_block(verb, params, result):
         lines.append("validate: OFF for this edit — the actor floor checks placed actors "
                      "(add/transform), not the terrain/population itself; `validate op=run` "
                      "to sweep placed actors against it")
+        # Sense 3 for populations — the motivating case (a scatter correct in every data
+        # probe that draws nothing). Terrain/path render-walk is the next increment.
+        if verb == "scatter" and focus:
+            lines.append(rendermod.population_line(focus))
     elif verb in STATUS_ONLY:
         fd = validatemod.feel_delta(focus)
         if fd:
@@ -375,8 +385,12 @@ def _v_select(p):
 
 
 def _v_feel(p):
-    """Relational perception — describe(actor) / distance_between / gap_between / is_aligned.
-    Delegates to relational.py (ported math)."""
+    """Relational perception — describe(actor) / distance_between / gap_between / is_aligned,
+    plus render_state (SPEC-03): the on-demand deep-dive behind the block's one-line render
+    summary — walks the full gating chain for one actor/population + the fix. Delegates to
+    relational.py (spatial math) / render.py (render chain)."""
+    if p.get("op") == "render_state":
+        return rendermod.render_state(p.get("target"))
     return relational.feel(p)
 
 

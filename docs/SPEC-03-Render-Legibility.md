@@ -1,8 +1,9 @@
 # SPEC-03 — Render legibility: the third sense
 
-Status: proposal, 2026-07-02. Rewritten after studying how blender-buttons solves the
-same problem — because it already does, maturely, and this spec is mostly a port with
-UE-specific links added. Written the moment the surface's blindness became undeniable: a
+Status: **spine implemented + live-verified 2026-07-02** (see "Implementation status"
+below); the camera family, scene streaming, and state reconciliation are the next
+increments. Rewritten after studying how blender-buttons solves the same problem — because
+it already does, maturely, and this spec is mostly a port with UE-specific links added. Written the moment the surface's blindness became undeniable: a
 `scatter` reported 6,236 instances — mesh assigned, `visible=true`, `inst_z == ground_z`
 at every checkpoint, spread across the whole terrain — and *nothing* drew. Every data
 probe said "forest." The renderer said "empty." No verb could tell the difference.
@@ -243,6 +244,47 @@ The through-line, and why this is a server concern before a scene concern: **"th
 looks right" is the failure mode, not the success signal.** Until the server walks the
 render-gating chain as data, every build is verified by construction — and by construction
 is exactly the proof this spec exists to retire.
+
+## Implementation status (2026-07-02)
+
+The **spine landed + live-verified over the RC bridge** — the build-order-critical core
+this spec names first: the source-filter predicate, the gating-chain walk, the `render:`
+status line (Sense 3), and the SPEC-02 `[N excluded]` handshake. New module
+`runtime/ue_buttons/render.py`; wired into `verbs._status_block` (Sense 3, sibling of the
+validate line), `feel op=render_state`, and `validate`'s excluded-count. Every binding was
+probed live before coding (derived, not divined).
+
+**Done + verified live:**
+
+- **The gating chain** as booleans over each primitive component — `shown` (editor-hidden
+  vs render-hidden kept SEPARATE, never conflated — the miss that made this spec),
+  `bounded` (world AABB extent), `in_range` (near/max draw-distance sanity), `materialised`
+  (null slot / engine-default substitution — the "forgot to assign" tell), `render_data`
+  (LOD0 tri-count). Verified: a cube reads `render: DRAWS`; hiding it flags `shown`;
+  assigning the engine DefaultMaterial flags `materialised`.
+- **The `render:` line** on every mutating block — report-by-exception, prints `DRAWS`
+  when clean, the first break + its fix when not, `OFF — floor is down` when disabled.
+- **`feel op=render_state`** — the deep-dive: per-link verdict + fix for one actor/
+  population, with the deferred links named, not silently skipped.
+- **The `[N excluded]` handshake** — `validate` now names the non-renderable actors it
+  skipped (verified: a hidden actor in scope surfaces `[1 excluded]` on the validate line).
+- **Population path** (`population_state`/`population_line`) — scatter foliage walked by
+  tag for instance-count + visibility (the motivating "6,236 reported, nothing drew"
+  case). Built on foliage-component APIs already proven in `scatter.py`.
+
+**Deliberately deferred (honest gaps, NAMED on the line — see render.py header):**
+
+- **link 1 Resident** — full WorldPartition cell / data-layer residency needs the
+  WorldPartitionSubsystem; this editor's World exposes no `get_world_partition`, so
+  residency is the coarse actor `is_spatially_loaded` hint only. The `scene`
+  streaming/residency additions (§"scene gains streaming/residency") ride on this.
+- **link 2 Registered** — no Python binding (`is_registered`/`is_render_state_created`
+  absent); the scatter path already forces registration via the foliage subsystem (G14).
+- **link 8 On-screen size + the camera family** (framing / occlusion / visible-surface,
+  provenance) — `project_world_to_screen` is present; this is the next increment, folded
+  into `view` (`view framing` / `view visible`).
+- **State reconciliation** (clean/dirty/orphaned, closes G16) — shares SPEC-02's
+  registry-lifetime gap; a later pass.
 
 ## Non-goals
 

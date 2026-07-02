@@ -218,3 +218,28 @@ z-fight on EVERY ground-snapped actor, louder than the silence it replaces. Its 
 — a substrate-only ground trace — now exists (G18), but the safe version needs the placer to
 seat with a known epsilon (or auto-declare) FIRST, else detector and placer fight. Land the
 placer-epsilon convention, then add the band.
+
+---
+
+### G22 — adding a new reloadable module needs an editor restart to fully take effect
+Status: OPEN (accepted dev-loop limitation; documented — the workaround is cheap)
+
+`dispatch` hot-reloads the modules in `_RELOADABLE`, but that list is built in `__init__.py`
+— the one module hot-reload deliberately NEVER re-execs (it also holds the `from . import
+render` line). So when a brand-new module is added to the package (SPEC-03's `render.py`),
+a *running* editor session's `_RELOADABLE` is stale: it doesn't list the newcomer, and
+`__init__` won't re-run to pick it up without a restart.
+
+Symptom seen live (2026-07-02, landing SPEC-03): the first `validate op=run` after syncing
+`render.py` returned WITHOUT the new `[N excluded]` slot, even though the code was correct —
+a first-dispatch transient. A forced `importlib.reload(render); importlib.reload(validate)`
+in a probe, then the identical dispatch, produced the expected `[1 excluded]`. Nothing was
+wrong with the code; the running session just hadn't threaded the newcomer through its
+(never-reloaded) reload list yet.
+
+Workaround (cheap, no restart): after syncing a NEW module, force-reload it once from a
+probe (`importlib.reload(<mod>)` for the new module + every reloadable importer of it), or
+just restart the editor. Editing an EXISTING reloadable module is unaffected — this only
+bites the first time a module is *introduced*. Not worth engineering around (a startup-time
+`__init__` already lists it correctly for every subsequent session); worth remembering so
+the next new-module landing doesn't read a first-call transient as a bug.
