@@ -315,8 +315,8 @@ Ryan judges the screenshots — "does this read as a place?" — and walks it in
 
 ## Deferred to SPEC-02
 
-Spatial lint + REPL-style validation in the status block — see
-`SPEC-02-Spatial-Lint.md`. One obligation on SPEC-01 implementers: keep bounds/trace
+The status block in REPL form (spatial lint is part of it) — see
+`SPEC-02-Status-Block.md`. One obligation on SPEC-01 implementers: keep bounds/trace
 helpers factored so lint can reuse them.
 
 ## Risks / open questions
