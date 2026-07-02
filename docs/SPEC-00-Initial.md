@@ -149,9 +149,15 @@ Implications:
 - **It does not replace ue-buttons.** Raw toolsets are exactly the 137-tool problem
   blender-buttons' SPEC-05 collapsed. The substrate — verbs, relational placement,
   auto-status, dimensions-over-coordinates — remains the differentiated layer.
-- **It may replace parts of our plumbing.** New task (slot into M2): enable it in
-  UEButtons, inventory the toolsets, and ride anything mature (e.g. material tools)
-  instead of rebuilding it. Both servers coexist (ours via RC :30010, Epic's :8000).
+- **It may replace parts of our plumbing — never our surface.** The agent-facing API
+  is always ue-buttons verbs; Epic toolsets are candidate *backends* our verbs dispatch
+  to internally. Maturity is a reliability bar, not an adoption criterion: adopt a
+  toolset only if, hidden behind our verb, it beats what we'd write against RC — and
+  skip it outright if its mental model fights intent space (coordinate-soup params,
+  alien return shapes). The agent must never context-switch out of the verb vocabulary
+  mid-build. Same reason blender-buttons never exposed raw bpy next to the verbs.
+  New task (slot into M2): enable it in UEButtons, inventory toolsets against that
+  test. Both servers coexist (ours via RC :30010, Epic's :8000).
 - Caveats observed: experimental, toolset changes require editor restart, no
   Resources/Prompts support.
 
