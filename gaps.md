@@ -321,3 +321,34 @@ the actual level on a level change (drop or flag entries whose actors/foliage ar
 perception never trusts ghosts. Until then: a session building in a fresh level inherits the
 previous session's phantom populations. Workaround used for Level 1: explicit `remove` of each
 stale label before trusting the map.
+
+### G17 — auto-follow camera: snap the viewport to whatever the agent just mutated (toggleable)
+Status: OPEN (requested by Ryan 2026-07-02 — "I never want to guess what the agent is doing")
+
+The human watches the live editor viewport, but nothing moves the camera to where the
+agent is working — a build far from the current view is invisible until someone flies
+over. Wanted: after every mutating verb, aim the viewport at what was touched,
+automatically, so the human always sees the agent's hands.
+
+This is small, not a spec — the design fits here:
+
+- **One call site, not N.** Every mutating verb already flows through the shared
+  dispatch/status path, which already computes the touched bounds to report them. Hook
+  there: `if follow and mutated: frame_bounds(touched_bounds)`. No per-verb changes.
+- **One helper.** `frame_bounds(bounds)`: camera at a distance sized by the bounds
+  radius (fit with margin), ~30–40° pitch down, aimed at the center — via
+  `set_level_viewport_camera_info`, already live-verified working (G8: positioning
+  works; only async *file capture* needs foreground, and a watching human means
+  foreground anyway).
+- **Group/region ops frame the group.** scatter/landscape/path touch a region, not an
+  actor — frame the population/edit-region bounds (already known to the verb), never a
+  single instance.
+- **Toggle, default ON.** Runtime flag exposed as `view(action="follow",
+  enabled=true|false)`. Ryan's default is watching; OFF is for when the human is
+  flying the viewport themselves (the camera is shared — follow fights manual
+  navigation by design; that's the feature, the toggle is the escape).
+- **Honesty convention:** when disabled, the status block says `follow: OFF` — same
+  pattern as `validate: OFF` — so the agent knows the human may be flying blind.
+- **Never enters history.** The camera move is perception-side: no `ueb:` transaction,
+  not logged, `undoable` untouched. A camera nudge must never shift the shared undo
+  stack (G1).
