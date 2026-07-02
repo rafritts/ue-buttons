@@ -278,3 +278,46 @@ foreground frame away per G8, but the render-scene registration is the thing tha
 and it is now present.) Minor residue: `clear_instances` empties a component but Python can't
 destroy it, so repeated `regenerate` leaves 0-instance FISMC shells in the IFA (all cleared on
 `remove`) — harmless clutter, noted not fixed.
+
+### G15 — `landscape describe` reports the feature height-function, not the post-carve/flatten mesh
+Status: OPEN (found 2026-07-02, Level 1 dogfood)
+
+`landscape describe` samples the pure-Python height function built from the *feature list*
+(`terrain.py`), which is exactly what makes it "agree with world traces" (SPEC-01 E-note) —
+**until** a `flatten`/`carve` edits the actual mesh without touching the feature list. After
+Level 1's `path carve` flattened the southern trail bed to z=0, `describe` at those points
+still reported the pre-carve grade (−825..−269 cm) while a real `trace_ground` returned the
+carved surface (flat 0.0). So the two sources of truth that are *supposed* to agree
+(describe ⇄ trace) silently diverge post-edit — and `describe` is the one that's now lying,
+because it never sees flatten/carve.
+
+Why it matters: `describe` is sold as the honest sampler for planning `along=`/`facing=`
+placement and reading grade. If it ignores carve/flatten, an agent plans against a surface
+that no longer exists. Fix options: (a) record flatten/carve deltas into the height model so
+`describe` composes them, or (b) make `describe` trace the *actual* mesh (authoritative but
+slower + subject to the B3 cook race), or (c) at minimum flag in the result that N
+flatten/carve edits have been applied since the feature list and describe may be stale.
+Relates to B3 (the bad drape is what carve baked in) — fixing B3 removes the *wrong* carve,
+but describe-vs-mesh divergence remains for any legitimate carve.
+
+### G16 — no level lifecycle verb; ueb `_state` outlives the level (stale scatters/paths persist across a level change)
+Status: OPEN (found 2026-07-02; ties to the "scene controls" question — load/save/new/clear)
+
+Driving Level 1 in a fresh `Untitled_2` level, `view(map)` reported **2 paths / 4 scatters**
+when only 1 of each had been created this session. Cause: runtime `_state` (scatters, paths,
+history) lives in the editor Python process, **not** in the level — so the prior hamlet
+session's `trees`/`undergrowth`/`rocks` scatters and `lane` path were still in `_state` after
+the editor had been pointed at a different level, where none of their actors exist. `scene`
+correctly showed 0 ueb actors (state and reality had drifted apart); map/describe trusted the
+stale state. Removing the ghosts by hand (`scatter remove`, `path remove`) all returned
+`components_cleared: 0` — confirming pure state ghosts, no geometry.
+
+The surface has **no level lifecycle at all**: no new / open / load / save / clear verb
+(`LevelEditorSubsystem` + `EditorLoadingAndSavingUtils` *are* scriptable in 5.8, unlike
+Landscape). Two things wanted: (1) a `level` verb (or `scene(action=new|open|save)`) with a
+dirty-check guard so it can't silently discard unsaved work, and — for the WP template
+question — clone the WP map rather than start a non-WP blank; (2) reconcile `_state` against
+the actual level on a level change (drop or flag entries whose actors/foliage are absent), so
+perception never trusts ghosts. Until then: a session building in a fresh level inherits the
+previous session's phantom populations. Workaround used for Level 1: explicit `remove` of each
+stale label before trusting the map.

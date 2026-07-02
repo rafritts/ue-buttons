@@ -51,3 +51,31 @@ Fix: collect ALL exact-name matches; one → resolve, more than one → return t
 
 Verification: `add(asset="Wall_4m")` now errors "ambiguous" listing both the SM and BP
 paths; unique names (`Outhouse`, `Branch_Norway_Maple_Live_03`) still resolve directly.
+
+### B3 — path drape traces the terrain before collision is ready → silent z=0.0, then `carve` bakes it into the mesh
+Status: OPEN (found 2026-07-02 driving Level 1 dogfood; root cause characterized, not fixed)
+
+Repro (Level 1, "Valley of trees"): `landscape create` → `landscape shape` (valley +
+ridges + noise) → `path create` (route form) → `path carve` → `scatter`. The path's
+returned waypoints came back with **`z=0.0` on 4 of 9 points** while the rest draped to real
+terrain height (e.g. `[-3264,1311,418.9]`). The scatter that ran later reported
+`no_ground: 0` — every one of ~11k candidates traced fine. So the *same* `trace_ground`
+missed for the path and hit for the scatter, minutes apart, on the same terrain.
+
+Root cause (two-stage): `path._drape` (path.py:129-130) does
+`z = _ue.trace_ground(x,y); draped.append([x, y, z if z is not None else 0.0])`. Right
+after `shape`, the DynamicMesh's **complex collision hasn't finished cooking**, so
+`SceneTools._trace_world` returns `None` for the first waypoints — silently defaulted to
+`0.0` instead of surfaced as a failure. Then `path carve` computes its flatten grade from
+those stored waypoints, so it **flattened the southern bed to z=0** — baking the bad drape
+into real geometry (a raised causeway ~800 cm above the natural −825 floor). Re-tracing the
+floor afterward now *hits* z=0.0 there (a real flat surface), so the corruption is
+self-consistent and invisible to a re-trace. Evidence: floor trace at x≤−6000 returns a flat
+`0.0`; `landscape describe` (height function) still says −825..−269 there (see G15).
+
+Two defects to fix: (1) `trace_ground` / `_drape` must distinguish "nothing beneath the
+ray" from "collision not ready" — settle-and-retry after `shape`/`create` (poll the trace
+until it stabilizes, or force a collision-cook wait), and `_drape` should *warn* on a miss,
+never silently write 0.0. (2) `carve` should refuse (or warn) when a target waypoint z looks
+like a miss sentinel rather than grading to it. Blender-buttons' drape has no cook race
+(CPU mesh, immediate) — this is UE-specific (async physics cook).

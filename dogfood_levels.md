@@ -21,9 +21,27 @@ valley → path → hamlets → castle. As a dogfood fixture it exercises:
 - `view(action="map")` — the only legal source of absolute `[x,y]`; plan the path on
   the map, confirm the drawn result against the read intent.
 
-Status: the hamlet exit test already walks a slice of this. Extending it = more
-terrain area, denser scatter, longer route chains — a scale test as much as a verb
-test.
+Status: BUILT 2026-07-02 (live, through `dispatch`). 300 m valley (`landscape create`
++ `shape`: valley trough along X, two ridge walls E/W, noise — 108 m relief), a 278 m
+winding trail down the floor (`path` route form, ±22° oscillation; `carve`d), and a
+6,236-instance forest (`scatter`, 5 species / 32 FoliageTypes) that slope-rejected 4,823
+candidates at the treeline and clear-rejected 436 to keep the trail open. Verified: all
+6,236 instances live across 128 *registered* FISMCs, every one tagged `valley_forest`
+(G14 holds at scale); `view(map)` reads as a valley. Scale test passed — 3× the hamlet's
+area, ~2.4× its scatter.
+
+What it taught (the point of the fixture): **B3** — `path` drape traced the terrain
+before its collision finished cooking, silently wrote `z=0.0` on 4/9 waypoints, and
+`carve` then baked that into a raised causeway. **G15** — `landscape describe` reports the
+feature height-function, not the post-carve mesh, so describe⇄trace silently diverge after
+an edit. **G16** — ueb `_state` outlives the level; the prior hamlet session's scatters/
+paths were phantom-present in this fresh level (no level lifecycle verb). Palette reality
+reconfirmed: the SM "trees" are branch/sapling pieces (tallest 4.4 m), the real trees are
+skeletal (unscatterable) — the forest reads as scrub at human scale, fine for a fixture.
+
+Done enough — it's still teaching (three live findings), but the next lessons are B3/G15/
+G16 fixes, not more valley. Leaving the geometry as-is (dogfood: don't agonize over the
+scene).
 
 ## Level 2 — Canyon to cave, cabin inside
 
