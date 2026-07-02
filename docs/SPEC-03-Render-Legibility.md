@@ -146,14 +146,14 @@ every primitive (`FSceneView::WorldToScreen`, actor bounds).
 
 **(b) Occlusion — is it actually seen or hidden behind terrain** — raycast from the camera
 to sampled target points; a hit on a *different* actor = occluded
-(`_occlusion_fraction`, `extension/common.py:524-547`). UE already has the ray:
+(`_occlusion_fraction`, `extension/introspect.py:524-548`). UE already has the ray:
 `SceneTools._trace_world` / `LineTraceSingle`. "Is the tree behind the ridge from here" is
 a trace, not a render.
 
 **(c) Visible *front-facing* surface (the subtle one, G131)** — whole-bbox occlusion reads
 ~100% for a recessed-but-visible part (liquid seen through a mug's mouth). Sample only
 front-facing points (normal toward camera) and count unoccluded ones
-(`_visible_surface`, `extension/common.py:550-582`). Port it: a valley floor seen through a
+(`_visible_surface`, `extension/introspect.py:550-582`). Port it: a valley floor seen through a
 gap in the canopy shouldn't read as hidden.
 
 **(d) Provenance for the number (G22/G36) — the number is meaningless without its

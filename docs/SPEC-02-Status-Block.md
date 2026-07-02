@@ -48,6 +48,11 @@ carry no block — they ARE perception.
    This is where spatial lint lives (below). One line when clean; findings when not.
    **If the floor is disabled it must say so on every block** ("validate: OFF — floor
    is down") — silence-because-off must never read as silence-because-clean.
+   Presentation discipline (blender-buttons `validation.py _render_line`): findings
+   list the **new delta only**, capped (~4) with the remainder as a count; declared
+   intents collapse to a count ("3 intended"), never re-listed; and the line ends
+   with `[N excluded]` when the floor skipped non-renderable actors (SPEC-03's
+   predicate) — the floor is never silent about its own blind spots.
 4. **Re-ground recap**: after enough churn, a compact scene recap + "re-read anything
    you haven't felt in a while before building on it." blender-buttons triggers on
    *weighted drift*, not raw mutation count (G117) — copy that.
@@ -90,6 +95,22 @@ depth-bounded (`max_depth`) so a blessed 3 cm clip can't hide an 11 cm one. Inte
 defects — z-fights, duplicate transforms — are never suppressible at all. Contact
 within the resting/flush epsilon (≲1 cm, consulting `feel`'s relations) is not a
 finding in the first place.
+
+Two refinements from blender-buttons that matter *more* at UE scale:
+
+- **Class-level declaration + the G125 hint** (`validation.py:556-570`): `expect`
+  accepts a population/group subject, not just an actor pair — and when ≥6 new
+  findings all involve one substrate, the floor *offers* the class declaration in a
+  hint ("2,314 of these involve 'terrain' — if it's a settled scatter, declare
+  scatter:trees↔terrain once") instead of leaving the agent to bless instances one
+  by one. In UE this is load-bearing, not convenience: a single scatter is thousands
+  of terrain contacts; per-instance blessing is impossible by design, per-class
+  blessing is one reasoned line.
+- **Bidirectional tripwire** (`validation.py:543-554`): a declared-intended contact
+  that *vanishes* is itself a finding ("intended clip path↔terrain no longer
+  present"). Blessings can't rot silently, and over-blessing produces a visible
+  pile, not quiet. Auto-GC declarations whose subject no longer exists
+  (`_prune_dead_intents`) so a deleted actor never leaves a permanent tripwire.
 
 ## Sweep tier
 
