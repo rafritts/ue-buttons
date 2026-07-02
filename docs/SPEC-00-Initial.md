@@ -173,7 +173,13 @@ pessimistic. Findings:
 - A **text serialization of graphs already exists**: copying BP nodes puts an
   object-text export on the clipboard (how blueprintue.com works). A candidate seam
   for reading and templated writing without a bespoke graph compiler.
-- Epic's first-party MCP has **no BP graph authoring yet**, but the direction is clear.
+- ~~Epic's first-party MCP has **no BP graph authoring yet**~~ **Corrected by the M2
+  eval** (`docs/M2-epic-toolset-evaluation.md`): the `EditorToolset` source ships a
+  round-trippable **Blueprint text DSL** (`write_graph_dsl`/`read_graph_dsl`,
+  S-expressions, transpile→compile→decompile) that the official docs don't mention.
+  This promotes path (1) below from speculative to the presumptive winner: the logic
+  spec should wrap that DSL behind our verb rather than build a transpiler or lean on
+  the clipboard seam.
 
 **Decision (Ryan, 2026-07-02): target Blueprints now.** UE6 (EA end-2027) will move
 gameplay to Verse and eventually deprecate Blueprints; that horizon is explicitly
