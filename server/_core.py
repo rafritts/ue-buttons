@@ -12,7 +12,9 @@ import urllib.request
 
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP("ue-buttons")
+from server._instructions import INSTRUCTIONS
+
+mcp = FastMCP("ue-buttons", instructions=INSTRUCTIONS)
 
 RC_HOST = os.environ.get("UE_RC_HOST", "localhost")
 RC_BASE = f"http://{RC_HOST}:30010"

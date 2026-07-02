@@ -308,6 +308,13 @@ def history(op: str = "list", id: str = None) -> str:
     return render(call_ue("history", {"op": op, "id": id}))
 
 
+@mcp.resource("guidance://llms")
+def guidance_for_llms() -> str:
+    """GUIDANCE_FOR_LLMS.md — battle-tested loops and failure modes, served verbatim.
+    The server instructions direct the agent here before any multi-step build."""
+    return (Path(_PARENT) / "GUIDANCE_FOR_LLMS.md").read_text(encoding="utf-8")
+
+
 def main():
     mcp.run()
 
