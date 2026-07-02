@@ -5,6 +5,26 @@ UI and project the domain into agent-space (names, relations, dimensions, legibl
 perception). Partnership split: human owns taste + experiential playtesting ("does it
 feel right"); agent owns precision + mechanical verification ("does it provably work").
 
+## North star (decided 2026-07-02)
+
+**The entire package: a complete, playable game — environment and game systems together,
+built and verified through the verbs.** Not pretty-scenes-only (that's blender-buttons
+territory projected into UE) and not logic-in-a-graybox — you cannot have complete game
+systems without environments. blender-buttons' north star is high-quality character
+meshes; this is its UE-scale equivalent.
+
+Checkpoints toward it (the "donut tutorial" ladder — UE has no single donut, it has two,
+and we take both):
+
+1. **The environment donut** — an Unreal Sensei-class scene: landscape, assets placed
+   relationally, materials, lighting, a judgeable beauty shot. Exercises the M1/M2
+   perception + placement surface at real-scene scale.
+2. **The game-systems donut** — Epic's "Your First Game in UE5" shape: ThirdPerson
+   template, blocked-out obstacle course, moving platform, button-opens-door, pickups,
+   win state. Gated on the logic verb (Blueprint text DSL wrap); serves as its exit test.
+3. **The package** — the two fused: a small complete game in a real environment. Agent
+   proves it works (functional tests, traces); Ryan judges how it feels.
+
 ## Topology (2026-07-02 — supersedes the Mac-mini plan in blender-buttons/experiments)
 
 Everything on one machine, the Windows gaming rig (RTX 4090):
