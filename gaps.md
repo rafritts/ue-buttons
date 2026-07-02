@@ -216,3 +216,38 @@ PIE. The determinism check holds by construction and was verified for its one st
 (scatter: same seed ⇒ identical 801/665/… instance counts on re-run); terrain (pure height
 function) and relational placement are deterministic, so rebuilding from the same calls
 reproduces the hamlet within tolerance.
+
+### G14 — scatter HISM instances have data but DON'T RENDER (scatter is invisible)
+Status: OPEN — significant; scatter's populations exist as data but draw nothing
+
+Live truth (screenshot, editor foregrounded): terrain, cabins, outhouses, and a control
+StaticMeshActor all render — but the entire scatter (665 trees + 1627 shrubs + 327 rocks) is
+invisible. The instances are real (correct world transforms, meshes assigned, visible=True,
+counts right) but the HISM has **no render proxy**: a component created via the outer-
+constructor trick (`HierarchicalInstancedStaticMeshComponent(actor)`) shows up in the actor's
+component list yet was never registered with the rendering scene. Same root cause as the
+spline (G13): editor Python exposes no `register_component` / `add_instance_component`.
+
+This corrects the E5/E6 record: scatter passes MECHANICALLY (counts, seed determinism, live
+clearance check) but produces nothing visible, so the hamlet's forest is data-only. The E6
+"visual is Ryan's step" caveat was blamed on G8 (backgrounded screenshots); this is the real
+blocker for the scatter half.
+
+Candidate fixes explored, none landed yet:
+- **HISM/ISM register** — no `register_component`/`add_instance_component` in the binding; the
+  component never gets a scene proxy. Dead end without one.
+- **Foliage** — `InstancedFoliageActor.add_instances(world, FoliageType_ISM, transforms)`
+  exists and runs, but a spawned IFA + inline (transient) FoliageType_ISM also rendered
+  nothing (likely needs the foliage type registered/added to the IFA's foliage-info map, or a
+  saved UFoliageType asset). Worth another pass — this is the "right" instanced path.
+- **Bake into a DynamicMesh** (proven to render — it's how terrain draws): `copy_mesh_from_
+  static_mesh` → `append_mesh_transformed(target, tmp, [transforms], constant_xf)` into one
+  DynamicMeshActor per stand (matches the "one labelled actor" model, renders + saves). First
+  bake attempt errored on the `append_mesh_transformed` arg shape (it takes an ARRAY of
+  transforms + a constant transform, not one transform per call) — trivial to fix. Cost:
+  no per-instance culling/Nanite, so tri budget matters (rocks are ~15k tris each → cap
+  density or accept the count). Likely the pragmatic winner for hamlet scale.
+
+Everything ELSE the scatter verb does (sampling, slope/clearance filtering, seed determinism,
+_state bookkeeping, describe/regenerate/remove) is correct and reusable — only the final
+"put geometry on screen" step needs swapping from HISM to foliage-or-bake behind the verb.
