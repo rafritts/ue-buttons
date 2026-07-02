@@ -223,10 +223,16 @@ def _distance_between(la, lb, axis):
         i = "XYZ".index(axis)
         return {"a": la, "b": lb, "axis": axis, "measured": "centre-to-centre",
                 "distance_cm": round(abs(a["center"][i] - b["center"][i]), 2)}
-    # ANY: center distance for M1. True nearest-surface (BVH) is deferred — gaps.md G5.
-    d = math.dist(a["center"], b["center"])
-    return {"a": la, "b": lb, "axis": "ANY", "measured": "centre-to-centre (surface TBD)",
-            "distance_cm": round(d, 2)}
+    # ANY: nearest-surface distance between the two world AABBs. Per axis the empty gap is
+    # max(bmin−amax, amin−bmax, 0); the Euclidean length of those gaps is the closest
+    # approach of the boxes (0 if they overlap). This is exact for box footprints; true
+    # sub-AABB mesh-surface nearest-point would need a geometry/BVH query UE Python doesn't
+    # cheaply expose — but that refinement only matters for non-box meshes at contact range.
+    gaps = [max(b["min"][i] - a["max"][i], a["min"][i] - b["max"][i], 0.0) for i in range(3)]
+    surf = math.sqrt(sum(g * g for g in gaps))
+    return {"a": la, "b": lb, "axis": "ANY", "measured": "nearest-surface (AABB)",
+            "distance_cm": round(surf, 2),
+            "centre_to_centre_cm": round(math.dist(a["center"], b["center"]), 2)}
 
 
 def _gap_between(la, lb):

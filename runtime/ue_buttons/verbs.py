@@ -32,6 +32,13 @@ SPATIAL = {"landscape", "path", "scatter"}
 # `history` with op=undo_to mutates but manages its own undo accounting — never logs
 # itself (would desync the 1:1 count) and never nests a transaction.
 
+# Auto-follow camera (G17): after every mutating verb, aim the viewport at what was just
+# touched so the human always sees the agent's hands. Default ON; the flag lives in
+# never-reloaded _state so a hot-reload can't silently flip it. Camera moves are
+# perception-side — never logged, never a transaction (must not touch the shared undo stack).
+if not hasattr(_state, "follow"):
+    _state.follow = True
+
 
 def handle(verb, params):
     fn = _VERBS.get(verb)
@@ -153,9 +160,47 @@ def _status_block(verb, params, result):
                 lines.append(f"  ⚠ intended contacts VANISHED: {', '.join(rg['declared_vanished'])}")
             lines.append("  re-read anything you haven't felt in a while before building on it.")
 
+    # 4b. auto-follow camera (G17) — aim the viewport at what was just touched so the human
+    # always sees the agent's hands. OFF announces itself (same honesty as validate/render).
+    if verb in MUTATING or verb in SPATIAL:
+        if _state.follow:
+            _follow_camera(focus)
+        else:
+            lines.append("follow: OFF — camera not tracking edits "
+                         "(view action=follow enabled=true to re-enable)")
+
     # 5. the block itself — a single-object spotlight on the acted-on actor.
     lines += _block_lines(result, focus)
     return "\n".join(lines)
+
+
+def _follow_camera(focus):
+    """Frame the acted-on actor (or the region a spatial edit touched) in the editor
+    viewport. Distance is sized to the bounds so the whole thing fits; a fixed 3/4 azimuth +
+    35° downward pitch reads as a natural over-the-shoulder view. Uses the same
+    `set_level_viewport_camera_info` that `view orbit` proved works (G8: positioning is
+    reliable — only async file capture needs foreground). Never logged, never a transaction."""
+    import math
+    actor = _ue.find_by_label(focus) if focus else None
+    if actor is None:
+        sel = _ue.actor_subsystem().get_selected_level_actors()
+        actor = sel[-1] if sel else None
+    if actor is None:
+        return
+    b = _ue.bounds(actor)
+    if b["size"] == [0, 0, 0]:
+        return
+    center = b["center"]
+    radius = max(max(b["size"]) / 2.0, 50.0)
+    dist = max(radius * 2.4, 300.0)              # fit with margin (fov≈90 → half-angle 45)
+    az, el = math.radians(135.0), math.radians(35.0)
+    ux, uy, uz = math.cos(el) * math.cos(az), math.cos(el) * math.sin(az), math.sin(el)
+    cam = [center[0] + ux * dist, center[1] + uy * dist, center[2] + uz * dist]
+    yaw = math.degrees(math.atan2(-uy, -ux))
+    pitch = math.degrees(math.asin(-uz))
+    ues = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem)
+    ues.set_level_viewport_camera_info(unreal.Vector(*cam),
+                                       unreal.Rotator(pitch=pitch, yaw=yaw, roll=0.0))
 
 
 def _block_lines(result, focus):
@@ -409,6 +454,13 @@ def _v_view(p):
     action="map" (default "orbit"): return map data (height grid + labelled actor markers +
     paths + scatter regions) for the server to render — the grounding for absolute [x,y]."""
     action = p.get("action")
+    if action == "follow":
+        # G17 toggle: whether the viewport auto-tracks each mutation. Default ON.
+        if "enabled" in p:
+            _state.follow = bool(p.get("enabled"))
+        return {"follow": _state.follow,
+                "note": "camera auto-tracks each edit" if _state.follow
+                        else "camera is free (edits won't move it)"}
     if action == "map":
         return _map_data(p)
     # SPEC-03 computed visibility (link 8): framing/occlusion as NUMBERS off the editor
@@ -529,10 +581,26 @@ def _map_data(p):
 
 
 def _v_history(p):
-    """op: list | undo_to. undo_to issues N console TRANSACTION UNDOs (gaps.md G1)."""
+    """op: list | undo | undo_to.
+      undo (n=1): "undo that" — issue N raw editor undos on the SHARED transaction stack,
+        newest first, regardless of who made the edit. The editor's undo is shared with the
+        human on purpose, so this reverses the last thing that happened — an agent op OR a
+        human's own mistake ("can you undo that?"). Does NOT touch our 1:1 history counting
+        (that's what undo_to is for); this is the blunt, human-facing button.
+      undo_to (id): rewind exactly to one of OUR logged ops (count kept 1:1 with the stack).
+    """
     op = p.get("op", "list")
     if op == "list":
         return {"history": _state.history}
+    if op == "undo":
+        n = int(p.get("n", 1))
+        _ue.undo(n)
+        # Deliberately does NOT touch _state.history: this can reverse a HUMAN edit that was
+        # never in our log, and trimming our history then would corrupt undo_to's counting.
+        # The shared stack is intended (a human wants "undo that" to just work); undo_to is
+        # the precise, history-aware path.
+        return {"undone": n, "note": f"issued {n} editor undo(s) on the shared stack "
+                                     f"(reverses the last change, agent or human)"}
     if op == "undo_to":
         target = p.get("id")
         ids = [h["id"] for h in _state.history]

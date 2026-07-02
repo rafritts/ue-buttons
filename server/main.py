@@ -177,8 +177,13 @@ def view(action: str = "orbit", target: str = None, azimuth: float = 45.0,
         landed = poll_screenshot(result["screenshot_wsl"])
         result["screenshot_ready"] = landed
         if not landed:
-            result["note"] = ("capture pending — the async screenshot hasn't landed; is "
-                              "the editor window foregrounded? (gaps.md G8)")
+            result["screenshot_failed"] = True
+            result["message_for_user"] = (
+                "📷 Screenshot couldn't be captured. The Unreal Editor only renders frames "
+                "when its window is focused — while it's in the background (as it is when I "
+                "drive it from WSL) there's no frame to save. To get a screenshot: click the "
+                "Unreal Editor window to bring it to the foreground, then ask again. (The "
+                "camera IS aimed correctly — only the image capture needs focus.)")
     return render(result)
 
 

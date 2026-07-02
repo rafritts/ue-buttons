@@ -201,7 +201,13 @@ def _describe(p):
            "feature_count": len(meta["features"])}
     pts = p.get("at")
     if pts:
-        out["samples"] = [_sample(meta, pt) for pt in pts]
+        # Ignore everything placed ON the terrain so the trace answers the SURFACE, not a
+        # cube resting on it — hit only the terrain itself (G15/G18).
+        ignore = [a for a in _ue.ueb_actors() if a.get_actor_label() != label]
+        out["samples"] = [_sample(meta, pt, ignore) for pt in pts]
+        if any(s.get("diverges") for s in out["samples"]):
+            out["note"] = ("some samples read the TRACED mesh, which differs from the feature "
+                           "model — the terrain was carved/flattened there; trust z (traced)")
     return out
 
 
@@ -255,16 +261,30 @@ def _height_range(meta):
     return hi, lo
 
 
-def _sample(meta, pt):
+def _sample(meta, pt, ignore=None):
     ox, oy, oz = meta["origin"]
     lx, ly = pt[0] - ox, pt[1] - oy
     extent = min(meta["size"]) / 2.0
     feats = meta["features"]
     h = terrain.height_at(lx, ly, feats, extent)
-    # slope: gradient magnitude over a 1 m step → degrees from horizontal
+    z_model = round(oz + h, 1)
+    # slope: gradient magnitude over a 1 m step → degrees from horizontal (model-based)
     d = 100.0
     hx = terrain.height_at(lx + d, ly, feats, extent) - terrain.height_at(lx - d, ly, feats, extent)
     hy = terrain.height_at(lx, ly + d, feats, extent) - terrain.height_at(lx, ly - d, feats, extent)
     import math
     slope = math.degrees(math.atan2(math.hypot(hx, hy), 2 * d))
-    return {"at": [pt[0], pt[1]], "z": round(oz + h, 1), "slope_deg": round(slope, 1)}
+    # G15: the feature model doesn't see carve/flatten mesh edits, so TRACE the actual
+    # surface and trust it. Fall back to the model only when the trace misses (collision not
+    # cooked — the B3 cook race), flagged so a miss never passes as agreement.
+    zt = _ue.trace_ground(pt[0], pt[1], ignore=ignore)
+    out = {"at": [pt[0], pt[1]], "slope_deg": round(slope, 1), "z_model": z_model}
+    if zt is None:
+        out["z"] = z_model
+        out["source"] = "model (trace missed — collision not cooked yet? see B3)"
+    else:
+        out["z"] = round(zt, 1)
+        out["source"] = "traced (actual mesh)"
+        if abs(zt - z_model) > 5.0:
+            out["diverges"] = f"feature model says z={z_model}; mesh here is z={round(zt,1)}"
+    return out
