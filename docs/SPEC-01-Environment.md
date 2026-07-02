@@ -188,6 +188,16 @@ internal point:
 - **Absolute**: `[x, y]` in map cm — legal, expected to be *read off* `view(map)`
   (below), not invented.
 
+**The governing principle (Ryan, 2026-07-02): derived coordinates, never divined
+coordinates.** A number is legitimate when the agent can trace it back to a perception
+or a prior placement (an anchor, a measurement, a map it read, a bearing from a known
+point). It's illegitimate when the model conjures it from thin air — divined numbers
+look exactly as precise as derived ones, which is what makes them dangerous. Apply
+this test to every parameter in every future verb: not "does it contain numbers?"
+but "where would the agent have gotten this number?" Any resolution math (route
+walking, relational offsets) happens in the runtime and returns its results — the
+substrate does arithmetic so the model never dead-reckons in its head.
+
 **Compass convention (decide once, bake into every docstring): north = +X (UE
 forward), east = +Y, azimuth/bearing measured clockwise from north.** This makes
 bearing numerically identical to UE yaw — one rotation vocabulary everywhere.
