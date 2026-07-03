@@ -49,7 +49,7 @@ Verified present in `Content/` and readable via asset registry from the bridge:
 | Megaplant Library | `/Game/Megaplant_Library` | 16+ tree/shrub species, 381 static meshes (use SM variants, ignore the 322 skeletal) |
 | GV Free Shrubs | `/Game/GV_FreeShrubsPack` | 66 undergrowth meshes |
 | Rock Env Pack / Rock Collection 04 | `/Game/RockEnv_Pack`, `/Game/Rock_Collection_04` | ~148 rock/cliff meshes |
-| Modular Rural Cabin | `/Game/Modular_Rural_Cabin` | 160 meshes: modular wall kit on a **4 m grid** (walls 400/800 × 20 × 300 cm, gable tops 470 cm), 32 prebuilt cabin Blueprints, ivy/detail meshes |
+| Modular Rural Cabin | `/Game/Modular_Rural_Cabin` | 160 meshes: modular wall kit on a **4 m grid** (walls 400/800 × 20 × 300 cm, gable tops 470 cm), ivy/detail meshes. NOTE: the "32 Blueprints" are modular *pieces* (Wall_*, Roof_*, Porch_*) plus a few prop BPs (Mailbox, Outhouse, Trash_Bin) — **not** whole-cabin Blueprints. The 5 fully-built cabins ship as **World** assets (showcase level maps), which would place via level-instancing, not `spawn_actor_from_class`. So a "prebuilt cabin" is either a one-actor building BP (e.g. Outhouse) or composed from modular pieces; whole built cabins need a `level-instance` path (SPEC-04 non-goal). |
 | KiteDemo | `/Game/KiteDemo` | terrain-grade landscape materials, 37 meshes |
 | ParagonProps | `/Game/ParagonProps` | 478 stylized props (hamlet clutter; style clash accepted — test assets) |
 | Fab (Megascans) | `/Game/Fab` | surface materials |

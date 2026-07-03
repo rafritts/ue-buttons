@@ -15,24 +15,6 @@ Gaps are *friction / missing-capability / design*. Outright defects go in `bugs.
 
 ---
 
-### G11 — the pack's "prebuilt cabins" are World assets, not spawnable Blueprints
-Status: OPEN (palette knowledge for the user; E2/E6 adapt. Reviewed 2026-07-03: the five
-World assets are SHOWCASE MAPS — Rural_Cabins + four *_Showcase — each a multi-item
-display scene, so level-instancing one would drop a whole showcase into the level, not
-"a cabin". No agent-side fix exists; the modular-composition route now has G10's
-`place={"grid": ...}`. Remaining path is user asset curation.)
-
-SPEC-01 expected "32 prebuilt cabin Blueprints" in Modular_Rural_Cabin. Reality (from
-`asset packs`/`find`): the 32 Blueprints are modular *pieces* (Wall_*, Roof_*, Porch_*) plus
-a few prop BPs (Mailbox, Outhouse, Trash_Bin); the 5 fully-built cabins ship as **World**
-assets (level maps), which place via level-instancing, not `spawn_actor_from_class`. So E2's
-"spawn one prebuilt cabin Blueprint" is satisfied by a prebuilt one-actor building BP
-(Outhouse) — verified spawning as a single ground-snapped actor. For E6, a "prebuilt cabin"
-means either level-instancing a cabin World (a new mechanism, not yet a verb) or composing
-from modular pieces as E2 did. Flagged for the user (asset curation): if whole-cabin BPs are
-wanted, they'd need to be authored from the World assets, or a `level-instance` placement
-path added behind `add` (see SPEC-04 non-goals).
-
 ### G30 — no job/progress pattern for slow mutations: one pathological asset load can still outrun the HTTP timeout
 Status: OPEN (successor to B6, 2026-07-02 — the two concrete offenders are fixed, the
 general pattern isn't built. Reviewed 2026-07-03: deliberately deferred again — the
