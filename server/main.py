@@ -320,7 +320,7 @@ def landscape(action: str = "create", label: str = "terrain", size: list = None,
               origin: list = None, base_height: float = None, features: list = None,
               region: dict = None, height: float = None, blend_margin: float = None,
               at: list = None, replace: bool = False, resolution: list = None,
-              material: str = None) -> str:
+              material: str = None, uv_tile_cm: float = None) -> str:
     """Terrain as a heightfield — you describe landforms, the runtime synthesises the mesh.
 
     All coords are MAP centimetres (converted to terrain-local internally). Compass: north=+X,
@@ -348,12 +348,15 @@ def landscape(action: str = "create", label: str = "terrain", size: list = None,
 
     material: a material name or /Game path to assign to the terrain surface (find one via
         asset find kind=material); persists across reshapes. Accepted on create/shape.
+    uv_tile_cm: ground-texture repeat in cm (default 400) — one UV tile every uv_tile_cm,
+        so a tiling material renders at its authored scale instead of smearing (G33).
+        Accepted on create/shape; persists across reshapes.
     """
     p = {"action": action, "label": label, "replace": replace}
     for k, v in (("size", size), ("origin", origin), ("base_height", base_height),
                  ("features", features), ("region", region), ("height", height),
                  ("blend_margin", blend_margin), ("at", at), ("resolution", resolution),
-                 ("material", material)):
+                 ("material", material), ("uv_tile_cm", uv_tile_cm)):
         if v is not None:
             p[k] = v
     return render(call_ue("landscape", p, timeout=180))

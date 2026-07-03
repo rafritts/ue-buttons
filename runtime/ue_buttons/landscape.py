@@ -21,6 +21,7 @@ from . import terrain
 
 DEFAULT_CELL_CM = 200.0     # target grid resolution: one vertex row every ~2 m
 MAX_STEPS = 220             # cap grid density so a shape stays a single snappy RC call
+DEFAULT_UV_TILE_CM = 400.0  # ground texture repeat: one UV tile every 4 m (G33)
 _META_NAME = "ueb_landscapes.json"
 
 
@@ -85,6 +86,14 @@ def _rebuild(actor, meta):
     dlist = unreal.GeometryScript_List.convert_array_to_vector_list(disp)
     unreal.GeometryScript_MeshDeformers.apply_displace_from_per_vertex_vectors(
         mesh, unreal.GeometryScriptMeshSelection(), dlist, 1.0)
+    # G33: the rectangle's default UVs stretch 0..1 over the WHOLE terrain, so a 2 m
+    # tiling ground texture smears across 300 m. Re-project planar top-down at a real
+    # texel density: one UV repeat per uv_tile_cm (measured: 1 repeat = scale3d cm).
+    tile = float(meta.get("uv_tile_cm") or DEFAULT_UV_TILE_CM)
+    uv_xf = unreal.Transform()
+    uv_xf.scale3d = unreal.Vector(tile, tile, 1.0)
+    unreal.GeometryScript_UVs.set_mesh_u_vs_from_planar_projection(
+        mesh, 0, uv_xf, unreal.GeometryScriptMeshSelection())
     comp.set_editor_property("enable_complex_collision", True)
     # A DynamicMesh has no simple collision shapes; without complex-as-simple the pawn's
     # physics sweeps find nothing and fall straight through in PIE (editor traces passed
@@ -125,6 +134,12 @@ def _set_material(meta, p):
         return err
     meta["material"] = path
     return None
+
+
+def _set_uv_tile(meta, p):
+    """Stash a requested UV tile (cm per texture repeat) on the meta (applied by _rebuild)."""
+    if p.get("uv_tile_cm"):
+        meta["uv_tile_cm"] = float(p["uv_tile_cm"])
 
 
 def _eff_origin(label, meta):
@@ -173,6 +188,7 @@ def _create(p):
     err = _set_material(meta, p)
     if err:
         return {"error": err}
+    _set_uv_tile(meta, p)
     actor = _ue.actor_subsystem().spawn_actor_from_class(
         unreal.DynamicMeshActor, unreal.Vector(*origin))
     actor.set_actor_label(label)
@@ -226,6 +242,7 @@ def _shape(p):
     err = _set_material(meta, p)
     if err:
         return {"error": err}
+    _set_uv_tile(meta, p)
     feats = _to_local_features(p.get("features", []), _eff_origin(label, meta))
     if p.get("replace"):
         meta["features"] = feats

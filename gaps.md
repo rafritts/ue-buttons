@@ -120,15 +120,6 @@ data) — three escalating user reports before the cause was found, and no mecha
 read can see WPO at all (collision never moves). A material vet should also report
 "has WPO / parented outside /Game" as a warning.
 
-### G33 — terrain has no UV-tiling control: near-field ground texture smears
-Status: OPEN (found 2026-07-02, L1 replay)
-
-The DynamicMesh terrain's UVs stretch a tiling ground texture (2 m-ish textures over a
-300 m mesh) — at eye level the ground reads as smeared/blurry watercolor; roughness sheen
-amplified it into a wet look until the material's Normal/Roughness Power were tuned down.
-`landscape` wants a `uv_tile_cm=` (target texel density) applied when the mesh is built,
-so a tiling material renders at its authored scale.
-
 ### G35 — no verb can place a PlayerStart: an authored scene always needs one
 Status: OPEN (found 2026-07-02, L1 replay — the user asked for player insertion at the trailhead)
 
