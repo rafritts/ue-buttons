@@ -175,8 +175,11 @@ def asset(action: str = "packs", pack: str = None, asset: str = None,
                                      names, tris, Nanite, and where measured: height,
                                      footprint (widest of x/y) and aspect_h_over_w — the
                                      SILHOUETTE tells (aspect ≈1 reads as a bush/blob; a
-                                     trunk-and-canopy tree runs well above 1 — don't pick
-                                     forest species on height alone). Measuring a mesh
+                                     trunk-and-canopy tree runs ~1.5–3; the tell PEAKS —
+                                     past ~3 you're usually looking at a bare spire/snag,
+                                     not a fuller tree; suspects are flagged sparse_spire
+                                     with tris-per-height corroboration — G38). Don't pick
+                                     forest species on height alone. Measuring a mesh
                                      means loading it, so dims are filled lazily:
                                        measure=True [budget=N, seconds=S]: warm the dims
                                          cache in bounded batches (≤N meshes AND ≤S seconds
@@ -189,9 +192,12 @@ def asset(action: str = "packs", pack: str = None, asset: str = None,
                                      collision, dependency/referencer counts. Short name or
                                      full /Game path; errors with candidates if ambiguous.
                                      On a MATERIAL: the vet (G32) — master + parent chain,
-                                     domain/blend, exposed parameters, and warnings for
-                                     world-position-offset (the mesh will MOVE), a master
-                                     outside /Game, or a non-surface domain. Run it BEFORE
+                                     domain/blend, exposed parameters, and a MOTION verdict
+                                     (G39): masked_wind (Wind Weight — base anchored, safe)
+                                     vs wpo / wpo_suspect (the mesh MOVES; material-
+                                     attributes masters hide the WPO pin, so displacement
+                                     params are read too), plus warnings for a master
+                                     outside /Game or a non-surface domain. Run it BEFORE
                                      dressing anything in an unknown material.
     action="instance_material" (parent, name, textures, scalars, folder):
                                      author a MaterialInstanceConstant of a master —
@@ -244,6 +250,9 @@ def scatter(action: str = "create", label: str = "scatter", meshes: list = None,
                and buildings (footprint+margin) — the path stays open THROUGH the trees.
                Spacing below the measured canopy width warns (clipped-geometry tell): derive
                min_spacing_cm from the widest scattered family's footprint, never intuition.
+               Meshes whose materials MOVE them are announced at author time (G39): masked
+               wind (Wind Weight) is named safe; unmasked/plugin displacement warns — the
+               whole mesh would bob.
     action="describe": counts per family, region, seed, rules — enough to reason/regenerate.
     action="regenerate" (seed): same rules, new dice — the "reroll that stand" button.
     action="remove": delete the whole stand as a unit.
@@ -310,9 +319,10 @@ def landscape(action: str = "create", label: str = "terrain", size: list = None,
     All coords are MAP centimetres (converted to terrain-local internally). Compass: north=+X,
     east=+Y, bearing clockwise = UE yaw. Terrain is a collidable mesh, so ground-snap / scatter
     / path-drape trace it directly. NOT undoable via history (see the `undoable` field).
-    While a ueb terrain exists, ground traces IGNORE the engine template's z=0 Landscape —
-    your terrain is the ground, even below zero (though base_height is still the cleaner way
-    to keep geometry clear of the template plane).
+    While a ueb terrain exists, the engine template's z=0 Landscape is neither traced NOR
+    rendered: ground traces ignore it, and create HIDES it (editor + game) so it can't show
+    through a sub-zero floor dip or past a raised terrain's edge (G37); removing the last
+    ueb terrain restores it.
 
     action="create" (size, origin, base_height, material): new flat terrain. size=[x_cm,y_cm]
         (hamlet ~[20000,20000] = 200 m); origin = map centre (default [0,0]).

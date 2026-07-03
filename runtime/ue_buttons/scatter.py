@@ -428,9 +428,11 @@ def _generate(label, region, meshes, seed, rules, p):
            "seed": seed, "rejected": rejected, "foliage_types": len(ft_paths),
            "undoable": False,
            "note": "instanced foliage (registered) — renders in the viewport"}
-    canopy = _canopy_notes(meshes, spacing, jit)
-    if canopy:
-        out["notes"] = canopy
+    # G39: a population that will MOVE (WPO wind/displacement) is announced at author
+    # time — a whole-mesh-bobbing understory must never scatter silently again.
+    notes = _canopy_notes(meshes, spacing, jit) + asset.motion_notes(variant_paths)
+    if notes:
+        out["notes"] = notes
     return out
 
 

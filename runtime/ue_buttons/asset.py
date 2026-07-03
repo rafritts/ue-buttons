@@ -296,8 +296,29 @@ def _a_inventory(p):
         # height:width aspect put SILHOUETTE on the family line where selection happens —
         # aspect ≈1 is a blob/bush; a canopy tree with a trunk runs well above 1.
         widths = [max(v["dims_cm"][0], v["dims_cm"][1]) for v in measured_vs]
-        aspects = [round(v["dims_cm"][2] / w, 2)
-                   for v, w in zip(measured_vs, widths) if w > 0.01]
+        pairs = [(v, round(v["dims_cm"][2] / w, 2))
+                 for v, w in zip(measured_vs, widths) if w > 0.01]
+        aspects = [a for _, a in pairs]
+
+        # G38: the aspect tell PEAKS — past ~3 a "tall tree" is usually a bare spire/
+        # snag (thin trunk, a wisp of canopy at the top), and a low tris-per-metre-of-
+        # height corroborates it (the L1 burn: aspect-5.1 pine at ~190 tris/m rendered
+        # as a pole; its leafy aspect-1.8 sibling ran ~716). Flag suspects on the family
+        # line, where species selection happens.
+        def _tpm(v):
+            h_m = v["dims_cm"][2] / 100.0
+            return (v["tris"] / h_m) if v["tris"] and h_m > 0.01 else None
+        full_best = max((t for t in (_tpm(v) for v, a in pairs if a < 3.0) if t),
+                        default=None)
+        spires = []
+        for v, a in pairs:
+            t = _tpm(v)
+            if a < 3.0 or (t and full_best and t >= 0.6 * full_best):
+                continue
+            tell = f"{v['name']} (aspect {a}"
+            if t and full_best:
+                tell += f", {round(t)} tris/m vs {round(full_best)} in fuller siblings"
+            spires.append(tell + ")")
         entry = {
             "count": len(vs),
             "variants": [v["name"] for v in vs],
@@ -308,6 +329,11 @@ def _a_inventory(p):
             "footprint_range_cm": _range(widths),
             "aspect_h_over_w": _range(aspects),
         }
+        if spires:
+            entry["sparse_spire"] = (
+                "likely bare spire/snag, NOT a fuller tree (the aspect tell peaks ≳3): "
+                + "; ".join(spires)
+                + " — verify solo before weighting a scatter toward these (G38)")
         if only_family:                 # drill mode carries full per-variant detail
             entry["detail"] = vs
         grouped[fam] = entry
@@ -428,14 +454,15 @@ def _describe_material(path, out):
         },
     })
     warnings = []
-    wpo = mel.get_material_property_input_node(
-        base, unreal.MaterialProperty.MP_WORLD_POSITION_OFFSET)
-    if wpo is not None:
+    kind, note = material_motion(base)
+    if kind is not None:
+        out["motion"] = kind
+    if kind in ("wpo", "masked_wind"):
         out["has_world_position_offset"] = True
-        warnings.append("has WORLD-POSITION-OFFSET: every mesh wearing it MOVES (wind/"
-                        "bob/deform) — no mechanical read can see this, and a master "
-                        "built for another system (foliage plugin, diorama) deforms "
-                        "arbitrary meshes wildly")
+    if kind in ("wpo", "wpo_suspect"):
+        warnings.append(note)
+    elif kind in ("masked_wind", "unreadable"):
+        out["motion_note"] = note
     if not out["master"].startswith("/Game"):
         warnings.append(f"master lives outside /Game ({out['master']}) — engine/plugin "
                         "materials often expect runtime data this mesh won't have")
@@ -444,9 +471,97 @@ def _describe_material(path, out):
                         "material (decal/UI/post-process)")
     if warnings:
         out["warnings"] = warnings
-    else:
+    elif kind == "masked_wind":
+        out["verdict"] = "surface-suitable, base-anchored (masked wind only)"
+    elif kind is None:
         out["verdict"] = "surface-suitable and motionless (opaque/masked surface master, no WPO)"
     return out
+
+
+# ── motion classification (G39) ──────────────────────────────────────────────────
+# The per-property WPO pin read goes BLIND on a use_material_attributes master (the whole
+# graph routes through one MaterialAttributes pin, so get_material_property_input_node
+# returns None even when displacement is wired) — which is exactly how the worst-bobbing
+# plugin master slipped the vet. Classify from BOTH the pin and the parameter names, and
+# separate base-anchored masked wind (fine) from whole-mesh displacement (bobs).
+_DISPLACE_TOKENS = ("displace", "sway", "bend", "bob")
+
+
+def material_motion(base):
+    """Classify whether a master material MOVES the meshes wearing it. Returns
+    (kind, note): kind is None (still) | "masked_wind" | "wpo" | "wpo_suspect" |
+    "unreadable"."""
+    mel = unreal.MaterialEditingLibrary
+    scalars = [str(n).lower() for n in mel.get_scalar_parameter_names(base)]
+    wind_masked = any("wind" in s and "weight" in s for s in scalars)
+    displaced = [s for s in scalars if any(t in s for t in _DISPLACE_TOKENS)]
+    uma = bool(base.get_editor_property("use_material_attributes"))
+    wpo = None if uma else mel.get_material_property_input_node(
+        base, unreal.MaterialProperty.MP_WORLD_POSITION_OFFSET)
+    if wpo is not None and wind_masked:
+        return ("masked_wind",
+                "vertex-masked wind WPO (Wind Weight): base stays anchored, leaves sway "
+                "— the safe foliage animation")
+    if wpo is not None:
+        return ("wpo", "has WORLD-POSITION-OFFSET: every mesh wearing it MOVES (wind/"
+                       "bob/deform) — no mechanical read can see this, and a master "
+                       "built for another system (foliage plugin, diorama) deforms "
+                       "arbitrary meshes wildly")
+    if uma and (displaced or wind_masked):
+        via = ", ".join(displaced) if displaced else "wind params"
+        return ("wpo_suspect",
+                f"material-attributes master carrying displacement params ({via}) — the "
+                "WPO pin is unreadable on this graph but displacement is wired; without "
+                "the runtime vertex data its own system supplies, the WHOLE mesh moves "
+                "(trunk bobs, not leaves — G39)")
+    if uma:
+        return ("unreadable", "material-attributes master — the WPO pin can't be read, "
+                              "so 'motionless' can't be certified mechanically")
+    return (None, None)
+
+
+_MOTION_RANK = {None: 0, "unreadable": 1, "masked_wind": 2, "wpo_suspect": 3, "wpo": 4}
+_motion_cache = {}      # material path → (kind, note); session-lifetime
+
+
+def _mesh_motion(mesh):
+    """Worst motion verdict across a StaticMesh's material slots. (kind, note)."""
+    worst = (None, None)
+    for sm in mesh.static_materials:
+        mi = sm.material_interface
+        if mi is None:
+            continue
+        key = mi.get_path_name()
+        hit = _motion_cache.get(key)
+        if hit is None:
+            base = mi.get_base_material()
+            hit = material_motion(base) if base is not None else (None, None)
+            _motion_cache[key] = hit
+        if _MOTION_RANK[hit[0]] > _MOTION_RANK[worst[0]]:
+            worst = hit
+    return worst
+
+
+def motion_notes(mesh_paths):
+    """Author-time WPO notice for meshes about to be scattered/added (G39): a population
+    that will MOVE is announced when it is authored, not discovered in PIE. Masked wind
+    is named as safe; unmasked/suspected displacement is a loud per-mesh warning."""
+    moving, masked = {}, 0
+    for pp in mesh_paths:
+        m = _ue.load_asset(pp)
+        if not isinstance(m, unreal.StaticMesh):
+            continue
+        kind, note = _mesh_motion(m)
+        if kind in ("wpo", "wpo_suspect"):
+            moving.setdefault(note, []).append(pp.rsplit("/", 1)[-1])
+        elif kind == "masked_wind":
+            masked += 1
+    notes = [f"ANIMATES ({', '.join(names[:4])}{', …' if len(names) > 4 else ''}): {note}"
+             for note, names in moving.items()]
+    if masked:
+        notes.append(f"{masked} mesh(es) carry vertex-masked wind (Wind Weight) — base "
+                     "anchored, leaves sway; the safe kind")
+    return notes
 
 
 def _a_instance_material(p):

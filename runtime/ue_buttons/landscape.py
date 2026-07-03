@@ -3,7 +3,7 @@
 The agent describes landforms; the runtime synthesises the heightmap. It never hand-writes
 height arrays over the wire. Terrain is a Geometry Script DynamicMesh (G12: 5.8's Landscape
 API is unscriptable), displaced by the pure-Python `terrain.height_at`. Because that same
-function backs `describe` sampling and `view(map)`, sampled heights agree with world traces.
+function backs `describe` sampling, sampled heights agree with world traces.
 
 Undo honesty (SPEC-01): DynamicMesh shaping does not sit in the editor transaction stack, so
 these ops report `undoable: false` and are NOT logged to the 1:1 history — teardown is the
@@ -26,7 +26,7 @@ _META_NAME = "ueb_landscapes.json"
 
 
 # ── persistence (survives editor restart; the hamlet is rebuilt from calls, but describe
-#    and view(map) want the feature list back after a relaunch) ───────────────────────────
+#    wants the feature list back after a relaunch) ─────────────────────────────────────────
 def _meta_path():
     saved = unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_saved_dir())
     return os.path.normpath(os.path.join(saved, _META_NAME))
@@ -42,7 +42,7 @@ def _save_meta():
 
 def _hydrate():
     """Load terrain meta from disk once per session, but only for terrains whose actor still
-    exists in the level — so describe/flatten/view survive an editor restart or a runtime
+    exists in the level — so describe/flatten survive an editor restart or a runtime
     reimport (which resets _state). Guarded by a flag so it runs once."""
     if _state.landscapes:
         return
@@ -57,6 +57,36 @@ def _hydrate():
     for label, meta in disk.items():
         if _ue.find_by_label(label) is not None:
             _state.landscapes[label] = meta
+    # G37: the editor-side hide is per-session — reassert it when terrains rehydrate
+    # after an editor restart / runtime reimport.
+    if _state.landscapes:
+        set_template_hidden(True)
+
+
+# ── engine template ground (G37) ──────────────────────────────────────────────────
+def set_template_hidden(hidden):
+    """Hide/show the engine template's z=0 ground plane (Landscape tree + WP HLOD
+    proxies). Traces already ignore it while a ueb terrain exists, but it still RENDERS —
+    poking up through any floor dip below z=0, or stretching beyond a raised terrain's
+    edge. Pure visual noise, so it goes dark with the first ueb terrain and comes back
+    when the last one is removed. Hidden in BOTH editor and game: the editor flag is
+    per-session (reapplied by _hydrate after a restart); the game flag saves with the
+    level so PIE agrees."""
+    n = 0
+    for a in _ue.engine_landscape_actors():
+        try:
+            a.set_is_temporarily_hidden_in_editor(hidden)
+            a.set_actor_hidden_in_game(hidden)
+            n += 1
+        except Exception:
+            pass
+    return n
+
+
+def template_hidden():
+    """Is the engine template ground currently hidden (editor-side)?"""
+    proxies = _ue.engine_landscape_actors()
+    return bool(proxies) and all(a.is_temporarily_hidden_in_editor() for a in proxies)
 
 
 # ── mesh build ───────────────────────────────────────────────────────────────────
@@ -199,6 +229,11 @@ def _create(p):
     _state.engine_grounds_memo = None    # ground attribution changed (B3/G22)
     out = {"created": label, "size_cm": size, "origin": origin,
            "resolution": meta["resolution"], "vertices": verts, "undoable": False}
+    hidden = set_template_hidden(True)          # G37: this terrain IS the ground now
+    if hidden:
+        out["template_ground"] = (f"hid {hidden} engine template Landscape actor(s) — "
+                                  "your terrain is the only ground that renders (G37); "
+                                  "restored when the last ueb terrain is removed")
     if meta.get("material"):
         out["material"] = meta["material"]
     return out
@@ -220,6 +255,11 @@ def _remove(p):
     dependents = [pl for pl, pd in _state.paths.items()
                   if pd.get("terrain", "terrain") == label]
     out = {"removed": label, "undoable": False}
+    if not _state.landscapes:                   # G37: last terrain gone → template returns
+        shown = set_template_hidden(False)
+        if shown:
+            out["template_ground"] = (f"restored {shown} engine template Landscape "
+                                      "actor(s) — with no ueb terrain it is the ground again")
     if dependents:
         out["notes"] = [f"paths {dependents} referenced this terrain — scene op=reconcile "
                         f"to GC them (or path remove each)"]

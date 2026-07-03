@@ -411,7 +411,8 @@ def _v_scene(p):
         out["engine_ground"] = (
             f"{len(proxies)} engine Landscape actor(s) form a template ground plane at z≈0"
             + ("; ground traces IGNORE it while your ueb terrain exists" if authored
-               else "; with no ueb terrain it IS the ground every trace answers"))
+               else "; with no ueb terrain it IS the ground every trace answers")
+            + ("; currently HIDDEN (G37)" if landscape.template_hidden() else ""))
     return out
 
 
@@ -605,6 +606,12 @@ def _add_asset(p, label, place, snap, yaw, facing=None):
            "dims_cm": [round(v, 1) for v in b["size"]], "op": op_id}
     if warn:
         out["warning"] = warn
+    if not is_bp:
+        # G39: surface WPO/animation at author time — a mesh whose material moves it
+        # (wind, plugin displacement) must say so in the same round-trip that placed it.
+        motion = asset.motion_notes([path])
+        if motion:
+            out["notes"] = motion
     return out
 
 

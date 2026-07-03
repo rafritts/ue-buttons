@@ -15,33 +15,4 @@ Format: `### B<n> — <title>` · status · repro · root cause · fix · verifi
 
 ---
 
-### B9 — `view action=map` can't find a ueb terrain the rest of the system sees
-Status: OPEN (found 2026-07-03 building L1). Blocks map-based path planning — the map is
-documented as THE legal source of absolute [x,y].
-
-Repro (fresh `Untitled_1`, no prior state):
-1. `landscape create size=[30000,30000] origin=[0,0] base_height=0 material=MI_UEB_Grass`
-   → succeeds, actor `terrain` (DynamicMeshActor).
-2. `landscape shape replace=True features=[valley, noise]` → succeeds, height range
-   −827..13591 cm, status block prints terrain bounds.
-3. `view action=map` → renders the "no terrain — create a landscape first" placeholder.
-   Meanwhile, at the SAME moment: `scene` lists `DynamicMeshActor: ["terrain"]`;
-   `landscape describe` traces the actual mesh (source "traced (actual mesh)"); the
-   status block on every call prints `bounds of: terrain`.
-
-So the map renderer's terrain lookup diverges from `scene`/`landscape`/status — they
-resolve the terrain, the map path alone does not. Not a state-lifetime issue (single
-fresh session, terrain created seconds earlier).
-
-Root cause: UNKNOWN — the `view(map)` server-side render must key terrain differently
-(class filter, tag, or a `_state` key the map reader checks but create/shape don't
-populate) than `landscape describe`, which reads it fine. PRIME SUSPECT: the map worked
-in the 2026-07-02 L1 build ("view(map) reads as a valley") but that was the SAVED
-WorldPartition level `UEB_L1_Valley`; this build is the unsaved `Untitled_1`. The map
-reader may resolve terrain via a persistent-level / WorldPartition query that returns
-empty on an untitled, never-saved map, while `landscape describe` reads the in-memory
-`_state`. If so, the fix is to make the map reader use the same `_state` terrain handle.
-
-Impact / workaround: path planning that needs absolute [x,y] off the map is blocked;
-the `path` route form (anchor + relative turn/distance steps) does NOT need the map, so
-a winding path is still authorable. Fix + live-verify before relying on the map again.
+(no open bugs)
