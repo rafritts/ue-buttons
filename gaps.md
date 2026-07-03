@@ -140,3 +140,19 @@ The strip drapes vertex pairs every ~175 cm with lift=3 cm; a terrain bump crest
 between two sample rows can pierce the ribbon (one green patch mid-trail in the L1
 shots). Cheap fixes: sample the max of several traces per across-segment, or default
 lift a bit higher (5–8 cm), or subdivide where the longitudinal slope changes fastest.
+
+### G35 — no verb can place a PlayerStart: an authored scene always needs one
+Status: OPEN (found 2026-07-02, L1 replay — the user asked for player insertion at the trailhead)
+
+Every authored scene ends at the same question: "where does the player drop in?" The
+surface has no answer — `add` spawns primitives and StaticMesh/Blueprint assets only;
+gameplay/engine actors (PlayerStart first among them) can't be placed, perceived, or
+relocated through the verbs. The L1 trailhead insertion was done with raw editor Python
+(relocate the Open World template's PlayerStart, seat at traced grade + 92 cm capsule
+half-height, yaw = trail start bearing). Wants: a first-class way to say "insert the
+player HERE facing THAT" with the usual relational/polar/path vocabulary (e.g.
+`add(what="player_start", place={"along": {"path": "trail", "fraction": 0}},
+facing=...)` or a small `scene`/`add` sibling), ground-seated by trace like any
+placement, and visible to `scene`/`feel`/`view(map)` as a marker. Note the template
+level already ships one PlayerStart — creating a second silently wins/loses by
+priority; the verb should relocate-or-create, not blindly spawn.
