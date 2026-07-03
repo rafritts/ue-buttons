@@ -14,16 +14,3 @@ bugs are things that are *supposed to work and don't*.
 Format: `### B<n> — <title>` · status · repro · root cause · fix · verification.
 
 ---
-
-### B7 — MCP tool layer stringifies `view target`, world-point form unreachable
-
-- **Status**: open (found 2026-07-02, L1 replay)
-- **Repro**: `view(action="orbit", target=[-1889,2236,576])` through the MCP tool →
-  `⚠ no actor labelled '[-1889, 2236, 576]'`. The same params through a raw
-  `ue_buttons.dispatch("view", {...})` (list intact) work fine.
-- **Root cause**: `server/main.py` types the `target` param as `str`, so the MCP host
-  coerces the array to its string repr before it reaches the runtime; the runtime's
-  label-or-[x,y,z] duck-typing never sees a list. Any other verb param with a
-  union-typed runtime contract but a scalar tool schema has the same exposure.
-- **Fix direction**: type it `str | list` (FastMCP/pydantic union) or accept a JSON
-  string and parse runtime-side.

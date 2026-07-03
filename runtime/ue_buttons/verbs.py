@@ -4,6 +4,8 @@ Auto-status rides on every MUTATING verb (SPEC-00). Read-only / nav verbs neithe
 history nor push a transaction nor carry a status block — the same three-way
 classification blender-buttons uses to keep history 1:1 with the undo stack (gaps.md G1).
 """
+import json
+
 import unreal
 
 from . import _state
@@ -66,10 +68,26 @@ def _level_guard():
     return None
 
 
+def _unstringify(params):
+    """B7: the MCP tool layer types union-contract params (label-or-[x,y,z]) as scalars,
+    so a list/dict arrives as its string repr and duck-typing downstream never sees the
+    structure. Recover it centrally: any string value that LOOKS like a JSON array/object
+    and parses becomes the parsed value. A real label/name can't be caught — none starts
+    with '[' or '{' and parses as JSON."""
+    for k, v in list(params.items()):
+        if isinstance(v, str) and v[:1] in ("[", "{"):
+            try:
+                params[k] = json.loads(v)
+            except ValueError:
+                pass
+    return params
+
+
 def handle(verb, params):
     fn = _VERBS.get(verb)
     if fn is None:
         return {"error": f"unknown verb '{verb}'. known: {sorted(_VERBS)}"}
+    params = _unstringify(params)
     # B8: during PIE the editor world reads as None/empty — a verb that runs then sees a
     # void level: mutations silently no-op and reconcile GC's every live registry entry.
     # The verb surface targets the EDITOR world only; refuse until Play stops.

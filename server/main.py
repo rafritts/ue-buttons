@@ -128,7 +128,7 @@ def feel(op: str, target: str = None, a: str = None, b: str = None,
 
 
 @mcp.tool()
-def view(action: str = "orbit", target: str = None, azimuth: float = 45.0,
+def view(action: str = "orbit", target: str | list = None, azimuth: float = 45.0,
          elevation: float = 25.0, distance: float = 500.0, shot: bool = False,
          width: int = 1280, height: int = 720, label: str = "terrain",
          fov: float = 90.0):
