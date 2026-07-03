@@ -14,8 +14,7 @@ _PARENT = str(Path(__file__).resolve().parent.parent)
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from server._core import mcp, call_ue, render, poll_screenshot
-from mcp.server.fastmcp import Image
+from server._core import mcp, call_ue, render
 
 
 @mcp.tool()
@@ -124,8 +123,10 @@ def select(labels: list = None, clear: bool = False) -> str:
 
 @mcp.tool()
 def feel(op: str, target: str = None, a: str = None, b: str = None,
-         axis: str = "ANY", side: str = "CENTER_Z") -> str:
-    """Relational perception — measure, don't guess.
+         axis: str = "ANY", side: str = "CENTER_Z", fov: float = 90.0) -> str:
+    """Relational perception — measure, don't guess. Numbers, never a picture: this is
+    the whole perception surface (there is NO screenshot/render verb — see the vision
+    policy in the instructions).
 
     op="describe" (target):        dims, bounds, on_floor, and relations (rests_on /
                                    directly_under / flush_left_of / flush_right_of /
@@ -139,69 +140,19 @@ def feel(op: str, target: str = None, a: str = None, b: str = None,
                                    in-range / materialised / render-data) + the fix, and a
                                    DRAWS / WILL-NOT-DRAW verdict. The deep-dive behind the
                                    status block's one-line `render:` summary.
+    op="framing" (target, fov):    SPEC-03 — project the target's world AABB through the
+                                   editor viewport camera → frac_w/frac_h (screen coverage),
+                                   est_px (the sub-pixel tell), clipped edges, in_front, and a
+                                   FRAMED / SUB-PIXEL / CLIPPED / OFF-FRAME verdict. Every
+                                   number is stamped with its frame reference. Answers "is it
+                                   framed, is it big enough" as NUMBERS — never a rendered frame.
+    op="visible" (target, fov):    SPEC-03 — is the target SEEN or hidden behind other geometry:
+                                   raycasts from the camera to the target (occluded_fraction +
+                                   verdict), not a screenshot. With framing this tells sub-pixel
+                                   vs off-frustum vs occluded vs absent apart — all as numbers.
     """
-    p = {"op": op, "target": target, "a": a, "b": b, "axis": axis, "side": side}
+    p = {"op": op, "target": target, "a": a, "b": b, "axis": axis, "side": side, "fov": fov}
     return render(call_ue("feel", p))
-
-
-@mcp.tool()
-def view(action: str = "orbit", target: str | list = None, azimuth: float = 45.0,
-         elevation: float = 25.0, distance: float = 500.0, shot: bool = False,
-         width: int = 1280, height: int = 720, label: str = "terrain",
-         fov: float = 90.0):
-    """Orbit the editor camera + screenshot, OR the top-down site map, OR computed
-    visibility (framing/occlusion as NUMBERS — never read a render back).
-
-    action="map" (label): a labelled top-down site plan of the terrain — shaded height, a
-      coordinate grid every 20 m (axis labels in map cm), and markers for every ueb actor,
-      path, and scatter region. North=+X (up), east=+Y (right), matching UE yaw. This is the
-      grounding for absolute [x,y]: read waypoints/feature centres OFF the map (derived, not
-      divined). Rendered server-side (no async-screenshot dependency).
-
-    action="framing" (target, fov): SPEC-03 — project the target's world AABB through the
-      editor viewport camera → frac_w/frac_h (screen coverage), est_px (the sub-pixel tell),
-      clipped edges, in_front, and a FRAMED / SUB-PIXEL / CLIPPED / OFF-FRAME verdict. Every
-      number is stamped with its frame reference (resolution + FOV) — coverage is meaningless
-      without it. Answers "is it framed, is it big enough" without rendering a frame.
-    action="visible" (target, fov): is the target actually SEEN or hidden behind other
-      geometry — raycasts from the camera to the target (occluded_fraction + verdict), not a
-      screenshot. Together these tell sub-pixel vs off-frustum vs occluded vs absent apart.
-
-    action="orbit" (default):
-      target:    actor label or [x,y,z] world point (default origin)
-      azimuth:   deg around +Z, measured from +X toward +Y
-      elevation: deg above the ground plane
-      distance:  cm from the target
-      shot:      capture a screenshot (async; polled on the NTFS share — needs the editor
-                 window foregrounded, gaps.md G8)
-    """
-    if action in ("framing", "visible"):
-        return render(call_ue("view", {"action": action, "target": target, "fov": fov}))
-    if action == "map":
-        import os
-        from server import mapview
-        data = call_ue("view", {"action": "map", "label": label})
-        if isinstance(data, dict) and "error" in data:
-            return render(data)
-        out = os.path.join(os.environ.get("UE_SCRATCH", "/tmp"), "ueb_map.png")
-        mapview.render(data, out)
-        return Image(path=out)
-    p = {"target": target if target is not None else [0, 0, 0],
-         "azimuth": azimuth, "elevation": elevation, "distance": distance,
-         "shot": shot, "width": width, "height": height}
-    result = call_ue("view", p)
-    if shot and isinstance(result, dict) and result.get("screenshot_wsl"):
-        landed = poll_screenshot(result["screenshot_wsl"])
-        result["screenshot_ready"] = landed
-        if not landed:
-            result["screenshot_failed"] = True
-            result["message_for_user"] = (
-                "📷 Screenshot couldn't be captured. The Unreal Editor only renders frames "
-                "when its window is focused — while it's in the background (as it is when I "
-                "drive it from WSL) there's no frame to save. To get a screenshot: click the "
-                "Unreal Editor window to bring it to the foreground, then ask again. (The "
-                "camera IS aimed correctly — only the image capture needs focus.)")
-    return render(result)
 
 
 @mcp.tool()
@@ -314,8 +265,9 @@ def path(action: str = "create", label: str = "path", points: list = None,
 
     All positions are MAP points: polar {"from":<anchor>,"bearing":deg,"distance":cm}
     (anchor = "center" | actor label | terrain | ["path_label", fraction]) or absolute [x,y]
-    read off view(map). Compass: north=+X, bearing clockwise = UE yaw. z is draped onto the
-    terrain by tracing. Spatial verb (not history-undoable).
+    with a READ provenance (an actor centre from feel/scene, a prior waypoint, a landscape
+    bound). Compass: north=+X, bearing clockwise = UE yaw. z is draped onto the terrain by
+    tracing. Spatial verb (not history-undoable).
 
     action="create" (points | route, width):
         points=[map position, ...]  — waypoints; a smooth Catmull-Rom curve runs through them.
@@ -418,7 +370,7 @@ def validate(op: str = "run", targets: str = None, a: str = None, b: str = None,
     z_fight (coplanar overlapping faces). Every finding carries its fix.
 
     op="run" (targets, verbose):  sweep the whole scene, or a comma-separated `targets`
-        list. verbose lists every finding uncapped. Run before screenshots / at milestones.
+        list. verbose lists every finding uncapped. Run at milestones / before handoff.
     op="expect" (a, b, reason, check, max_depth):  declare a contact INTENDED — the only
         way to quiet a laden finding (there is no "ignore"). reason is required — a
         falsifiable design claim. check=penetration (a↔b) | ground (a↔"ground"). max_depth

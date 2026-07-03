@@ -284,23 +284,3 @@ def level_name():
     return world.get_name() if world else "?"
 
 
-def _win_to_wsl(path):
-    """C:\\Users\\... → /mnt/c/Users/... so the WSL server can read the NTFS file."""
-    p = path.replace("\\", "/")
-    if len(p) > 1 and p[1] == ":":
-        return f"/mnt/{p[0].lower()}{p[2:]}"
-    return p
-
-
-def screenshot(width=1280, height=720):
-    """Trigger a high-res viewport screenshot. ASYNC — UE writes the PNG on a later
-    frame, so we return the expected path and let the WSL server poll /mnt/c for it
-    (SPEC-00 risk note). Filename is unique per call via the op counter."""
-    import os
-    from . import _state
-    saved = unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_saved_dir())
-    shots = os.path.join(saved, "Screenshots")
-    name = f"ueb_{_state.next_shot_id()}.png"
-    full = os.path.normpath(os.path.join(shots, name))
-    unreal.AutomationLibrary.take_high_res_screenshot(width, height, full)
-    return {"screenshot_win": full, "screenshot_wsl": _win_to_wsl(full), "async": True}

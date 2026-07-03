@@ -137,8 +137,9 @@ into `feel`/`validate`/`scene` and puts a `render:` line in its status block
 ## Computed visibility: the camera family (port almost verbatim)
 
 blender-buttons computes framing/occlusion/size entirely from matrix math + raycasts over
-the evaluated geometry — never a screenshot. Port these into `view` (which already owns the
-camera: `orbit`, `map`; add `framing` / `visible`):
+the evaluated geometry — never a screenshot. These live on `feel` as `op=framing` /
+`op=visible` (numbers only; there is no screenshot/render/image verb — vision was removed
+as unreliable, see the instructions' vision policy):
 
 **(a) Projected screen size + clipping + behind-camera** — `camera_coverage`
 (`extension/common.py:545-571`): project the world AABB corners through the view, take the
@@ -273,7 +274,7 @@ probed live before coding (derived, not divined).
 - **Population path** (`population_state`/`population_line`) — scatter foliage walked by
   tag for instance-count + visibility (the motivating "6,236 reported, nothing drew"
   case). Built on foliage-component APIs already proven in `scatter.py`.
-- **The camera family (link 8) — `view framing` / `view visible`.** Projects the world AABB
+- **The camera family (link 8) — `feel op=framing` / `feel op=visible`.** Projects the world AABB
   through the LIVE editor viewport camera in pure Python (no PlayerController, no frame):
   `framing` returns frac_w/frac_h + est_px (the sub-pixel tell) + clipped edges + a FRAMED /
   SUB-PIXEL / CLIPPED / OFF-FRAME verdict; `visible` raycasts camera→target for

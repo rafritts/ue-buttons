@@ -1,0 +1,1 @@
+Talk to me about your experience using the MCP server? What worked? What didnt? What would you reach for if you could? If this could be easier, how? Was anything missing from the status block? Was anything in the status block thats just not useful? 

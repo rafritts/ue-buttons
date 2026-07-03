@@ -148,7 +148,7 @@ def _create(p):
                            "terrain": p.get("terrain", "terrain")}
     out = {"created": label, "waypoints": [[round(v, 1) for v in pt] for pt in draped],
            "length_cm": round(cum[-1], 1), "width_cm": width,
-           "note": "z draped onto terrain by trace; view(map) shows the route"}
+           "note": "z draped onto terrain by trace; path describe returns the waypoints"}
     if misses:
         out["notes"] = [f"{misses}/{len(draped)} waypoints traced NO ground — their z is a "
                         f"0.0 placeholder, not a surface (B3). Is the route on the terrain?"]

@@ -224,9 +224,6 @@ def _status_block(verb, params, result):
     if verb in MUTATING or verb in SPATIAL:
         if _state.follow:
             _follow_camera(focus)
-        else:
-            lines.append("follow: OFF — camera not tracking edits "
-                         "(view action=follow enabled=true to re-enable)")
 
     # 5. the block itself — a single-object spotlight on the acted-on actor.
     lines += _block_lines(result, focus)
@@ -236,9 +233,9 @@ def _status_block(verb, params, result):
 def _follow_camera(focus):
     """Frame the acted-on actor (or the region a spatial edit touched) in the editor
     viewport. Distance is sized to the bounds so the whole thing fits; a fixed 3/4 azimuth +
-    35° downward pitch reads as a natural over-the-shoulder view. Uses the same
-    `set_level_viewport_camera_info` that `view orbit` proved works (G8: positioning is
-    reliable — only async file capture needs foreground). Never logged, never a transaction."""
+    35° downward pitch reads as a natural over-the-shoulder view. Positions the human's
+    viewport only (no capture — there is no screenshot verb); never logged, never a
+    transaction. This is camera courtesy for the human's OWN screen, not perception."""
     import math
     actor = _ue.find_by_label(focus) if focus else None
     if actor is None:
@@ -656,60 +653,16 @@ def _v_feel(p):
     plus render_state (SPEC-03): the on-demand deep-dive behind the block's one-line render
     summary — walks the full gating chain for one actor/population + the fix. Delegates to
     relational.py (spatial math) / render.py (render chain)."""
-    if p.get("op") == "render_state":
+    op = p.get("op")
+    if op == "render_state":
         return rendermod.render_state(p.get("target"))
-    return relational.feel(p)
-
-
-def _v_view(p):
-    """Camera by orbit + screenshot, or the top-down site map.
-    action="map" (default "orbit"): return map data (height grid + labelled actor markers +
-    paths + scatter regions) for the server to render — the grounding for absolute [x,y]."""
-    action = p.get("action")
-    if action == "follow":
-        # G17 toggle: whether the viewport auto-tracks each mutation. Default ON.
-        if "enabled" in p:
-            _state.follow = bool(p.get("enabled"))
-        return {"follow": _state.follow,
-                "note": "camera auto-tracks each edit" if _state.follow
-                        else "camera is free (edits won't move it)"}
-    if action == "map":
-        return _map_data(p)
     # SPEC-03 computed visibility (link 8): framing/occlusion as NUMBERS off the editor
-    # viewport camera — never a screenshot. Read-only, like the rest of view.
-    if action == "framing":
+    # viewport camera — never a screenshot. Read-only, like the rest of feel.
+    if op == "framing":
         return rendermod.framing(p.get("target"), p.get("fov", rendermod.EDITOR_FOV_DEG))
-    if action == "visible":
+    if op == "visible":
         return rendermod.visible(p.get("target"), p.get("fov", rendermod.EDITOR_FOV_DEG))
-    import math
-    target = p.get("target", [0, 0, 0])
-    if isinstance(target, str):
-        t = _ue.find_by_label(target)
-        if t is None:
-            return {"error": f"no actor labelled '{target}'"}
-        target = _ue.bounds(t)["center"]
-    az = math.radians(p.get("azimuth", 45.0))
-    el = math.radians(p.get("elevation", 25.0))
-    dist = p.get("distance", 500.0)
-    # outward unit vector (camera offset from target)
-    ux = math.cos(el) * math.cos(az)
-    uy = math.cos(el) * math.sin(az)
-    uz = math.sin(el)
-    cam = [target[0] + ux * dist, target[1] + uy * dist, target[2] + uz * dist]
-    # look back at target → rotation
-    yaw = math.degrees(math.atan2(-uy, -ux))
-    pitch = math.degrees(math.asin(-uz))
-    ues = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem)
-    # unreal.Rotator positional order is (roll, pitch, yaw) — use kwargs (bugs.md B1).
-    ues.set_level_viewport_camera_info(unreal.Vector(*cam),
-                                       unreal.Rotator(pitch=pitch, yaw=yaw, roll=0.0))
-    result = {"camera": [round(v, 1) for v in cam],
-              "look_at": [round(v, 1) for v in target],
-              "rot": [round(yaw, 1), round(pitch, 1), 0.0]}
-    if p.get("shot"):
-        shot = _ue.screenshot(p.get("width", 1280), p.get("height", 720))
-        result.update(shot)
-    return result
+    return relational.feel(p)
 
 
 def _v_asset(p):
@@ -744,56 +697,6 @@ def _v_validate(p):
       op="forget" (a, b, check): retire a declaration (re-arms the finding).
       op="intended": list the live declared-intent registry."""
     return validatemod.handle(p)
-
-
-def _map_data(p):
-    """Assemble the top-down site map (SPEC-01 E3): a height grid over the terrain extent plus
-    every labelled ueb actor, path, and scatter region — enough for the server to render a
-    labelled site plan the agent reads absolute [x,y] off (derived, not divined)."""
-    label = p.get("label", "terrain")
-    landscape._hydrate()                        # map after an editor restart still knows terrain
-    meta = _state.landscapes.get(label)
-    res = int(p.get("grid", 72))
-    if meta is not None:
-        # Effective origin + base_height, same composition as landscape describe (G26).
-        ox, oy, oz = landscape._eff_origin(label, meta)
-        zb = oz + meta.get("base_height", 0.0)
-        sx, sy = meta["size"]
-        extent = min(sx, sy) / 2.0
-        feats = meta["features"]
-        grid = []
-        for j in range(res):                    # row-major, y ascending
-            row = []
-            ly = (j / (res - 1) - 0.5) * sy
-            for i in range(res):
-                lx = (i / (res - 1) - 0.5) * sx
-                row.append(round(zb + terrain.height_at(lx, ly, feats, extent), 1))
-            grid.append(row)
-        bounds = {"x": [ox - sx / 2, ox + sx / 2], "y": [oy - sy / 2, oy + sy / 2]}
-    else:
-        grid, bounds = None, None
-
-    # terrains render as the height field; scatter groups render as region outlines; path
-    # surface strips render as the path polyline — no substrate belongs in the point-marker
-    # list (their AABBs span whole regions).
-    hide = _ue.substrate_labels()
-    markers = []
-    for a in _ue.ueb_actors():
-        lbl = a.get_actor_label()
-        if lbl in hide:
-            continue
-        b = _ue.bounds(a)
-        if b["size"] == [0, 0, 0]:
-            continue
-        markers.append({"label": lbl, "x": round(b["center"][0], 1),
-                        "y": round(b["center"][1], 1),
-                        "bbox": [round(b["min"][0], 1), round(b["min"][1], 1),
-                                 round(b["max"][0], 1), round(b["max"][1], 1)]})
-    paths = [{"label": k, "points": [[pt[0], pt[1]] for pt in v["points"]],
-              "width": v.get("width", 0)} for k, v in _state.paths.items()]
-    scatters = [{"label": k, "region": v.get("region")} for k, v in _state.scatters.items()]
-    return {"map": True, "label": label, "bounds": bounds, "grid": grid,
-            "markers": markers, "paths": paths, "scatters": scatters}
 
 
 def _v_history(p):
@@ -836,7 +739,6 @@ _VERBS = {
     "transform": _v_transform,
     "select": _v_select,
     "feel": _v_feel,
-    "view": _v_view,
     "history": _v_history,
     "asset": _v_asset,
     "landscape": _v_landscape,

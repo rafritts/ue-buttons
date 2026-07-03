@@ -7,7 +7,6 @@ _core.py, with RC-over-HTTP replacing the TCP socket to the Blender addon.
 """
 import json
 import os
-import time
 import urllib.request
 
 from mcp.server.fastmcp import FastMCP
@@ -79,14 +78,3 @@ def render(result):
     status = result.pop("status", None)
     head = json.dumps(result, indent=2)
     return head + (f"\n{status}" if status else "")
-
-
-def poll_screenshot(wsl_path, timeout=15.0, interval=0.5):
-    """Wait for an async screenshot file to land on the NTFS share (gaps.md G8). Returns
-    True if it appears within the timeout."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if wsl_path and os.path.exists(wsl_path):
-            return True
-        time.sleep(interval)
-    return False

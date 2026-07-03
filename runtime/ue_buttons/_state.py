@@ -60,16 +60,6 @@ def last_op():
     return history[-1] if history else None
 
 
-_shot_counter = [0]
-
-
-def next_shot_id():
-    """Separate counter for screenshot filenames — view is non-mutating and must NOT
-    consume an op id (that would put cosmetic gaps in the history numbering)."""
-    _shot_counter[0] += 1
-    return f"shot{_shot_counter[0]:03d}"
-
-
 # ── asset measurement cache (SPEC-01 E1) ───────────────────────────────────────
 # Loading a StaticMesh to read its bounds/pivot/materials is the one expensive step in
 # the `asset` verb (registry tags give Nanite/tris for free, but not dimensions). The

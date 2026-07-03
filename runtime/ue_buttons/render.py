@@ -470,7 +470,7 @@ def framing(target, hfov_deg=EDITOR_FOV_DEG):
     in_front = any(d > 0 for d in depths)
     if not us:      # every corner behind the camera
         return {"target": target, "in_front": False, "on_frame": False,
-                "verdict": "OFF-FRAME — entirely behind the camera → orbit/point the view at it",
+                "verdict": "OFF-FRAME — entirely behind the camera → aim the editor viewport at it",
                 "provenance": _provenance(cam)}
     umin, umax, vmin, vmax = min(us), max(us), min(vs), max(vs)
     frac_w, frac_h = round(umax - umin, 4), round(vmax - vmin, 4)

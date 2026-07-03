@@ -22,7 +22,7 @@ and we take both):
    have yet (landscape/heightfield, scatter-at-scale via foliage/PCG, splines for the
    path, asset-library perception over Fab packs), so its donut-sized first slice is
    **one hamlet**: a sculpted terrain patch, a scattered tree stand, a spline path,
-   3–4 buildings placed relationally along it, lit and screenshotted. That slice forces
+   3–4 buildings placed relationally along it, lit and mechanically verified. That slice forces
    all four domains at toy scale; the full valley is then repetition + PCG. Partnership
    split: Ryan curates the asset palette (Fab is a launcher/web click — human step);
    the agent inventories and builds.
@@ -105,7 +105,7 @@ Verbs: `scene`, `add`, `transform`, `select`, `feel`, `view`, `history`. Every m
 verb appends the auto-status block and runs inside a `ueb:<id>` transaction kept 1:1 with
 the editor undo stack. **Exit test passes**: an agent builds a table (top + 4 legs at
 corners) via relational placement only, confirms with `feel`, and `undo_to` tears it down
-cleanly. Open items live in `gaps.md` (notably G8 — async screenshot capture).
+cleanly. Open items live in `gaps.md`.
 
 ### Running
 
@@ -127,7 +127,7 @@ modules:
 asset.py       perception over Content — packs/inventory/describe/find/whats_new. Families
                + variants, dims/pivot/tris/Nanite; lazy disk-cached measurement (G9).
 terrain.py     pure-Python heightfield engine (no numpy) — the one height_at() that backs
-               the mesh, describe sampling, and view(map); + region math for flatten/scatter.
+               the mesh and describe sampling; + region math for flatten/scatter.
 landscape.py   terrain as a GeometryScript DynamicMesh (G12: Landscape API unscriptable) —
                create/shape/flatten/describe/remove; complex collision so traces conform;
                material= assignment (G25).
@@ -139,21 +139,20 @@ scatter.py     instanced-foliage populations — create/describe/regenerate/remo
                jittered-grid sampling, per-point ground trace + slope, auto-clears paths &
                buildings. Instances go through the editor foliage subsystem so they render
                (G14: a hand-built HISM has no render proxy from script).
-server/mapview.py  PIL renderer for view(map): shaded height + 20 m grid + labelled markers.
 ```
 
 Verbs added: `asset`, `landscape`, `path`, `scatter`; `add(asset=, yaw=, facing=, place.along/
-ground)`; `view(action="map")`. Spatial verbs carry an honest `undoable: false` (DynamicMesh/
+ground)`. Spatial verbs carry an honest `undoable: false` (DynamicMesh/
 HISM edits don't sit in the transaction stack). **Exit test (the hamlet) passes end-to-end
 through the verbs**: a 200 m valley-edge terrain (rocky ridge, gentle floor, noise), a
 5-waypoint winding lane carved to grade, three cabins placed along+facing it on flattened
 pads (one composed wall-by-wall from the modular kit on the 4 m grid, two prebuilt BPs), and
 ~2,600 scatter instances (3 tree species + undergrowth + rocks) that clear the lane and
 cabins. Verified mechanically (`feel`: front↔back 400.0 cm, roof over walls; scatter counts;
-nearest tree 990 cm vs a 575 cm clearance) and visually via server-rendered `view(map)`. The
-3D "does it read as a place?" shot + PIE walk are Ryan's step (`view(shot=)` is G8-blocked
-while the editor is backgrounded; the camera is positioned). New friction is in `gaps.md`
-(G9–G13) and `bugs.md` (B2).
+nearest tree 990 cm vs a 575 cm clearance). The 3D "does it read as a place?" judgement and
+PIE walk are the user's step, from their own screen — the agent verifies in numbers, never
+pixels (there is no screenshot/render verb; see the vision policy). New friction is in
+`gaps.md` (G9–G13) and `bugs.md` (B2).
 
 ## Next design step
 

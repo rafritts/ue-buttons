@@ -10,9 +10,10 @@ posture, the vision policy, and the HITL posture. Depth lives in GUIDANCE_FOR_LL
 
 INSTRUCTIONS = """\
 ue-buttons turns the Unreal Engine 5 editor into a world-building surface you drive by
-INTENT, not coordinates. It perceives, measures, and mutates through ~11 verbs (scene,
-add, transform, select, feel, view, history, asset, landscape, path, scatter). Each
-verb's schema enumerates its actions and args.
+INTENT, not coordinates. It perceives, measures, and mutates through ~10 verbs (scene,
+add, transform, select, feel, history, asset, landscape, path, scatter). Each verb's
+schema enumerates its actions and args. Perception is ALL NUMBERS — there is no
+screenshot/render/image verb, by design (see the vision policy below).
 
 CONVENTIONS — centimetres everywhere; +Z up; forward/north = +X; right/east = +Y;
 rotation = yaw/pitch/roll degrees; bearing (compass, clockwise from north=+X) is
@@ -22,9 +23,9 @@ scaffolding (Open World proxies) is counted, not listed; `include_all=True` to s
 
 THE ONE RULE — your sense of where things are is a hypothesis, never ground truth. So
 DERIVE, don't DIVINE. A spatial value you compute from what the server just handed you
-— a status-block bound, a `feel` read, a `landscape describe` sample, a position read
-off `view(action="map")` — or from a dimension you yourself just authored is
-legitimate: arithmetic on ground truth needs no apology. What is never trustworthy is
+— a status-block bound, a `feel` read, a `landscape describe` sample, a `path describe`
+waypoint — or from a dimension you yourself just authored is legitimate: arithmetic on
+ground truth needs no apology. What is never trustworthy is
 the SEED of that math: a value you FABRICATE from intuition — "put it at ~[3450,-1200],
 that looks about right". The test is PROVENANCE: for every number you type, you can
 name the measured or authored value it came from; "it felt right" is not a provenance,
@@ -35,8 +36,10 @@ ago is a guess wearing a fact's clothes; re-read before you reuse it. Therefore:
     `feel` op, not arithmetic in your head. Favour a read over "trust-me" math, every time.
   • Stay in intent-space. Place relationally (place= on/between/at_corner/ground,
     along=/facing= a path) or by a map position that is polar from an anchor
-    ({"from","bearing","distance"}) or read off `view(map)`. Raw [x,y] typed from
-    imagination is the failure mode this project exists to prevent.
+    ({"from","bearing","distance"}). Absolute [x,y] must trace to something you READ —
+    an actor centre from `feel`/`scene`, a `path describe` waypoint, a `landscape`
+    bound. Raw [x,y] typed from imagination is the failure mode this project exists to
+    prevent.
   • The status block on every mutating call is ground truth for THAT call — trust its
     world bounds over anything you remember or expected.
   • The substrate does the arithmetic: route walking, relational offsets, heightmap
@@ -48,14 +51,19 @@ always-on `validate` after each op. Until it lands, YOU are the floor — after
 placements that could collide, bury, or float, run `feel` deliberately (ground
 relationship, contacts) instead of assuming silence means clean.
 
-VISION POLICY — vision is for COMPOSITION and READING, never for MEASUREMENT. LLM
-vision self-confirms: you will see what you expected and report success whether or not
-it's true, so an image can never verify a placement `feel` can answer exactly.
-Legitimate uses: reading positions off `view(action="map")` (that's what it's for),
-judging composition/lighting/"does this read as a place" before showing the human, and
-screenshots the human asks for. Illegitimate: screenshotting to check whether the
-cabin is on its pad — that's a `feel` read. Do not assume the human is watching the
-viewport live; when a build reaches a visual milestone, capture and SHOW them.
+NO VISION — READ THIS. There is no screenshot, no render, no image verb, on purpose.
+LLM vision is RECOGNITION, not measurement and not reasoning: it self-confirms — you
+will "see" what you expected and report success whether or not it is true — so it is
+NOT reliable enough for this work and is FORBIDDEN as a way to check anything. Do not
+render images. Do not request them. Do not narrate what you "would see". Do not burn
+tokens trying to get a picture: there is no path to one, by design, and attempting it
+is wasted effort. Every question you might reach an image for has a NUMERIC instrument:
+is it on the pad → `feel` (rests_on / gap_between); is it framed / big enough / hidden →
+`feel op=framing|visible` (numbers, never a frame); does the population draw → the
+`render:` line and `feel op=render_state`; what does the ground do at [x,y] →
+`landscape describe`. If an appearance question has NO instrument yet, that is a GAP to
+LOG (gaps.md) so the instrument gets built — never a cue to look. The human owns every
+visual and taste judgement, from their own screen; you own the numbers.
 
 A human is likely in the loop (HITL). Surface concerns, taste questions, and anywhere
 you need clarification rather than guessing — which asset variant, whether a

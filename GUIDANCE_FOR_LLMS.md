@@ -10,9 +10,9 @@ file says otherwise.
 
 **THE ONE RULE lives in the server `instructions`** — always in your context, so it is
 not restated here. In one breath: derive, don't divine — every number you type must
-have a provenance (a status-block bound, a `feel` read, a `describe` sample, a map you
-read, a dimension you authored), and spatial *relationships* are read with `feel`, not
-computed in your head. Everything below is how to **live** that rule.
+have a provenance (a status-block bound, a `feel` read, a `describe` sample, a `path
+describe` waypoint, a dimension you authored), and spatial *relationships* are read with
+`feel`, not computed in your head. Everything below is how to **live** that rule.
 
 ## The status block is your instrument panel
 
@@ -39,27 +39,31 @@ order, not authored order. Placements that each read their own reference are saf
 batch; chains where op 2 builds on op 1's result (place pad → place cabin on pad) are
 not. Issue chained mutations one per message, each seeing the prior status block.
 
-## Vision: composition and reading — never measurement
+## No vision — instruments only, never a picture
 
-LLM vision self-confirms — you will see what you expected and report success whether
-or not it's true — so an image can never *verify* what a mechanical read can answer
-exactly. That rule is inherited from blender-buttons and it stands. What changes in UE
-is that vision now has two **legitimate, load-bearing** jobs:
+LLM vision is RECOGNITION, not measurement and not reasoning. It self-confirms — you
+will "see" what you expected and report success whether or not it's true — so it is
+**not reliable enough for this work**, full stop. There is **no screenshot, render, or
+image verb**, on purpose. Do not render images, do not request them, do not narrate what
+you "would see", and do not burn tokens trying to get a picture: there is no path to
+one, by design, and reaching for it is wasted effort you should feel yourself starting
+and stop.
 
-- **Reading `view(action="map")`.** The labeled top-down map exists precisely so that
-  absolute `[x,y]` positions are *read off something real* instead of divined. Read the
-  map → pick positions → act → map again to confirm the drawn result matches the read
-  intent. That second look is comparing two images for gross agreement — legitimate.
-  Concluding "the cabin is 3 m from the path" from pixels is not; that's `feel`.
-- **Judging the place.** "Does this read as a hamlet?" — composition, lighting, mood —
-  is a judgment call you make *before* burning the human's attention, and the human
-  makes finally. Screenshot at visual milestones and show them.
+Everything you'd reach an image for is a NUMBER here:
 
-And one inherited assumption to drop: blender-buttons could say "the human is ALWAYS
-watching the live viewport." Here they may not be — builds run while the human is
-away. So capturing to *show* your work at milestones is not wasteful; it's the report.
-What stays forbidden is capturing to *check* placement or to *hunt* for geometry —
-mechanical reads first, always.
+- **On the pad? buried? floating?** → `feel` (`rests_on` / `gap_between` / `describe`).
+- **Framed, big enough, occluded?** → `feel op=framing` / `feel op=visible` — screen
+  coverage, `est_px`, `occluded_fraction`, verdicts. Numbers off the viewport camera,
+  never a rendered frame.
+- **Does it draw?** → the `render:` status line and `feel op=render_state` (the full
+  gating chain + the fix).
+- **What does the ground do at [x,y]?** → `landscape describe` (height + slope samples).
+
+If an appearance question has **no instrument yet** — "does this pine read as bare?",
+"is the forest dense enough?", "is that foliage bobbing?" — that is a **gap to LOG**
+(gaps.md), not a cue to look. Logging it is how the instrument gets built; that IS the
+dogfood loop. The human owns every visual and taste call, from their own screen — do not
+assume they're watching the viewport, report your findings as numbers and let them look.
 
 ## Placement: relational first, polar second, map-read third
 
@@ -69,8 +73,9 @@ The preference order for saying *where*:
    path. The runtime computes from live bounds; survives everything moving.
 2. **Polar from an anchor** — `{"from": <label|path@frac|feature>, "bearing": deg,
    "distance": cm}`. Bearing ≡ UE yaw (north = +X, clockwise). How surveyors work.
-3. **Absolute [x,y] read off `view(map)`** — legal, last resort, and only ever with
-   that provenance.
+3. **Absolute [x,y] from a READ** — an actor centre (`feel`/`scene`), a `path describe`
+   waypoint, or a `landscape` bound. Last resort, and only ever with that provenance —
+   never a coordinate typed from imagination.
 
 Route form for paths: `{"start": ..., "steps": [{"turn": ±deg, "distance": cm}, ...]}`
 — winding is alternate gentle turns. The runtime walks it and **returns every resolved
@@ -132,10 +137,6 @@ Ctrl+Z. The honest flag is a feature; plan around it.
 
 ## Working with the editor's quirks (field-verified)
 
-- **Screenshots need a foregrounded editor** (gaps.md G8): high-res capture is async on
-  the render thread and may never land while the editor window is backgrounded. If a
-  capture times out, say so and ask the human to foreground the window — don't retry in
-  a loop and don't report a stale image as current.
 - **Perception is ueb-scoped** (G7): the Open World template ships ~135 scaffolding
   actors with real, sprawling bounds. `scene`/`feel` filter to ueb-tagged actors and
   report the untracked count. `include_all=True` exists; reach for it only when hunting

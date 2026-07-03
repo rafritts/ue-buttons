@@ -3,7 +3,8 @@
 Two forms resolve to the same internal point:
   * polar (preferred): {"from": <anchor>, "bearing": <deg>, "distance": <cm>} — how humans
     give directions; keeps the agent relating to things it placed.
-  * absolute: [x, y] in map cm — legal, but expected to be READ OFF view(map), not invented.
+  * absolute: [x, y] in map cm — legal, but expected to be READ off a source (an actor centre
+    from feel/scene, a path describe waypoint, a landscape bound), not invented.
 
 Compass: north = +X, east = +Y, bearing measured clockwise from north — numerically identical
 to UE yaw. Anchors: "center" (map origin), an actor label, a named terrain, ("path", fraction)
