@@ -93,11 +93,12 @@ def _build_clearances(p):
 
     # existing buildings/actors — reject within footprint + margin. Scatter populations are
     # foliage (in the level IFA, not ueb actors), so they never appear here — only real
-    # placed geometry does; terrains are excluded (you scatter ONTO them, not around them).
-    terrains = set(_state.landscapes.keys())
+    # placed geometry does; substrates are excluded (you scatter ONTO a terrain, and a path
+    # SURFACE strip's AABB spans the whole route — the polyline test already clears paths).
+    subs = _ue.substrate_labels()
     for a in _ue.ueb_actors():
         lbl = a.get_actor_label()
-        if lbl in terrains:
+        if lbl in subs:
             continue
         b = _ue.bounds(a)
         if b["size"] == [0, 0, 0]:
@@ -256,6 +257,39 @@ def _spacing_for(region, density, rules):
     return math.sqrt(1_000_000.0 / d)
 
 
+def _canopy_notes(meshes, spacing, jit):
+    """G28: spacing the agent fabricated below the measured canopy width ⇒ wall-to-wall
+    interpenetration (the 'ultra clipped' 1/10 playtest). Check the requested spacing
+    against the widest cached footprint among the scattered variants (at max scale jitter)
+    and WARN with the numbers — the fix is derived, not divined. Reads the dims cache only
+    (never forces mesh loads mid-scatter); unmeasured variants are named as a blind spot."""
+    widest, widest_fam, unmeasured, total = 0.0, None, 0, 0
+    for m in meshes:
+        for vp in m["variants"]:
+            total += 1
+            d = _state.cached_dims(vp)
+            if d is None:
+                unmeasured += 1
+                continue
+            w = max(d["dims_cm"][0], d["dims_cm"][1])
+            if w > widest:
+                widest, widest_fam = w, m["family"]
+    notes = []
+    scale_hi = max(jit) if jit else 1.0
+    eff = widest * scale_hi
+    if widest and spacing < eff * 0.8:
+        notes.append(f"min spacing ≈{round(spacing)}cm is under the widest canopy "
+                     f"({widest_fam} ≈{round(widest)}cm × {scale_hi} jitter = "
+                     f"{round(eff)}cm) — neighbours WILL interpenetrate and read as "
+                     f"clipped geometry (G28); use min_spacing_cm ≥ {round(eff)} or "
+                     f"lower the density")
+    if unmeasured:
+        notes.append(f"{unmeasured}/{total} scattered variants have no measured dims — "
+                     f"the canopy-vs-spacing check is partial; asset inventory "
+                     f"measure=true first to make it complete")
+    return notes
+
+
 def _create(p):
     label = p.get("label", "scatter")
     tag = _SCATTER_TAG + label
@@ -365,11 +399,15 @@ def _generate(label, region, meshes, seed, rules, p):
         "meshes_spec": p.get("meshes", []),
         "foliage_types": ft_paths,
     }
-    return {"scattered": label, "instances": placed, "species": len(meshes),
-            "per_family": _state.scatters[label]["per_family"],
-            "seed": seed, "rejected": rejected, "foliage_types": len(ft_paths),
-            "undoable": False,
-            "note": "instanced foliage (registered) — renders in the viewport"}
+    out = {"scattered": label, "instances": placed, "species": len(meshes),
+           "per_family": _state.scatters[label]["per_family"],
+           "seed": seed, "rejected": rejected, "foliage_types": len(ft_paths),
+           "undoable": False,
+           "note": "instanced foliage (registered) — renders in the viewport"}
+    canopy = _canopy_notes(meshes, spacing, jit)
+    if canopy:
+        out["notes"] = canopy
+    return out
 
 
 def _fold_families(per_variant, meshes):

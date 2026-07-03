@@ -40,11 +40,40 @@ if not hasattr(_state, "follow"):
     _state.follow = True
 
 
+def _level_guard():
+    """G23: the op log + declared intents describe ONE level's arrangement. On the first
+    dispatch after a level change, clear both — op001 from a dead level must never stamp a
+    fresh level's status blocks, and undo_to can never cross a level boundary. (A save-as
+    rename counts as a change — conservative and documented.) Actor/foliage registries have
+    their own lifecycle (`scene op=reconcile`, G16)."""
+    if not hasattr(_state, "level_stamp"):
+        _state.level_stamp = [None]
+    lvl = _ue.level_name()
+    prev = _state.level_stamp[0]
+    _state.level_stamp[0] = lvl
+    if prev is None or prev == lvl:
+        return None
+    n_ops, n_int = len(_state.history), len(_state.intents)
+    _state.history.clear()
+    _state._undone.clear()
+    _state.intents.clear()
+    _state.drift[0] = 0.0
+    _state.engine_grounds_memo = None
+    if n_ops or n_int:
+        return (f"level changed ({prev} → {lvl}) — cleared {n_ops} logged op(s) and "
+                f"{n_int} declared intent(s) from the old level (G23); "
+                f"scene op=reconcile to check the registries")
+    return None
+
+
 def handle(verb, params):
     fn = _VERBS.get(verb)
     if fn is None:
         return {"error": f"unknown verb '{verb}'. known: {sorted(_VERBS)}"}
+    level_note = _level_guard()
     result = fn(params)
+    if level_note and isinstance(result, dict) and "error" not in result:
+        result.setdefault("notes", []).append(level_note)
     if (verb in MUTATING or verb in STATUS_ONLY or verb in SPATIAL) \
             and isinstance(result, dict) and "error" not in result:
         result["status"] = _status_block(verb, params, result)
@@ -262,11 +291,21 @@ def _v_scene(p):
         cls = a.get_class().get_name()
         groups.setdefault(cls, []).append(a.get_actor_label())
     untracked = len(_ue.all_actors()) - len(_ue.ueb_actors())
-    return {"level": _ue.level_name(),
-            "scope": "all" if include_all else "ueb",
-            "count": sum(len(v) for v in groups.values()),
-            "untracked": untracked,
-            "actors": {k: sorted(v) for k, v in groups.items()}}
+    out = {"level": _ue.level_name(),
+           "scope": "all" if include_all else "ueb",
+           "count": sum(len(v) for v in groups.values()),
+           "untracked": untracked,
+           "actors": {k: sorted(v) for k, v in groups.items()}}
+    # G22: the template's stowaway ground plane is acknowledged, not hidden — an agent
+    # reading `scene` learns which ground its traces will answer to.
+    proxies = _ue.engine_landscape_actors()
+    if proxies:
+        authored = any(_ue.find_by_label(l) is not None for l in _state.landscapes)
+        out["engine_ground"] = (
+            f"{len(proxies)} engine Landscape actor(s) form a template ground plane at z≈0"
+            + ("; ground traces IGNORE it while your ueb terrain exists" if authored
+               else "; with no ueb terrain it IS the ground every trace answers"))
+    return out
 
 
 def _ground_flag(place):
@@ -539,10 +578,13 @@ def _map_data(p):
     every labelled ueb actor, path, and scatter region — enough for the server to render a
     labelled site plan the agent reads absolute [x,y] off (derived, not divined)."""
     label = p.get("label", "terrain")
+    landscape._hydrate()                        # map after an editor restart still knows terrain
     meta = _state.landscapes.get(label)
     res = int(p.get("grid", 72))
     if meta is not None:
-        ox, oy, oz = meta["origin"]
+        # Effective origin + base_height, same composition as landscape describe (G26).
+        ox, oy, oz = landscape._eff_origin(label, meta)
+        zb = oz + meta.get("base_height", 0.0)
         sx, sy = meta["size"]
         extent = min(sx, sy) / 2.0
         feats = meta["features"]
@@ -552,15 +594,16 @@ def _map_data(p):
             ly = (j / (res - 1) - 0.5) * sy
             for i in range(res):
                 lx = (i / (res - 1) - 0.5) * sx
-                row.append(round(oz + terrain.height_at(lx, ly, feats, extent), 1))
+                row.append(round(zb + terrain.height_at(lx, ly, feats, extent), 1))
             grid.append(row)
         bounds = {"x": [ox - sx / 2, ox + sx / 2], "y": [oy - sy / 2, oy + sy / 2]}
     else:
         grid, bounds = None, None
 
-    # terrains render as the height field; scatter groups render as region outlines — so
-    # neither belongs in the point-marker list (a scatter actor's AABB spans the whole stand).
-    hide = set(_state.landscapes.keys()) | set(_state.scatters.keys())
+    # terrains render as the height field; scatter groups render as region outlines; path
+    # surface strips render as the path polyline — no substrate belongs in the point-marker
+    # list (their AABBs span whole regions).
+    hide = _ue.substrate_labels()
     markers = []
     for a in _ue.ueb_actors():
         lbl = a.get_actor_label()

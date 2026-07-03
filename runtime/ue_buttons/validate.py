@@ -172,10 +172,11 @@ def list_intents():
 
 def _substrates():
     """Labels the actor-floor never validates as actors: terrains, scatter stands, path
-    labels. A terrain IS the ground (the ground check consults it via a trace, not an
-    AABB overlap); a scatter stand's AABB spans its whole region (overlap is meaningless);
-    a path is not an actor. Everything placed ON these is validated normally."""
-    return set(_state.landscapes) | set(_state.scatters) | set(_state.paths)
+    labels, path surface strips. A terrain IS the ground (the ground check consults it via
+    a trace, not an AABB overlap); a scatter stand's AABB spans its whole region (overlap
+    is meaningless); a path is not an actor and its surface strip is the path made visible.
+    Everything placed ON these is validated normally. One shared definition (_ue)."""
+    return _ue.substrate_labels()
 
 
 def _spatial_actors(labels):
@@ -699,6 +700,10 @@ def reconcile(gc=True):
                 "reason": f"the terrain '{terr}' it was carved into is gone"})
             if gc:
                 _state.paths.pop(label, None)
+                strip = pdata.get("surface_actor")     # the ribbon dies with its path
+                sa = _ue.find_by_label(strip) if strip else None
+                if sa is not None:
+                    _ue.actor_subsystem().destroy_actor(sa)
         else:
             report["clean"].append({"kind": "path", "label": label})
 

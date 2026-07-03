@@ -129,10 +129,12 @@ asset.py       perception over Content — packs/inventory/describe/find/whats_n
 terrain.py     pure-Python heightfield engine (no numpy) — the one height_at() that backs
                the mesh, describe sampling, and view(map); + region math for flatten/scatter.
 landscape.py   terrain as a GeometryScript DynamicMesh (G12: Landscape API unscriptable) —
-               create/shape/flatten/describe; complex collision so traces conform.
+               create/shape/flatten/describe/remove; complex collision so traces conform;
+               material= assignment (G25).
 map_ref.py     map-position resolver — polar {from,bearing,distance} + absolute [x,y].
-path.py        splines as Catmull-Rom over waypoints (G13) — create/carve/describe; route
-               walking; drape/carve; along=/facing= placement terms.
+path.py        splines as Catmull-Rom over waypoints (G13) — create/carve/surface/describe/
+               remove; route walking; drape/carve; a draped material ribbon (`surface`)
+               that makes the path visible; along=/facing= placement terms.
 scatter.py     instanced-foliage populations — create/describe/regenerate/remove; seeded
                jittered-grid sampling, per-point ground trace + slope, auto-clears paths &
                buildings. Instances go through the editor foliage subsystem so they render

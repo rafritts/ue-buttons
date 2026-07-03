@@ -190,7 +190,8 @@ def view(action: str = "orbit", target: str = None, azimuth: float = 45.0,
 @mcp.tool()
 def asset(action: str = "packs", pack: str = None, asset: str = None,
           query: str = None, kind: str = "mesh", family: str = None,
-          measure: bool = False, budget: int = 60, commit: bool = True) -> str:
+          measure: bool = False, budget: int = 60, commit: bool = True,
+          seconds: float = 20.0) -> str:
     """Perception over the project's Content — "what can I build with, and how big is it?"
 
     All dimensions are centimetres. Marketplace meshes are reported at native scale; the
@@ -202,11 +203,15 @@ def asset(action: str = "packs", pack: str = None, asset: str = None,
                                      character. Cheap (registry only).
     action="inventory" (pack):       COMPACT by default — one dict per inferred FAMILY
                                      (Pine_Tree_01..05 → family Pine_Tree) with variant
-                                     names, tris, Nanite, and dims/pivot where already
-                                     measured. Measuring a mesh means loading it, so dims
-                                     are filled lazily:
-                                       measure=True [budget=N]: warm the dims cache in
-                                         bounded batches (default 60/call) — repeat until
+                                     names, tris, Nanite, and where measured: height,
+                                     footprint (widest of x/y) and aspect_h_over_w — the
+                                     SILHOUETTE tells (aspect ≈1 reads as a bush/blob; a
+                                     trunk-and-canopy tree runs well above 1 — don't pick
+                                     forest species on height alone). Measuring a mesh
+                                     means loading it, so dims are filled lazily:
+                                       measure=True [budget=N, seconds=S]: warm the dims
+                                         cache in bounded batches (≤N meshes AND ≤S seconds
+                                         of wall-clock, defaults 60/20 s) — repeat until
                                          complete; never blocks the bridge.
                                        family="Pine_Tree": full per-variant detail for one
                                          family, measuring just those. Measured dims persist
@@ -214,14 +219,16 @@ def asset(action: str = "packs", pack: str = None, asset: str = None,
     action="describe" (asset):       one asset in full — dims, pivot, material slots,
                                      collision, dependency/referencer counts. Short name or
                                      full /Game path; errors with candidates if ambiguous.
-    action="find" (query, kind):     name-substring search; kind=mesh|blueprint|skeletal|any.
+    action="find" (query, kind):     name-substring search; kind=mesh|blueprint|skeletal|
+                                     material|any (material finds surfaces for landscape
+                                     material= / path surface).
     action="whats_new" (commit):     diff the registry against a persisted snapshot — how
                                      a freshly-downloaded pack becomes visible. commit=False
                                      peeks without updating the snapshot.
     """
     p = {"action": action, "pack": pack, "asset": asset, "query": query,
          "kind": kind, "family": family, "measure": measure, "budget": budget,
-         "commit": commit}
+         "commit": commit, "seconds": seconds}
     # measure / family-drill load meshes — give them room; default inventory is cheap.
     timeout = 180 if (measure or family) else 60
     return render(call_ue("asset", p, timeout=timeout))
@@ -249,6 +256,8 @@ def scatter(action: str = "create", label: str = "scatter", meshes: list = None,
                scale_jitter:[lo,hi], yaw_random, clear_margin, clear_of:[path/actor labels,
                regions]}. DEFAULT: every scatter auto-clears existing paths (width/2+margin)
                and buildings (footprint+margin) — the path stays open THROUGH the trees.
+               Spacing below the measured canopy width warns (clipped-geometry tell): derive
+               min_spacing_cm from the widest scattered family's footprint, never intuition.
     action="describe": counts per family, region, seed, rules — enough to reason/regenerate.
     action="regenerate" (seed): same rules, new dice — the "reroll that stand" button.
     action="remove": delete the whole stand as a unit.
@@ -264,7 +273,8 @@ def scatter(action: str = "create", label: str = "scatter", meshes: list = None,
 @mcp.tool()
 def path(action: str = "create", label: str = "path", points: list = None,
          route: dict = None, width: float = None, at_fraction: float = None,
-         terrain: str = "terrain", blend_margin: float = None) -> str:
+         terrain: str = "terrain", blend_margin: float = None, material: str = None,
+         lift: float = None, tile: float = None) -> str:
     """Paths as first-class intent — a winding route draped over the terrain (SPEC-01 E4).
 
     All positions are MAP points: polar {"from":<anchor>,"bearing":deg,"distance":cm}
@@ -278,36 +288,48 @@ def path(action: str = "create", label: str = "path", points: list = None,
           {"bearing":deg,"distance":cm} (absolute) or {"turn":±deg,"distance":cm} (relative —
           the natural encoding of "winding"). Returns every resolved waypoint.
     action="carve" (terrain, blend_margin): flatten the terrain to grade along the route,
-        feathered to the path width — cuts a visible bed.
+        feathered to the path width — cuts the geometric bed (one mesh rebuild). If the path
+        already has a surface strip, it is re-draped automatically.
+    action="surface" (material, width, lift, tile): make the path VISIBLE — a thin material
+        ribbon draped onto the ground along the route (a carve alone is nearly invisible
+        without a material contrast, G25). material = a material name or /Game path (find
+        one via asset find kind=material — e.g. a dirt/gravel Megascans surface); lift = cm
+        above the ground (default 3); tile = cm per texture repeat (default 400). Idempotent:
+        re-running replaces the strip. Typical order: create → carve → surface.
     action="describe" (at_fraction): length, waypoints, and (at_fraction) the world point +
         tangent + bearing there — the hamlet's skeleton for `along=`/`facing=` placement.
-    action="remove": forget the path.
+    action="remove": forget the path (and delete its surface strip).
 
     Placement (on add/scatter): place={"along":{"path":label,"fraction":f,"side":"left|right",
     "offset":cm}} puts a thing beside the path; add(facing=label) turns it to face the path.
     """
     p = {"action": action, "label": label, "terrain": terrain}
     for k, v in (("points", points), ("route", route), ("width", width),
-                 ("at_fraction", at_fraction), ("blend_margin", blend_margin)):
+                 ("at_fraction", at_fraction), ("blend_margin", blend_margin),
+                 ("material", material), ("lift", lift), ("tile", tile)):
         if v is not None:
             p[k] = v
-    return render(call_ue("path", p, timeout=120))
+    return render(call_ue("path", p, timeout=180))
 
 
 @mcp.tool()
 def landscape(action: str = "create", label: str = "terrain", size: list = None,
               origin: list = None, base_height: float = None, features: list = None,
               region: dict = None, height: float = None, blend_margin: float = None,
-              at: list = None, replace: bool = False, resolution: list = None) -> str:
+              at: list = None, replace: bool = False, resolution: list = None,
+              material: str = None) -> str:
     """Terrain as a heightfield — you describe landforms, the runtime synthesises the mesh.
 
     All coords are MAP centimetres (converted to terrain-local internally). Compass: north=+X,
     east=+Y, bearing clockwise = UE yaw. Terrain is a collidable mesh, so ground-snap / scatter
     / path-drape trace it directly. NOT undoable via history (see the `undoable` field).
+    While a ueb terrain exists, ground traces IGNORE the engine template's z=0 Landscape —
+    your terrain is the ground, even below zero (though base_height is still the cleaner way
+    to keep geometry clear of the template plane).
 
-    action="create" (size, origin, base_height): new flat terrain. size=[x_cm,y_cm]
+    action="create" (size, origin, base_height, material): new flat terrain. size=[x_cm,y_cm]
         (hamlet ~[20000,20000] = 200 m); origin = map centre (default [0,0]).
-    action="shape" (features, replace): apply landform features, composed in order —
+    action="shape" (features, replace, material): apply landform features, composed in order —
         {"kind":"valley","axis":"x|y","floor_width":cm,"wall_height":cm,"roughness":0..1}
         {"kind":"hill"|"ridge","at":[x,y],"radius":cm,"height":cm,"length":cm,"axis":"x|y"}
         {"kind":"noise","amplitude":cm,"scale":cm,"octaves":n,"seed":n}
@@ -315,14 +337,20 @@ def landscape(action: str = "create", label: str = "terrain", size: list = None,
       replace=True resets the feature list first (idempotent rebuild); default appends.
     action="flatten" (region, height, blend_margin): carve a pad/bed — blend the terrain to a
         level inside region={kind:"circle"|"rect"|"polygon", ...}, feathered over blend_margin.
-        height defaults to the current grade at the region anchor (pad sits at grade).
+        height is WORLD z; defaults to the current grade at the region anchor (pad at grade).
     action="describe" (at): bounds, height range, and z + slope sampled at map points
-        at=[[x,y],...] — agrees with world traces (same height function built the mesh).
+        at=[[x,y],...] — agrees with world traces (same height function built the mesh, and
+        the model side composes the actor's live transform + base_height).
+    action="remove": tear the terrain down (actor + meta) so create can rebuild from scratch.
+
+    material: a material name or /Game path to assign to the terrain surface (find one via
+        asset find kind=material); persists across reshapes. Accepted on create/shape.
     """
     p = {"action": action, "label": label, "replace": replace}
     for k, v in (("size", size), ("origin", origin), ("base_height", base_height),
                  ("features", features), ("region", region), ("height", height),
-                 ("blend_margin", blend_margin), ("at", at), ("resolution", resolution)):
+                 ("blend_margin", blend_margin), ("at", at), ("resolution", resolution),
+                 ("material", material)):
         if v is not None:
             p[k] = v
     return render(call_ue("landscape", p, timeout=180))

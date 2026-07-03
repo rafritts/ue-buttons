@@ -237,17 +237,32 @@ def _a_inventory(p):
     reg = {_pkg(a): a for a in _assets_under(root, [STATIC_MESH])}
     skeletal_n = len(_assets_under(root, [SKELETAL_MESH]))
 
-    # Bounded warm-up: load up to `budget` uncached meshes, persist, report progress.
+    # Bounded warm-up: load up to `budget` uncached meshes OR `seconds` of wall-clock,
+    # whichever hits first. The count budget alone wedged the bridge for 13 minutes on a
+    # cold Nanite pack (bugs.md B6) — first-load cost per mesh varies by orders of
+    # magnitude, so only the clock actually protects the transport timeout.
     if p.get("measure"):
+        import time
         budget = int(p.get("budget", _MEASURE_BUDGET))
+        seconds = float(p.get("seconds", 20.0))
+        deadline = time.monotonic() + seconds
         uncached = [pp for pp in reg if _state.cached_dims(pp) is None]
+        done = 0
         for pp in uncached[:budget]:
             _measure_mesh(pp, load=True)
+            done += 1
+            if time.monotonic() > deadline:
+                break
         _save_cache()
-        remaining = max(0, len(uncached) - budget)
-        return {"pack": root, "measured_this_call": min(budget, len(uncached)),
-                "remaining": remaining, "complete": remaining == 0,
-                "cached_total": sum(1 for pp in reg if _state.cached_dims(pp))}
+        remaining = max(0, len(uncached) - done)
+        out = {"pack": root, "measured_this_call": done,
+               "remaining": remaining, "complete": remaining == 0,
+               "cached_total": sum(1 for pp in reg if _state.cached_dims(pp))}
+        if remaining and done < min(budget, len(uncached)):
+            out["note"] = (f"stopped at the {round(seconds)}s wall-clock budget "
+                           f"(B6: one slow batch must never outlive the bridge timeout) "
+                           f"— call again to continue")
+        return out
 
     families = {}   # fam -> list of variant records (registry facts + cached dims if any)
     for path, ad in reg.items():
@@ -276,6 +291,12 @@ def _a_inventory(p):
     for fam, vs in sorted(families.items()):
         vs.sort(key=lambda v: v["name"])
         measured_vs = [v for v in vs if v["dims_cm"]]
+        # G27: height alone made "tall" read as "tree" (a 9.7 m bush). Footprint + the
+        # height:width aspect put SILHOUETTE on the family line where selection happens —
+        # aspect ≈1 is a blob/bush; a canopy tree with a trunk runs well above 1.
+        widths = [max(v["dims_cm"][0], v["dims_cm"][1]) for v in measured_vs]
+        aspects = [round(v["dims_cm"][2] / w, 2)
+                   for v, w in zip(measured_vs, widths) if w > 0.01]
         entry = {
             "count": len(vs),
             "variants": [v["name"] for v in vs],
@@ -283,6 +304,8 @@ def _a_inventory(p):
             "nanite": all(v["nanite"] for v in vs),
             "measured": f"{len(measured_vs)}/{len(vs)}",
             "height_range_cm": _range([v["dims_cm"][2] for v in measured_vs]),
+            "footprint_range_cm": _range(widths),
+            "aspect_h_over_w": _range(aspects),
         }
         if only_family:                 # drill mode carries full per-variant detail
             entry["detail"] = vs
@@ -299,17 +322,18 @@ def _a_inventory(p):
     }
 
 
-def _resolve_asset_path(query):
+def _resolve_asset_path(query, classes=None):
     """Turn an inventory short name (or family+variant) or full path into a concrete
     asset path. Returns (path, candidates): path set on a unique hit, else candidates
-    lists the ambiguous matches for the caller to disambiguate."""
+    lists the ambiguous matches for the caller to disambiguate. `classes` narrows the
+    search (default: meshes + blueprints; landscape/path pass material classes — G25)."""
     if query.startswith("/Game"):
         return query, []
     # Exact name wins over fuzzy — but the same name can belong to BOTH a StaticMesh and a
     # Blueprint (this pack ships Wall_4m as each). Collect all exact matches and flag the
     # collision rather than silently returning whichever the registry yields first.
     exact, fuzzy = [], []
-    for ad in _assets_under("/Game", [STATIC_MESH, BLUEPRINT]):
+    for ad in _assets_under("/Game", classes or [STATIC_MESH, BLUEPRINT]):
         n = _name(ad)
         if n == query:
             exact.append(_pkg(ad))
@@ -366,7 +390,9 @@ def _a_find(p):
     query = (p.get("query") or "").lower()
     kind = p.get("kind", "mesh")
     class_names = {"mesh": [STATIC_MESH], "blueprint": [BLUEPRINT],
-                   "skeletal": [SKELETAL_MESH], "any": []}.get(kind, [STATIC_MESH])
+                   "skeletal": [SKELETAL_MESH], "any": [],
+                   "material": ["Material", "MaterialInstanceConstant"],
+                   }.get(kind, [STATIC_MESH])
     hits = []
     for ad in _assets_under("/Game", class_names):
         n = _name(ad)
@@ -410,8 +436,14 @@ def _a_whats_new(p):
 
     has_changes = bool(added_roots or removed_roots or changed)
     if has_changes:
-        _state.invalidate_dims()          # re-imports must be re-measured
-        _save_cache()                     # persist the now-empty cache so disk agrees
+        # Evict ONLY the changed/removed roots' entries (G29): nuking the whole cache on
+        # any diff re-priced every measured pack at 13 min/66 meshes for one unrelated
+        # download. A removed pack's dead entries leave with it; untouched packs keep theirs.
+        stale_roots = set(removed_roots) | set(added_roots) | set(changed)
+        stale = [pp for pp in list(_state.dims_cache)
+                 if pp.split("/")[2:3] and pp.split("/")[2] in stale_roots]
+        _state.invalidate_dims(stale)
+        _save_cache()                     # persist the eviction so disk agrees
 
     if p.get("commit", True):
         try:

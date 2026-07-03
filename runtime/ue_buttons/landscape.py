@@ -88,7 +88,52 @@ def _rebuild(actor, meta):
     comp.set_editor_property("enable_complex_collision", True)
     comp.set_dynamic_mesh(mesh)
     comp.set_collision_enabled(unreal.CollisionEnabled.QUERY_AND_PHYSICS)
+    mat_path = meta.get("material")
+    if mat_path:                                    # G25: an assigned material survives rebuilds
+        m = unreal.EditorAssetLibrary.load_asset(mat_path)
+        if m is not None:
+            comp.set_material(0, m)
     return len(positions)
+
+
+def resolve_material(q):
+    """A material asset path from a short name or full path (G25). Returns (path, error)."""
+    if q.startswith("/Game") or q.startswith("/Engine"):
+        return q, None
+    from . import asset
+    path, cands = asset._resolve_asset_path(
+        q, classes=["Material", "MaterialInstanceConstant"])
+    if path is not None:
+        return path, None
+    if not cands:
+        return None, f"no material matches '{q}' (asset find kind=material to browse)"
+    return None, f"material '{q}' is ambiguous — candidates: {cands[:10]}"
+
+
+def _set_material(meta, p):
+    """Stash a requested material on the meta (applied by _rebuild). Returns error or None."""
+    q = p.get("material")
+    if not q:
+        return None
+    path, err = resolve_material(q)
+    if err:
+        return err
+    meta["material"] = path
+    return None
+
+
+def _eff_origin(label, meta):
+    """The terrain's EFFECTIVE map origin: authored origin composed with the actor's live
+    transform (G26 — a `transform nudge` moves the mesh; the meta origin doesn't follow).
+    Every model-side answer (describe, samples, map grid, carve grades) derives from this,
+    so a moved terrain never permanently 'diverges' from its own model."""
+    ox, oy, oz = meta["origin"]
+    a = _ue.find_by_label(label)
+    if a is None:
+        return [ox, oy, oz]
+    loc = a.get_actor_location()
+    spawn = meta["origin"]
+    return [ox + (loc.x - spawn[0]), oy + (loc.y - spawn[1]), oz + (loc.z - spawn[2])]
 
 
 # ── actions ──────────────────────────────────────────────────────────────────────
@@ -96,10 +141,10 @@ def handle(p):
     _hydrate()
     action = p.get("action", "create")
     fn = {"create": _create, "shape": _shape, "flatten": _flatten,
-          "describe": _describe}.get(action)
+          "describe": _describe, "remove": _remove}.get(action)
     if fn is None:
         return {"error": f"unknown landscape action '{action}'. known: "
-                         "create|shape|flatten|describe"}
+                         "create|shape|flatten|describe|remove"}
     return fn(p)
 
 
@@ -112,13 +157,17 @@ def _create(p):
     centre). size=[x_cm, y_cm]; the hamlet wants ~20000×20000 (200 m)."""
     label = p.get("label", "terrain")
     if _ue.find_by_label(label) is not None:
-        return {"error": f"label '{label}' already exists"}
+        return {"error": f"label '{label}' already exists (landscape remove label="
+                         f"'{label}' to rebuild from scratch — G24)"}
     size = p.get("size", [20000.0, 20000.0])
     origin = p.get("origin", [0.0, 0.0, 0.0])
     if len(origin) == 2:
         origin = [origin[0], origin[1], 0.0]
     meta = {"origin": origin, "size": size, "base_height": p.get("base_height", 0.0),
             "resolution": p.get("resolution") or _steps_for(size), "features": []}
+    err = _set_material(meta, p)
+    if err:
+        return {"error": err}
     actor = _ue.actor_subsystem().spawn_actor_from_class(
         unreal.DynamicMeshActor, unreal.Vector(*origin))
     actor.set_actor_label(label)
@@ -126,8 +175,34 @@ def _create(p):
     verts = _rebuild(actor, meta)
     _state.landscapes[label] = meta
     _save_meta()
-    return {"created": label, "size_cm": size, "origin": origin,
-            "resolution": meta["resolution"], "vertices": verts, "undoable": False}
+    _state.engine_grounds_memo = None    # ground attribution changed (B3/G22)
+    out = {"created": label, "size_cm": size, "origin": origin,
+           "resolution": meta["resolution"], "vertices": verts, "undoable": False}
+    if meta.get("material"):
+        out["material"] = meta["material"]
+    return out
+
+
+def _remove(p):
+    """Tear down a terrain: destroy the actor, drop the meta (G24 — terrain lifecycle).
+    Paths carved into it become orphans; `scene op=reconcile` GCs them."""
+    label = p.get("label", "terrain")
+    meta = _meta_of(label)
+    actor = _ue.find_by_label(label)
+    if meta is None and actor is None:
+        return {"error": f"no terrain labelled '{label}'"}
+    if actor is not None:
+        _ue.actor_subsystem().destroy_actor(actor)
+    _state.landscapes.pop(label, None)
+    _save_meta()
+    _state.engine_grounds_memo = None    # ground attribution changed (B3/G22)
+    dependents = [pl for pl, pd in _state.paths.items()
+                  if pd.get("terrain", "terrain") == label]
+    out = {"removed": label, "undoable": False}
+    if dependents:
+        out["notes"] = [f"paths {dependents} referenced this terrain — scene op=reconcile "
+                        f"to GC them (or path remove each)"]
+    return out
 
 
 def _shape(p):
@@ -143,7 +218,10 @@ def _shape(p):
     actor = _ue.find_by_label(label)
     if meta is None or actor is None:
         return {"error": f"no terrain labelled '{label}' (create it first)"}
-    feats = _to_local_features(p.get("features", []), meta["origin"])
+    err = _set_material(meta, p)
+    if err:
+        return {"error": err}
+    feats = _to_local_features(p.get("features", []), _eff_origin(label, meta))
     if p.get("replace"):
         meta["features"] = feats
     else:
@@ -151,8 +229,9 @@ def _shape(p):
     verts = _rebuild(actor, meta)
     _save_meta()
     hi, lo = _height_range(meta)
+    zb = _eff_origin(label, meta)[2] + meta.get("base_height", 0.0)
     return {"shaped": label, "feature_count": len(meta["features"]),
-            "height_range_cm": [round(lo, 1), round(hi, 1)], "vertices": verts,
+            "height_range_cm": [round(zb + lo, 1), round(zb + hi, 1)], "vertices": verts,
             "undoable": False}
 
 
@@ -166,20 +245,24 @@ def _flatten(p):
     actor = _ue.find_by_label(label)
     if meta is None or actor is None:
         return {"error": f"no terrain labelled '{label}'"}
-    region = _region_to_local(p.get("region"), meta["origin"])
+    eo = _eff_origin(label, meta)
+    region = _region_to_local(p.get("region"), eo)
     if region is None:
         return {"error": "flatten requires region={kind:circle|rect|polygon, ...}"}
     anchor = _region_anchor(region)
     extent = min(meta["size"]) / 2.0
+    zb = eo[2] + meta.get("base_height", 0.0)       # local height 0 sits at this WORLD z
     target = p.get("height")
     if target is None:                              # default: current grade at the anchor
         target = terrain.height_at(anchor[0], anchor[1], meta["features"], extent)
+    else:
+        target = float(target) - zb                 # explicit height is WORLD z → local
     feat = {"kind": "flatten", "region": region, "height": target,
             "blend_margin": p.get("blend_margin", 1500.0)}
     meta["features"].append(feat)
     verts = _rebuild(actor, meta)
     _save_meta()
-    return {"flattened": label, "target_height_cm": round(target, 1),
+    return {"flattened": label, "target_height_cm": round(zb + target, 1),
             "region": p.get("region"), "vertices": verts, "undoable": False}
 
 
@@ -191,20 +274,25 @@ def _describe(p):
     meta = _meta_of(label)
     if meta is None:
         return {"error": f"no terrain labelled '{label}'"}
-    ox, oy, oz = meta["origin"]
+    # Model answers compose the actor's LIVE transform + base_height (G26): a nudged
+    # terrain must not read as 'diverges' forever, and base_height is real world z.
+    ox, oy, oz = _eff_origin(label, meta)
+    zb = oz + meta.get("base_height", 0.0)
     sx, sy = meta["size"]
     hi, lo = _height_range(meta)
-    out = {"label": label, "origin": meta["origin"], "size_cm": meta["size"],
+    out = {"label": label, "origin": [ox, oy, oz], "size_cm": meta["size"],
            "bounds": {"x": [ox - sx / 2, ox + sx / 2], "y": [oy - sy / 2, oy + sy / 2],
-                      "z": [round(oz + lo, 1), round(oz + hi, 1)]},
-           "height_range_cm": [round(oz + lo, 1), round(oz + hi, 1)],
+                      "z": [round(zb + lo, 1), round(zb + hi, 1)]},
+           "height_range_cm": [round(zb + lo, 1), round(zb + hi, 1)],
            "feature_count": len(meta["features"])}
+    if meta.get("material"):
+        out["material"] = meta["material"]
     pts = p.get("at")
     if pts:
         # Ignore everything placed ON the terrain so the trace answers the SURFACE, not a
         # cube resting on it — hit only the terrain itself (G15/G18).
         ignore = [a for a in _ue.ueb_actors() if a.get_actor_label() != label]
-        out["samples"] = [_sample(meta, pt, ignore) for pt in pts]
+        out["samples"] = [_sample(label, meta, pt, ignore) for pt in pts]
         if any(s.get("diverges") for s in out["samples"]):
             out["note"] = ("some samples read the TRACED mesh, which differs from the feature "
                            "model — the terrain was carved/flattened there; trust z (traced)")
@@ -261,13 +349,13 @@ def _height_range(meta):
     return hi, lo
 
 
-def _sample(meta, pt, ignore=None):
-    ox, oy, oz = meta["origin"]
+def _sample(label, meta, pt, ignore=None):
+    ox, oy, oz = _eff_origin(label, meta)
     lx, ly = pt[0] - ox, pt[1] - oy
     extent = min(meta["size"]) / 2.0
     feats = meta["features"]
     h = terrain.height_at(lx, ly, feats, extent)
-    z_model = round(oz + h, 1)
+    z_model = round(oz + meta.get("base_height", 0.0) + h, 1)
     # slope: gradient magnitude over a 1 m step → degrees from horizontal (model-based)
     d = 100.0
     hx = terrain.height_at(lx + d, ly, feats, extent) - terrain.height_at(lx - d, ly, feats, extent)

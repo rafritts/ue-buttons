@@ -85,11 +85,11 @@ def point_and_tangent(label, fraction):
 
 # ── actions ──────────────────────────────────────────────────────────────────────
 def handle(p):
-    fn = {"create": _create, "carve": _carve, "describe": _describe,
-          "remove": _remove}.get(p.get("action", "create"))
+    fn = {"create": _create, "carve": _carve, "surface": _surface,
+          "describe": _describe, "remove": _remove}.get(p.get("action", "create"))
     if fn is None:
         return {"error": f"unknown path action '{p.get('action')}'. known: "
-                         "create|carve|describe|remove"}
+                         "create|carve|surface|describe|remove"}
     return fn(p)
 
 
@@ -123,12 +123,16 @@ def _walk_route(route):
 
 
 def _drape(points, width):
-    """Trace each waypoint onto the terrain for z; store draped [x,y,z] + planar tangents."""
-    draped = []
+    """Trace each waypoint onto the terrain for z. A miss is COUNTED, never silently
+    written as a real height (B3: four quiet z=0.0s became a baked-in causeway) — the
+    0.0 placeholder still fills the slot, but the caller warns with the miss count."""
+    draped, misses = [], 0
     for x, y in points:
         z = _ue.trace_ground(x, y)
+        if z is None:
+            misses += 1
         draped.append([x, y, z if z is not None else 0.0])
-    return draped
+    return draped, misses
 
 
 def _create(p):
@@ -137,13 +141,18 @@ def _create(p):
         return {"error": f"path '{label}' already exists (remove it first)"}
     points = _resolve_points(p)
     width = p.get("width", 300.0)
-    draped = _drape(points, width)
+    draped, misses = _drape(points, width)
     poly, cum = _sample_polyline([[x, y] for x, y, _ in draped])
     _state.paths[label] = {"points": draped, "width": width,
-                           "length_cm": round(cum[-1], 1)}
-    return {"created": label, "waypoints": [[round(v, 1) for v in pt] for pt in draped],
-            "length_cm": round(cum[-1], 1), "width_cm": width,
-            "note": "z draped onto terrain by trace; view(map) shows the route"}
+                           "length_cm": round(cum[-1], 1),
+                           "terrain": p.get("terrain", "terrain")}
+    out = {"created": label, "waypoints": [[round(v, 1) for v in pt] for pt in draped],
+           "length_cm": round(cum[-1], 1), "width_cm": width,
+           "note": "z draped onto terrain by trace; view(map) shows the route"}
+    if misses:
+        out["notes"] = [f"{misses}/{len(draped)} waypoints traced NO ground — their z is a "
+                        f"0.0 placeholder, not a surface (B3). Is the route on the terrain?"]
+    return out
 
 
 def _describe(p):
@@ -166,46 +175,153 @@ def _describe(p):
 
 
 def _carve(p):
-    """Flatten/smooth the terrain under the path — delegate to landscape.flatten along the
-    spline: a chain of overlapping flatten regions at grade, feathered to the width + margin."""
+    """Flatten the terrain under the path: a chain of overlapping flatten features at grade,
+    feathered to the width + margin — appended in ONE batch with ONE mesh rebuild. The first
+    cut delegated disc-by-disc to landscape.flatten, which rebuilt the whole heightfield per
+    disc (141 rebuilds ≈ the 30 s bridge blackout, bugs.md B6)."""
     from . import landscape
     landscape._hydrate()                          # carve reaches into landscape meta directly
     label = p.get("label", "path")
     path = _state.paths.get(label)
     if path is None:
         return {"error": f"no path labelled '{label}'"}
-    terrain_label = p.get("terrain", "terrain")
-    if landscape._meta_of(terrain_label) is None:
+    terrain_label = p.get("terrain", path.get("terrain", "terrain"))
+    meta = landscape._meta_of(terrain_label)
+    actor = _ue.find_by_label(terrain_label)
+    if meta is None or actor is None:
         return {"error": f"no terrain '{terrain_label}' to carve into"}
     poly, cum = _sample_polyline([[x, y] for x, y, _ in path["points"]])
     width = path["width"]
     margin = p.get("blend_margin", width)
     spacing = max(width / 2.0, 200.0)
     n = max(2, int(cum[-1] / spacing))
-    meta = landscape._meta_of(terrain_label)
     # Sample every disc's target from the PRE-CARVE terrain up front. If we instead let each
     # flatten default to the running grade, overlapping discs would each read the previous
     # disc's flattened height and drag the whole bed to a near-constant level (the bug that
     # levelled a valley-spanning road). Fixing targets to the natural grade makes the bed
-    # follow the terrain — level across the path, sloping along it.
-    ox, oy, _oz = meta["origin"]
+    # follow the terrain — level across the path, sloping along it. Coords/grades are in
+    # terrain-LOCAL space off the EFFECTIVE origin (G26: composes a nudged actor transform).
+    ox, oy, _oz = landscape._eff_origin(terrain_label, meta)
     extent = min(meta["size"]) / 2.0
     pre_feats = list(meta["features"])
-    discs = []
+    feats = []
     for i in range(n + 1):
         (x, y), _t = _point_at_fraction(poly, cum, i / n)
-        grade = terrain.height_at(x - ox, y - oy, pre_feats, extent)
-        discs.append((x, y, grade))
-    for x, y, grade in discs:
-        landscape.handle({"action": "flatten", "label": terrain_label, "height": grade,
-                          "region": {"kind": "circle", "at": [x, y], "radius": width / 2.0},
-                          "blend_margin": margin})
-    return {"carved": label, "terrain": terrain_label, "discs": len(discs),
-            "undoable": False, "note": "path bed flattened to natural grade along the route"}
+        lx, ly = x - ox, y - oy
+        grade = terrain.height_at(lx, ly, pre_feats, extent)
+        feats.append({"kind": "flatten", "height": grade, "blend_margin": margin,
+                      "region": {"kind": "circle", "at": [lx, ly], "radius": width / 2.0}})
+    meta["features"].extend(feats)
+    verts = landscape._rebuild(actor, meta)
+    landscape._save_meta()
+    out = {"carved": label, "terrain": terrain_label, "discs": len(feats),
+           "vertices": verts, "undoable": False,
+           "note": "path bed flattened to natural grade along the route (one rebuild)"}
+    if path.get("surface_actor"):
+        # The strip was draped on the PRE-carve ground — rebuild it on the new bed.
+        s = path.get("surface", {})
+        res = _surface({"label": label, **s})
+        out["surface_rebuilt"] = res.get("surfaced") or res.get("error")
+    return out
+
+
+def _surface(p):
+    """Give the path a VISIBLE surface: a thin material ribbon draped onto the terrain
+    (gaps.md G25 — a geometrically perfect carve reads as 'the tiniest of tiny lines'
+    without a material to separate bed from grass). Builds a DynamicMesh strip from the
+    spline: paired left/right vertices every ~half-width, each traced onto the real ground
+    and lifted a few cm so the strip sits ON the bed rather than z-fighting it. Idempotent:
+    re-running replaces the strip (so carve can rebuild it on the new grade)."""
+    label = p.get("label", "path")
+    path = _state.paths.get(label)
+    if path is None:
+        return {"error": f"no path labelled '{label}'"}
+    material = p.get("material")
+    mat_path = None
+    if material:
+        from . import landscape
+        mat_path, err = landscape.resolve_material(material)
+        if err:
+            return {"error": err}
+    elif path.get("surface", {}).get("material"):
+        mat_path = path["surface"]["material"]
+    width = float(p.get("width", path["width"]))
+    lift = float(p.get("lift", 3.0))
+    tile = float(p.get("tile", 400.0))              # UV tiling: one texture repeat per `tile` cm
+    strip_label = path.get("surface_actor", f"{label}_surface")
+
+    poly, cum = _sample_polyline([[x, y] for x, y, _ in path["points"]])
+    spacing = max(width / 2.0, 150.0)
+    n = max(2, int(cum[-1] / spacing))
+    old = _ue.find_by_label(strip_label)
+    verts, uvs, misses = [], [], 0
+    zs_by_frac = [z for _, _, z in path["points"]]
+    for i in range(n + 1):
+        (x, y), (tx, ty) = _point_at_fraction(poly, cum, i / n)
+        nx, ny = -ty, tx                            # planar left normal
+        along = (i / n) * cum[-1]
+        for sgn in (1.0, -1.0):
+            vx, vy = x + nx * sgn * width / 2.0, y + ny * sgn * width / 2.0
+            z = _ue.trace_ground(vx, vy, ignore=old)
+            if z is None:                            # fall back to the draped waypoint z
+                misses += 1
+                fi = (i / n) * (len(zs_by_frac) - 1)
+                i0 = int(fi); i1 = min(i0 + 1, len(zs_by_frac) - 1)
+                z = zs_by_frac[i0] + (zs_by_frac[i1] - zs_by_frac[i0]) * (fi - i0)
+            verts.append(unreal.Vector(vx, vy, z + lift))
+            uvs.append(unreal.Vector2D((0.0 if sgn > 0 else width / tile), along / tile))
+    tris = []
+    for i in range(n):
+        a = 2 * i                                   # row i: (a=left, a+1=right)
+        # Both windings per quad: the strip must read from above AND below regardless of
+        # the engine's facing convention — it's a 2D ribbon, not a solid.
+        tris += [unreal.IntVector(a, a + 2, a + 1), unreal.IntVector(a + 1, a + 2, a + 3),
+                 unreal.IntVector(a, a + 1, a + 2), unreal.IntVector(a + 1, a + 3, a + 2)]
+
+    if old is not None:
+        _ue.actor_subsystem().destroy_actor(old)
+    actor = _ue.actor_subsystem().spawn_actor_from_class(
+        unreal.DynamicMeshActor, unreal.Vector(0.0, 0.0, 0.0))
+    actor.set_actor_label(strip_label)
+    actor.tags = [unreal.Name(_ue.UEB_TAG)]
+    comp = actor.get_dynamic_mesh_component()
+    mesh = comp.get_dynamic_mesh()
+    mesh.reset()
+    buf = unreal.GeometryScriptSimpleMeshBuffers()
+    buf.set_editor_property("vertices", verts)
+    buf.set_editor_property("triangles", tris)
+    buf.set_editor_property("uv0", uvs)
+    unreal.GeometryScript_MeshEdits.append_buffers_to_mesh(mesh, buf)
+    comp.set_dynamic_mesh(mesh)
+    if mat_path:
+        m = unreal.EditorAssetLibrary.load_asset(mat_path)
+        if m is not None:
+            comp.set_material(0, m)
+    path["surface_actor"] = strip_label
+    path["surface"] = {"material": mat_path, "lift": lift, "width": width, "tile": tile}
+    out = {"surfaced": label, "actor": strip_label, "material": mat_path,
+           "vertices": len(verts), "width_cm": width, "lift_cm": lift, "undoable": False,
+           "note": "ribbon draped on the traced ground; re-run after any later carve"}
+    if not mat_path:
+        out["notes"] = ["no material given — the strip renders with the engine default "
+                        "(flat grey); pass material=<name|/Game path> "
+                        "(asset find kind=material to browse)"]
+    if misses:
+        out.setdefault("notes", []).append(
+            f"{misses}/{len(verts)} strip vertices traced no ground — used draped path z")
+    return out
 
 
 def _remove(p):
     label = p.get("label", "path")
-    if _state.paths.pop(label, None) is None:
+    path = _state.paths.pop(label, None)
+    if path is None:
         return {"error": f"no path labelled '{label}'"}
-    return {"removed": label}
+    out = {"removed": label}
+    strip = path.get("surface_actor")
+    if strip:
+        a = _ue.find_by_label(strip)
+        if a is not None:
+            _ue.actor_subsystem().destroy_actor(a)
+            out["surface_removed"] = strip
+    return out

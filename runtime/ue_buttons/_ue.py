@@ -143,6 +143,74 @@ def trace_hit(start, end, ignore=None):
                                    unreal.Vector(*end), _ignore_list(ignore))
 
 
+def _trace_with_actor(start, end, ignore):
+    """Like trace_hit, but returns (location, hit_actor) so the caller can ATTRIBUTE the
+    hit (B3: 'z=0.0' was a legitimate hit on the WRONG ground — attribution is the cure).
+    Same visibility-channel trace the SceneTools backend runs."""
+    arr = unreal.Array(unreal.Actor)
+    arr.extend(ignore or [])
+    hr = unreal.SystemLibrary.line_trace_single(
+        editor_world(), unreal.Vector(*start), unreal.Vector(*end),
+        unreal.TraceTypeQuery.ECC_VISIBILITY, True, arr, unreal.DrawDebugTrace.NONE, True)
+    if not hr:
+        return None, None
+    d = hr.to_dict()
+    return d["location"], (d.get("hit_actor") or d.get("actor"))
+
+
+# The engine-scaffolding classes that form the template's collidable ground plane at z=0
+# (B3/G22): the Landscape tree AND its WorldPartitionHLOD proxies — probed live, the actual
+# z=0 hit on a fresh Open World map is `WorldPartitionHLOD` (HLOD0_Instancing/...), not the
+# LandscapeStreamingProxy itself.
+_ENGINE_GROUND_CLASSES = ("LandscapeProxy", "WorldPartitionHLOD")
+
+
+def _engine_ground_types():
+    return tuple(c for c in (getattr(unreal, n, None) for n in _ENGINE_GROUND_CLASSES) if c)
+
+
+def engine_landscape_actors():
+    """Every engine-scaffolding ground actor (Landscape tree + WP HLOD proxies). A 'blank'
+    Open World template ships ~65 of them — a real collidable ground plane at z=0 that wins
+    any trace whose true authored surface lies below zero (bugs.md B3 / gaps.md G22)."""
+    types = _engine_ground_types()
+    return [a for a in all_actors() if isinstance(a, types)] if types else []
+
+
+def _engine_grounds_memo(refresh=False):
+    """Per-level memo of the engine ground actors (a full-actor scan per trace would tax
+    scatter's ~50k traces). HLOD actors stream in/out, so callers refresh when a hit actor
+    isn't covered; the level guard clears it on level change."""
+    from . import _state
+    lvl = level_name()
+    memo = getattr(_state, "engine_grounds_memo", None)
+    if not refresh and memo is not None and memo[0] == lvl:
+        return memo[1]
+    acts = engine_landscape_actors()
+    _state.engine_grounds_memo = (lvl, acts)
+    return acts
+
+
+def _authored_terrain_exists():
+    from . import _state
+    from . import landscape
+    landscape._hydrate()
+    return any(find_by_label(l) is not None for l in _state.landscapes)
+
+
+def substrate_labels():
+    """Every label that is a SUBSTRATE, not a placed actor: terrains, scatter stands, path
+    labels, and path surface strips. Shared by validate's neighbor pool, scatter's
+    clearance builder, and the map's marker filter — one definition, no drift."""
+    from . import _state
+    subs = set(_state.landscapes) | set(_state.scatters) | set(_state.paths)
+    for pd in _state.paths.values():
+        sa = pd.get("surface_actor")
+        if sa:
+            subs.add(sa)
+    return subs
+
+
 def trace_ground(x, y, ignore=None, top=200000.0, bottom=-200000.0):
     """World z of the ground directly under (x, y), or None if nothing is beneath the ray.
 
@@ -151,9 +219,26 @@ def trace_ground(x, y, ignore=None, top=200000.0, bottom=-200000.0):
     and unlike raw KismetSystemLibrary line traces it actually hits WorldPartition landscape
     proxies). `ignore` is a single actor OR an iterable of actors excluded from the trace
     — so a caller can hit the SUBSTRATE beneath by ignoring every placed actor (gaps.md
-    G18), not just skip self."""
-    hit = trace_hit((x, y, top), (x, y, bottom), ignore)
-    return None if hit is None else hit.z
+    G18), not just skip self.
+
+    B3/G22 attribution loop: when the winning hit is ENGINE scaffolding (the template
+    Landscape / its WP HLOD proxies) while an authored ueb terrain exists, the scaffolding
+    family is excluded and the ray re-fired — the template's z=0 plane must never shadow
+    the authored ground. With no ueb terrain the engine plane honestly IS the ground."""
+    ig = _ignore_list(ignore)
+    types = _engine_ground_types()
+    for attempt in range(3):
+        loc, actor = _trace_with_actor((x, y, top), (x, y, bottom), ig)
+        if loc is None:
+            return None
+        if (not types or actor is None or not isinstance(actor, types)
+                or not _authored_terrain_exists()):
+            return loc.z
+        # engine ground answered: exclude the whole family (refresh the memo if it missed
+        # this very actor — HLODs stream) and retrace
+        grounds = _engine_grounds_memo(refresh=(attempt > 0))
+        ig = ig + grounds
+    return loc.z    # still scaffolding after retries — honest fallback, never None
 
 
 def undo(n=1):

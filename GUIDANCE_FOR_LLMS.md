@@ -99,9 +99,14 @@ Order matters because each layer derives from the one below:
 
 1. **Landscape first** — shape the landforms, then `flatten` pads for anything that
    needs level ground. `landscape describe` samples height/slope at map points; use it
-   instead of tracing when planning (same height function built the mesh).
-2. **Paths second** — created draped over the terrain, then `carve` to grade. The path
-   is the settlement's skeleton: buildings place `along=`/`facing=` it.
+   instead of tracing when planning (same height function built the mesh). Assign a
+   `material=` (find one via `asset find kind=material`) — an unmaterialed terrain
+   renders flat grey and hides every feature you cut into it.
+2. **Paths second** — created draped over the terrain, then `carve` to grade, then
+   `surface` with a contrasting material (dirt vs the terrain's grass). A carve alone
+   is nearly invisible at eye level — the material strip is what makes the path READ
+   as a path (gaps.md G25's lesson). The path is the settlement's skeleton: buildings
+   place `along=`/`facing=` it.
 3. **Buildings on pads** — flatten before placing; ground-snap (`place={"ground": true}`).
 4. **Scatter last** — populations, not actors. Declare species mix, density, rules,
    seed. Scatter auto-clears existing paths and buildings — which only works if they
