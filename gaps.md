@@ -156,3 +156,23 @@ facing=...)` or a small `scene`/`add` sibling), ground-seated by trace like any
 placement, and visible to `scene`/`feel`/`view(map)` as a marker. Note the template
 level already ships one PlayerStart — creating a second silently wins/loses by
 priority; the verb should relocate-or-create, not blindly spawn.
+
+### G36 — `new_level_from_template` (Open World) yields always-loaded actors that never load in PIE
+Status: OPEN (found 2026-07-02, chasing the L1 black-screen-on-Play)
+
+A level created with `LevelEditorSubsystem.new_level_from_template(..., "/Engine/Maps/
+Templates/OpenWorld")` LOOKS right in the editor but is broken at game time: every
+template-copied actor with `is_spatially_loaded=False` (DirectionalLight, SkyLight,
+SkyAtmosphere, VolumetricCloud, ExponentialHeightFog, PlayerStart, SM_SkySphere) is
+ABSENT from the PIE world — Play renders an unlit void ("black screen") and the pawn
+spawns at world origin, under any authored terrain. Spatially-loaded actors (proxies,
+ueb DynamicMeshes, foliage) stream fine; dirty+resave does NOT heal the stale
+descriptors; freshly spawned always-loaded actors work perfectly. Cure applied to
+UEB_L1_Valley: delete the template set, respawn sun/sky_light (real-time capture)/
+sky_atmosphere/clouds/height_fog/player_start fresh. Wants: (a) whatever verb/script
+creates a level must do the replace-env-set dance (or build from an empty WP map);
+(b) `scene op=streaming` (or a new game-truth check) should flag always-loaded actors
+whose descriptors won't resolve at runtime — the editor view and the PIE view of the
+same map disagreed completely and every editor-side read said "fine". Diagnosis
+pattern that worked: `editor_request_begin_play` + census the game world via
+`GameplayStatics.get_all_actors_of_class`, compare against the editor world.
