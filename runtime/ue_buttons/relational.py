@@ -216,8 +216,73 @@ def _describe(label):
             "relations": rel}
 
 
+_GEO_NEAR_RANGE = 500.0    # refine with real geometry only at contact range (G5)
+_GEO_TRI_CAP = 200_000     # skip the mesh path when a copy would be this heavy
+
+
+def _geometry_nearest(actor_a, actor_b):
+    """G5: true mesh-surface nearest distance via GeometryScript — copy both meshes to
+    world-space DynamicMeshes, build BVHs, and run alternating nearest-point projection
+    (seeded from the AABB centres; 4 rounds converge for anything box-ish and give a tight
+    upper bound otherwise). Returns None when either actor has no mesh, a copy fails, or
+    the meshes are too heavy to copy on the dispatch path."""
+    import unreal
+    meshes = []
+    for actor in (actor_a, actor_b):
+        comp = (actor.get_component_by_class(unreal.StaticMeshComponent)
+                or actor.get_component_by_class(unreal.DynamicMeshComponent))
+        if comp is None:
+            return None
+        sm = getattr(comp, "static_mesh", None)
+        if sm is not None:
+            try:
+                if sm.get_num_triangles(0) > _GEO_TRI_CAP:
+                    return None
+            except Exception:
+                pass
+        dm = unreal.DynamicMesh()
+        try:
+            _, _, ok = unreal.GeometryScript_SceneUtils.copy_mesh_from_component(
+                comp, dm, unreal.GeometryScriptCopyMeshFromComponentOptions(), True)
+        except Exception:
+            return None
+        if ok != unreal.GeometryScriptOutcomePins.SUCCESS:
+            return None
+        if dm.get_triangle_count() > _GEO_TRI_CAP:
+            return None
+        _, bvh = unreal.GeometryScript_MeshSpatial.build_bvh_for_mesh(dm)
+        meshes.append((dm, bvh))
+    (dma, bva), (dmb, bvb) = meshes
+    qo = unreal.GeometryScriptSpatialQueryOptions()
+
+    def _nearest(dm, bvh, pt):
+        _, hit, found = unreal.GeometryScript_MeshSpatial.find_nearest_point_on_mesh(
+            dm, bvh, unreal.Vector(*pt), qo)
+        if found != unreal.GeometryScriptSearchOutcomePins.FOUND:
+            return None
+        h = hit.get_editor_property("position")
+        return [h.x, h.y, h.z]
+
+    p = _nearest(dma, bva, _ue.bounds(actor_b)["center"])
+    if p is None:
+        return None
+    q = None
+    for _i in range(4):
+        q = _nearest(dmb, bvb, p)
+        if q is None:
+            return None
+        p2 = _nearest(dma, bva, q)
+        if p2 is None:
+            return None
+        p = p2
+    return {"distance_cm": round(math.dist(p, q), 2),
+            "nearest_point_on_a": [round(v, 1) for v in p],
+            "nearest_point_on_b": [round(v, 1) for v in q]}
+
+
 def _distance_between(la, lb, axis):
-    a, b = _ue.bounds(_need(la)), _ue.bounds(_need(lb))
+    aa, ab = _need(la), _need(lb)
+    a, b = _ue.bounds(aa), _ue.bounds(ab)
     axis = axis.upper()
     if axis in ("X", "Y", "Z"):
         i = "XYZ".index(axis)
@@ -225,14 +290,23 @@ def _distance_between(la, lb, axis):
                 "distance_cm": round(abs(a["center"][i] - b["center"][i]), 2)}
     # ANY: nearest-surface distance between the two world AABBs. Per axis the empty gap is
     # max(bmin−amax, amin−bmax, 0); the Euclidean length of those gaps is the closest
-    # approach of the boxes (0 if they overlap). This is exact for box footprints; true
-    # sub-AABB mesh-surface nearest-point would need a geometry/BVH query UE Python doesn't
-    # cheaply expose — but that refinement only matters for non-box meshes at contact range.
+    # approach of the boxes (0 if they overlap) — exact for box footprints.
     gaps = [max(b["min"][i] - a["max"][i], a["min"][i] - b["max"][i], 0.0) for i in range(3)]
     surf = math.sqrt(sum(g * g for g in gaps))
-    return {"a": la, "b": lb, "axis": "ANY", "measured": "nearest-surface (AABB)",
-            "distance_cm": round(surf, 2),
-            "centre_to_centre_cm": round(math.dist(a["center"], b["center"]), 2)}
+    out = {"a": la, "b": lb, "axis": "ANY", "measured": "nearest-surface (AABB)",
+           "distance_cm": round(surf, 2),
+           "centre_to_centre_cm": round(math.dist(a["center"], b["center"]), 2)}
+    # G5: at contact range the AABB answer over-reads a non-box mesh (a sphere's corner is
+    # empty space) — refine against the real surfaces where it matters, keep both figures.
+    if surf < _GEO_NEAR_RANGE:
+        geo = _geometry_nearest(aa, ab)
+        if geo is not None:
+            out["aabb_distance_cm"] = out["distance_cm"]
+            out["distance_cm"] = geo["distance_cm"]
+            out["measured"] = "nearest-surface (mesh geometry, BVH)"
+            out["nearest_point_on_a"] = geo["nearest_point_on_a"]
+            out["nearest_point_on_b"] = geo["nearest_point_on_b"]
+    return out
 
 
 def _gap_between(la, lb):

@@ -15,17 +15,6 @@ Gaps are *friction / missing-capability / design*. Outright defects go in `bugs.
 
 ---
 
-### G5 — `feel distance_between` ANY is AABB nearest-surface, not true mesh-surface
-Status: OPEN (narrowed 2026-07-02 — AABB nearest-surface landed; only sub-AABB precision remains)
-
-`distance_between(axis=ANY)` now returns the true nearest-surface distance between the two
-world AABBs (the Euclidean length of the per-axis box gaps; 0 if they overlap) alongside the
-centre-to-centre figure — exact for box footprints. The remaining gap is sub-AABB precision:
-for a non-box mesh at contact range the nearest points lie on the actual surfaces, not the
-bounding boxes. blender-buttons gets this from a BVH nearest query both directions, which UE
-Python doesn't cheaply expose. Only matters for tight, non-box contact; port a
-geometry-nearest path if perception ever needs that depth.
-
 ### G10 — modular room composition isn't expressible in the pure relational DSL
 Status: OPEN (design note; E2 used derived-grid `at`, which is legitimate)
 
