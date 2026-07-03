@@ -66,6 +66,23 @@ validator-subsystem APIs (never console MAP CHECK through RC), and expect our ow
 (registered via `add_validator` as Python `EditorValidatorBase` subclasses) to carry the
 real weight.
 
+### G42 — `facing=<spline>` is degenerate for an actor standing ON that spline
+Status: OPEN (found 2026-07-03, post-SPEC-05 L1 rebuild — placing the player_start
+`along=` the trail with `facing="trail"`.)
+
+`facing=<spline label>` means "turn to face the route" — perpendicular, toward the
+nearest point. That's right for a cabin *beside* the trail, but for an actor placed ON
+the spline it yields a sideways bearing (got 295.3° where the tangent was 25.3°) with no
+warning, and nothing about the result says "you are ON the thing you're facing". The
+recovery was a `spline op=describe at_fraction=` read + explicit `yaw=` — fine, but two
+extra round trips for the single most natural trailhead intent ("start here, looking
+down the path").
+
+Fix shape: when the actor's position lies within the spline's width (it was just placed
+`along=` it), `facing=<that spline>` should mean the TANGENT bearing at that fraction —
+or at minimum warn and hand back the tangent as the ready-to-fire alternative
+(HATEOAS: the finding carries the next legal move).
+
 ### G30 — no job/progress pattern for slow mutations: one pathological asset load can still outrun the HTTP timeout
 Status: OPEN (successor to B6, 2026-07-02 — the two concrete offenders are fixed, the
 general pattern isn't built. Reviewed 2026-07-03: deliberately deferred again — the
