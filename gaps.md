@@ -15,6 +15,57 @@ Gaps are *friction / missing-capability / design*. Outright defects go in `bugs.
 
 ---
 
+### G40 — motion verdicts ignore INSTANCING, and the status block has no level-wide motion census
+Status: OPEN (found 2026-07-03 in the first SPEC-05 deixis experiment — the user selected
+the forest and reported "whole trees float/rock, no bending"; design agreed, implementation
+deliberately deferred until the spec-shaping session ends.)
+
+The live case: `MM_Tree_Trunk` (Modular_Rural_Cabin pack) drives WPO with
+`RotateAboutAxis` around the OBJECT PIVOT, angle scaled by `Distance(vertex, pivot) /
+ObjectRadius`. Per-actor that's a legitimate base-anchored trunk bend. But 549 pines in the
+level are FOLIAGE INSTANCES, and on an instanced component `ObjectPosition`/`ObjectRadius`/
+local-origin resolve to the WHOLE COMPONENT's bounds — one pivot for the entire forest, a
+radius spanning the valley — so every tree translates rigidly in sine arcs instead of
+bending. G39's classifier calls this master `wpo` (correct but under-specific): the
+verdict depends on material × USAGE, not the material alone.
+
+The tell is fully mechanical, two static reads: (a) the WPO subgraph references
+object-space expressions (`ObjectRadius`, `ObjectPosition`, `ObjectBounds`,
+`TransformPosition` local→world) — walkable via `get_inputs_for_material_expression`;
+(b) the mesh wearing it sits in an ISM/foliage component (even statically:
+`used_with_instanced_static_meshes=True` on the master is the smoking gun without touching
+the level).
+
+Tool to build (the "would have highlighted it immediately" answer):
+1. Upgrade the G39 classifier with a `pivot_wpo` kind (object-space WPO refs found) —
+   fine as an actor, SEVERE when instanced.
+2. A level-wide MOTION CENSUS on the status block: aggregate instanced meshes by motion
+   kind, surface the bad combo as a forced warning, e.g.
+   `⚠ motion: 549/4794 foliage instances FLOAT rigidly — MM_Tree_Trunk WPO is
+   pivot-anchored and breaks under instancing (G40)`.
+3. Same check fired at author time by `scatter`/foliage paint paths (extends the G39
+   author-time announcement, which today would only say "MOVES", not "moves WRONG").
+
+### G41 — native-linter wrapping hazards: `MAP CHECK` over RC crashes the editor; Data Validation is silent on real defects
+Status: OPEN (recorded 2026-07-03 while testing whether stock UE tooling catches G40's
+case; informs SPEC-07 before it's fleshed out.)
+
+Facts, all live-verified today:
+- `unreal.SystemLibrary.execute_console_command(None, "MAP CHECK")` issued through RC
+  dispatch CRASHED UE 5.8 with `EXCEPTION_ACCESS_VIOLATION reading 0x28` (crash dump
+  `UECC-Windows-8966F2934F0D67A9EFF48FA23F91A4E2_0000`; crashed session log ends at
+  `Cmd: MAP CHECK`). Do NOT issue MAP CHECK over the bridge again; the earlier in-log
+  MapCheck result reported `0 Error(s), 0 Warning(s)` anyway — no rule covers G40's case.
+- `EditorValidatorSubsystem.is_object_valid(MM_Tree_Trunk, MANUAL)` → `VALID`: stock
+  validators have nothing to say about a defective-under-instancing material. The
+  subsystem API surface is `is_asset_valid / is_object_valid / validate_assets_with_settings /
+  validate_changelist(s) / add_validator` — no `validate_loaded_asset` in 5.8, and
+  `is_asset_valid` wants `AssetData`, not a loaded object.
+Conclusion for SPEC-07: UE's native linters are a floor, not a roof — wrap them via the
+validator-subsystem APIs (never console MAP CHECK through RC), and expect our own rules
+(registered via `add_validator` as Python `EditorValidatorBase` subclasses) to carry the
+real weight.
+
 ### G30 — no job/progress pattern for slow mutations: one pathological asset load can still outrun the HTTP timeout
 Status: OPEN (successor to B6, 2026-07-02 — the two concrete offenders are fixed, the
 general pattern isn't built. Reviewed 2026-07-03: deliberately deferred again — the

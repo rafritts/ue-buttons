@@ -33,6 +33,18 @@ conversation needs a shared way to point.
 - What's the natural conversational grammar — does the user say "this one" and the agent
   always checks selection first, or is it an explicit verb call?
 
+## First live experiment (2026-07-03)
+
+The pattern works end to end. The user selected the forest and said "whole trees float and
+rock, no bending" — `EditorActorSubsystem.get_selected_level_actors()` over the bridge
+returned the level's `InstancedFoliageActor`; enumerating its `InstancedStaticMeshComponent`s
+gave every mesh + instance count + materials; the G39 motion classifier localized the fault
+to `MM_Tree_Trunk` on 549 pine instances, and a WPO-subgraph walk found the root cause
+(pivot-anchored WPO breaking under instancing — now G40). Answered open questions:
+selection IS readable live; a foliage click lands on the IFA, and component-level
+resolution was enough to diagnose — per-instance hit resolution wasn't needed this time
+and may matter less than assumed.
+
 ## Verification story (rough)
 
 The user clicks a tree, says "this one"; the agent names it, measures it, classifies its
