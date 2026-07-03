@@ -3,10 +3,12 @@
 The project charter and destination live in `docs/vision.md`; this spec is the naming
 LAW that vision depends on. When in doubt here, break toward vision.md.
 
-Status: **DRAFT — fleshed out 2026-07-03, awaiting the user's sign-off.** This spec fixes
-the shape of the whole future surface; nothing in SPEC-06..09 (deixis, probes, lint,
-runtime lint) should land until the decisions here are agreed, because they all add verbs
-and ops that must be born aligned.
+Status: **DRAFT, decision-complete (2026-07-03)** — fleshed out same day; the four open
+questions were resolved by the agent at the user's delegation (see the resolved section
+at the bottom). Awaiting only the user's go on the staged migration cutover. This spec
+fixes the shape of the whole future surface; nothing in SPEC-06..09 (deixis, probes,
+lint, runtime lint) should land until the cutover, because they all add verbs and ops
+that must be born aligned.
 
 Ported doctrine — the two blender-buttons sources, both read in full before this draft:
 - `blender-buttons/docs/SPEC-05-verb-collapse.md` — one verb per native surface; lean on
@@ -308,13 +310,19 @@ no deprecation shims. `guidance_for_llms` / README / CLAUDE.md sweep rides stage
   ordinary English — checked by reading each name aloud in a work-narration sentence;
   none should require the user to ask "what's a ___?".
 
-## Open questions for the user
+## Open questions — RESOLVED (2026-07-03, decisions delegated to the agent by the user)
 
-1. `outliner` vs keeping `scene` for the census read — the law says outliner; the
-   counterargument is that `scene` is cross-DCC lingua franca. (Recommendation: outliner.
-   We are optimizing for UE training data, not DCC generality.)
-2. Should `viewport` land now (it is small and SPEC-06 wants it) or with SPEC-06?
-   (Recommendation: with SPEC-06 — no speculative verbs, even aligned ones.)
-3. `details` — agree to defer under the god-verb rule above?
-4. Op-level names where UE has no word (`reseed`, `carve`, `whats_new`) — any the user
-   wants renamed while renaming is cheap?
+1. **`outliner` wins over `scene`.** We optimize for UE training data and the human's
+   vocabulary — "Outliner" is the literal panel title; `scene` is not a user-facing UE
+   word. The lingua-franca counterargument fails the one-sentence-defense test: its only
+   defense is sister-repo habit, i.e. arbitrary uniqueness.
+2. **`viewport` lands with SPEC-06**, not before. No speculative verbs, even aligned
+   ones; its first consumer is deixis (`op=looking_at`), so it is born when it has a job.
+3. **`details` stays deferred** under the god-verb rule; the promotion rule (any
+   property reached for twice becomes a real op on its owning verb) is the standing
+   escape hatch.
+4. **`reseed` / `carve` / `whats_new` keep their names.** Each passes both bars: no UE
+   collision, and each survives being spoken aloud to the user without a glossary.
+
+With these resolved, the spec is decision-complete; what remains is the user's go on
+the staged migration cutover.
