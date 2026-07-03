@@ -97,16 +97,6 @@ cure is an async job + progress pattern (kick the work off the dispatch path, po
 timeout, poll `/remote/info` and RE-READ state before re-issuing — timed-out work usually
 completed invisibly.
 
-### G31 — scatter family resolution over-matches across packs
-Status: OPEN (found 2026-07-02, L1 replay)
-
-`scatter meshes=["Rock"]` silently matched 48 variants across TWO packs
-(Rock_Collection_04's 7 measured rocks + 41 unmeasured RockEnv_Pack meshes → 46
-FoliageTypes, most dims-blind, scale-jittered). `add` errors on ambiguous short names
-with candidates; scatter family matching should be as honest — error (or at least warn
-with pack attribution) when a family name resolves across multiple packs, and accept a
-`pack=` scope. Workaround used: pass explicit variant names.
-
 ### G32 — material suitability is invisible to the verbs (and no way to author one on-surface)
 Status: OPEN (found 2026-07-02, L1 replay — cost 3 render/probe round-trips)
 

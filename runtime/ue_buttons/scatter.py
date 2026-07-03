@@ -45,23 +45,47 @@ def handle(p):
 
 
 # ── mesh family resolution ───────────────────────────────────────────────────────
-def _resolve_meshes(specs):
-    """["Pine_Tree", "Black_Alder:0.3"] → [{family, weight, variants:[paths], pivot}]."""
+def _pack_of(pkg_path):
+    """/Game/<Pack>/... → <Pack>."""
+    parts = pkg_path.split("/")
+    return parts[2] if len(parts) > 2 else "?"
+
+
+def _resolve_meshes(specs, pack=None):
+    """["Pine_Tree", "Black_Alder:0.3"] → [{family, weight, variants:[paths], pivot}].
+
+    G31: a family name that resolves across MULTIPLE packs is ambiguous, not a bigger
+    palette — "Rock" once silently pulled 48 variants from two packs, most dims-blind.
+    Same honesty as `add` on ambiguous short names: error with pack-attributed candidates
+    and take a `pack=` scope (an exact variant name that exists in one pack stays fine)."""
     out = []
     for spec in specs:
         name, _, w = spec.partition(":")
         weight = float(w) if w else 1.0
-        variants = _family_variants(name)
+        variants = _family_variants(name, pack)
         if not variants:
-            raise ValueError(f"no static-mesh variants for family '{name}'")
+            where = f" in pack '{pack}'" if pack else ""
+            raise ValueError(f"no static-mesh variants for family '{name}'{where}")
+        packs = sorted({_pack_of(v) for v in variants})
+        if len(packs) > 1:
+            per = {pk: [v.rsplit("/", 1)[-1] for v in variants if _pack_of(v) == pk]
+                   for pk in packs}
+            raise ValueError(
+                f"family '{name}' is ambiguous — it resolves across {len(packs)} packs: "
+                + "; ".join(f"{pk} ({len(vs)}: {', '.join(vs[:4])}"
+                            + (", …" if len(vs) > 4 else "") + ")"
+                            for pk, vs in per.items())
+                + ". Scope with pack=<name> or pass explicit variant names.")
         out.append({"family": name, "weight": weight, "variants": variants})
     return out
 
 
-def _family_variants(name):
-    """All static-mesh asset paths whose inferred family == name (or a substring match)."""
+def _family_variants(name, pack=None):
+    """All static-mesh asset paths whose inferred family == name (or an exact name match),
+    optionally scoped to one /Game/<pack> root."""
+    root = f"/Game/{pack}" if pack else "/Game"
     paths = []
-    for ad in asset._assets_under("/Game", [asset.STATIC_MESH]):
+    for ad in asset._assets_under(root, [asset.STATIC_MESH]):
         n = asset._name(ad)
         if asset._family_of(n) == name or n == name:
             paths.append(asset._pkg(ad))
@@ -307,7 +331,7 @@ def _create(p):
         ox, oy, _ = meta["origin"]; sx, sy = meta["size"]
         region = {"kind": "rect", "at": [ox, oy], "size": [sx, sy]}
     try:
-        meshes = _resolve_meshes(p.get("meshes", []))
+        meshes = _resolve_meshes(p.get("meshes", []), p.get("pack"))
     except ValueError as e:
         return {"error": str(e)}
     if not meshes:

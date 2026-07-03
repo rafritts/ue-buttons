@@ -237,7 +237,7 @@ def asset(action: str = "packs", pack: str = None, asset: str = None,
 @mcp.tool()
 def scatter(action: str = "create", label: str = "scatter", meshes: list = None,
             region: dict = None, density_per_100m2: float = None, seed: int = 1337,
-            rules: dict = None, terrain: str = "terrain") -> str:
+            rules: dict = None, terrain: str = "terrain", pack: str = None) -> str:
     """Populations, not actors — declare rules, get a reproducible, path-respecting stand.
 
     One labelled actor holds the whole population (HISM instances), never thousands of rows.
@@ -246,7 +246,10 @@ def scatter(action: str = "create", label: str = "scatter", meshes: list = None,
 
     action="create":
       meshes:  inventory FAMILY names, optional weight — ["Pine_Tree", "Black_Alder:0.3"]
-               (variants randomised per instance).
+               (variants randomised per instance). A family that resolves across MULTIPLE
+               packs errors with pack-attributed candidates (G31) — scope with pack= or
+               pass explicit variant names.
+      pack:    scope family resolution to one /Game/<pack> root.
       region:  {"kind":"circle","at":[x,y],"radius":cm} | {"kind":"rect","at":[x,y],
                "size":[w,h]} | {"kind":"polygon","points":[[x,y],...]} | {"kind":"landscape"}
                (the whole terrain). MAP coords.
@@ -263,7 +266,7 @@ def scatter(action: str = "create", label: str = "scatter", meshes: list = None,
     action="remove": delete the whole stand as a unit.
     """
     p = {"action": action, "label": label, "seed": seed, "terrain": terrain}
-    for k, v in (("meshes", meshes), ("region", region),
+    for k, v in (("meshes", meshes), ("region", region), ("pack", pack),
                  ("density_per_100m2", density_per_100m2), ("rules", rules)):
         if v is not None:
             p[k] = v
