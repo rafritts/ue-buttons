@@ -11,14 +11,38 @@ the destination. When a design decision needs a tiebreaker, it breaks toward thi
 
 ## Why: UE5 is too absolute to wing it
 
-Blender and UE5 are thoroughly taxing environments — absolute in their demands. Asking
-an LLM to "wing it" by free-scripting `bpy` or `unreal` against the engine does not cut
-it and never will: the APIs are version-skewed against the model's training, the editor
-state is invisible without deliberate perception, spatial values invented from intuition
-are hallucinations wearing confidence, and one wrong call crashes the editor (we have
-the crash dumps to prove it). The server exists to close the gap between what the model
-can *reason about* (intent) and what the engine *demands* (exactness) — with engineering,
-not with hope.
+Blender and UE5 are conceivably — quite literally — the most hostile application spaces
+to build an MCP server for (the user, 2026-07-03, who derived these ideas building
+blender-buttons). They are tailor-made for a human touching a mouse and keyboard: endless
+tweak-move-place-edit loops where the human moves the viewport, touches something,
+adjusts, forever. The tool space is enormous. The base building blocks — vertices,
+coordinates, angles — are perfect for deterministic compute and hallucination city for
+LLMs, so the agent can never be allowed to reason over raw coordinates directly. The
+list of problems is endless. And yet: it is possible, through the back door both
+applications ship — `bpy`, and free scripting against the UE engine.
+
+The double irony that makes it work: the hostility and the backdoor come from the same
+industry. These applications are GUI-absolutist because their domain is continuous
+visual judgment — but that same industry demanded pipeline automation, so both grew
+industrial-grade, feature-complete scripting surfaces. The most GUI-hostile applications
+on earth are, underneath, among the most completely scriptable. The front door is locked
+to agents; the service entrance was built to studio code.
+
+But the backdoor alone is hands without eyes — asking an LLM to "wing it" by
+free-scripting does not cut it and never will: the APIs are version-skewed against the
+model's training, editor state is invisible without deliberate perception, spatial values
+invented from intuition are hallucinations wearing confidence, and one wrong call crashes
+the editor (we have the crash dumps). The human's loop is look-touch-look; give an LLM
+only the touch and it confabulates the looks. The server's job is to rebuild the LOOK
+half of the loop in a modality LLMs are reliable in — numbers with provenance, not
+pixels — and to close the gap between what the model reasons about (intent) and what
+the engine demands (exactness) with engineering, not hope.
+
+Corollary: Blender and UE are the adversarial benchmark. If the pattern holds here —
+enormous tool space, spatial atoms, vision-assumed workflows — it holds anywhere.
+blender-buttons and ue-buttons are the existence proof for a general claim about how
+agent-application interfaces should be built when the application wasn't built for
+agents.
 
 ## The inversion: fat server, thin agent
 
