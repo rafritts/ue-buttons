@@ -23,6 +23,14 @@ scripted PIE session.
   wind rather than authored wind. May be unreachable from editor Python; may not survive
   first contact.
 
+## Learnings folded in (2026-07-03)
+
+Runtime lint's role sharpened by the G40 session: it is the fallback for rules with **no
+static tell** — where SPEC-06's certificate can't be computed from asset × usage data
+alone (e.g. actual rendered WPO magnitude, mask data the Python API can't read — mesh
+vertex-color presence is unreadable in 5.8). Every rule should live at the cheapest tier
+that can catch it: static certificate first, census second, PIE sampling last resort.
+
 ## Open questions
 
 - What can editor Python actually do WHILE PIE runs? (Dispatch happens on the game

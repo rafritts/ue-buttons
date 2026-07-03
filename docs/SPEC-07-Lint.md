@@ -10,10 +10,28 @@ SPEC-06's probes are *targeted* — the user points, the agent checks. Lint is t
 accumulated tells (G38 sparse-spire, G39 motion, floaters/sinkers) get a permanent home
 instead of living scattered across verbs.
 
+## Learnings folded in (2026-07-03, G41 — read before fleshing out)
+
+- **Verb shape decided by the user:** no new `lint` verb — EXTEND `validate` with a sweep
+  scope: `scope=selection | label | all`. Selection scoping is SPEC-05 deixis reused
+  ("select the forest, say lint this").
+- **The sweep is SPEC-06's rule engine at firing point 3** — same rule table, evaluated
+  level-wide instead of against one referent. This spec owns the sweep loop, the findings
+  format, and the native-linter wrapping; the rules themselves live in SPEC-06.
+- **Native linters are a floor, not a roof** (both live-verified): stock Data Validation
+  returns VALID on the G40 material (asset-scoped validators are structurally blind to
+  context-mismatch defects); the only Map Check result on record is 0 errors / 0 warnings.
+- **HAZARD (G41): never issue `MAP CHECK` as a console command over RC dispatch** — it
+  crashed UE 5.8 with an access violation (crash dump on record). Use the
+  `EditorValidatorSubsystem` API surface instead: `is_asset_valid` (wants `AssetData`),
+  `is_object_valid`, `validate_assets_with_settings`, `validate_changelist(s)`,
+  `add_validator`. There is no `validate_loaded_asset` in 5.8.
+
 ## Scope (rough)
 
 1. **Wrap the engine's own linters** — don't reinvent:
-   - Map Check (the editor's level linter; structured errors/warnings).
+   - Map Check (the editor's level linter; structured errors/warnings) — via a safe API
+     path only, NOT console `MAP CHECK` over RC (G41 crash).
    - Data Validation subsystem — register our rules as Python `EditorValidatorBase`
      subclasses so they ALSO fire for humans on save/submit.
    - Output Log scraping: streaming failures, ensures, Blueprint compile errors.

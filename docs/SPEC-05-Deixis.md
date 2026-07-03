@@ -45,6 +45,9 @@ selection IS readable live; a foliage click lands on the IFA, and component-leve
 resolution was enough to diagnose — per-instance hit resolution wasn't needed this time
 and may matter less than assumed.
 
+Follow-on (same session): deixis referents also SCOPE the SPEC-07 sweep — `validate
+scope=selection` means "lint what I've selected". One more consumer of the same read.
+
 ## Verification story (rough)
 
 The user clicks a tree, says "this one"; the agent names it, measures it, classifies its
