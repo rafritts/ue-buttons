@@ -51,6 +51,29 @@ renamed. Corollary before naming anything: check whether UE has a word for it (a
 the build/docs, not memory — R3), and check the word isn't already taken by a *different*
 UE concept.
 
+## The shared-language test (the user's addition, 2026-07-03)
+
+The verb vocabulary is not just the agent's API — it is the **spoken language of the
+partnership**. The human never reads MCP schemas; they know UE from its UI, tutorials,
+and docs. When the agent narrates its work ("I ran a scatter"), a non-UE word leaves the
+human with nothing to look at; "I painted foliage" points at a dropdown they can open.
+The same alignment that serves the model's training data serves the human's — both
+learned UE from the same corpus.
+
+This adds two tests to the 2×2:
+- **NATIVE cell, tightened:** the UE word should be one the human can literally SEE in
+  the editor UI — a mode label, panel title, menu entry, or component name — not merely
+  API vocabulary. (The current roster passes: foliage/outliner/level/play/viewport/
+  transform/select/add/asset/material/spline/history are all UI-visible labels.)
+- **MACRO/SENSE cell, tightened:** "any non-UE word" is not enough — blender-buttons'
+  `clad`/`graft`/`flute` don't collide with Blender and would STILL leave a human blank.
+  Our inventions must be **ordinary, self-describing English**: `terrain`, `carve`,
+  `reseed`, `feel`, `validate` all survive being spoken aloud in a sentence with no
+  glossary ("I carved the terrain along the trail").
+
+Litmus for every future name: say the sentence "I <verb>ed the <op>…" to the user. If
+they'd have to ask what it means, the name is wrong — even if the 2×2 cell is right.
+
 We deliberately do NOT adopt blender-buttons' `buttons-<purpose>-macro` verb-name prefix.
 bb needed a namespace to group ~31 macros living among ~150 native ops; we have a handful
 of macros and the negative-space rule already prevents impersonation. Instead every macro
@@ -221,6 +244,9 @@ no deprecation shims. `guidance_for_llms` / README / CLAUDE.md sweep rides stage
   names, not engine code), status block intact, history/undo intact.
 - **The audit artifact**: the roster table above, with every op's API citation confirmed
   by reading the handler — committed as part of this spec when the cutover lands.
+- **The human test**: every verb/op name is either a label visible in the editor UI or
+  ordinary English — checked by reading each name aloud in a work-narration sentence;
+  none should require the user to ask "what's a ___?".
 
 ## Open questions for the user
 
