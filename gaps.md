@@ -122,7 +122,13 @@ surface. Wants: (a) `asset describe` on a material reports domain/blend/master +
 a usability hint; (b) render_state's materialised link flags decal-domain/default-
 fallback; (c) a minimal `asset` action to instance a master material with texture/scalar
 params. Note: `MaterialEditingLibrary.set_material_instance_*` setters return False even
-on success in 5.8 — read back `texture_parameter_values` to verify.
+on success in 5.8 — read back `texture_parameter_values` to verify. Addendum (the tree-motion hunt): material MOTION is
+just as invisible as material suitability — the cabin pack's tree masters carry a
+hardcoded diorama bob (whole-mesh vertical WPO, no exposed parameter), and the PV
+plugin's MA_Foliage_Trees master deforms wildly on static bakes (its WPO expects PV
+data) — three escalating user reports before the cause was found, and no mechanical
+read can see WPO at all (collision never moves). A material vet should also report
+"has WPO / parented outside /Game" as a warning.
 
 ### G33 — terrain has no UV-tiling control: near-field ground texture smears
 Status: OPEN (found 2026-07-02, L1 replay)
