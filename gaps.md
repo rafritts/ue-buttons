@@ -137,3 +137,29 @@ un-transformed height function (600 low), so EVERY sample is flagged "diverges" 
 and the flag loses its signal value (it should mean "carved/flattened here", not "the
 whole actor moved"). Resolution: compose the actor transform into the model side of
 describe (offset z_model/bounds by the actor's world transform).
+
+### G27 — `asset inventory` reports height but not silhouette; "tall" got mistaken for "tree"
+Status: OPEN (found 2026-07-02, L1 user playtest — forest read as giant bushes, 1/10)
+
+The compact inventory shows `height_range_cm` only. The agent picked the GV shrub pack's
+2–9.7 m plants as forest canopy on height alone; the user's read: "everything read as a
+bush" — because they are bushes: no trunk, aspect ratio ≈ 1. The discriminating data
+(full x/y dims → height:width ratio; ideally a trunk/canopy hint) exists per-asset in
+`describe` but not in the family listing where selection actually happens. Resolution:
+surface footprint dims (or height:width ratio) alongside height in inventory families,
+so silhouette is derivable at pick time.
+
+### G28 — `scatter` accepts min_spacing far below canopy width → wall-to-wall interpenetration ("ultra clipped")
+Status: OPEN (found 2026-07-02, L1 user playtest)
+
+min_spacing_cm=450 with ~500–800 cm-wide plants ⇒ neighbors clip constantly; the user
+read the whole stand as clipped geometry. The runtime has (or can lazily measure) each
+family's footprint — it should derive a default min_spacing from the widest scattered
+family (or warn when the given spacing is below measured canopy width), instead of
+trusting a number the agent fabricated without reading widths.
+
+G25 addendum (L1 playtest): the cost is not cosmetic. With no material on the terrain,
+the carved path — geometrically correct, verified at grade — was "the tiniest of tiny
+lines" to the user. Path legibility at eye level NEEDS a material strip (dirt vs grass),
+not just carve geometry; a `path` without a material story is invisible in the render
+even when perfect in the mesh.
