@@ -292,7 +292,13 @@ def _surface(p):
     buf.set_editor_property("triangles", tris)
     buf.set_editor_property("uv0", uvs)
     unreal.GeometryScript_MeshEdits.append_buffers_to_mesh(mesh, buf)
+    # complex-as-simple so the pawn walks ON the strip instead of falling through it
+    # (same PIE trap as the terrain — see landscape._rebuild)
+    comp.set_editor_property("enable_complex_collision", True)
+    comp.set_editor_property("collision_type",
+                             unreal.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE)
     comp.set_dynamic_mesh(mesh)
+    comp.set_collision_enabled(unreal.CollisionEnabled.QUERY_AND_PHYSICS)
     if mat_path:
         m = unreal.EditorAssetLibrary.load_asset(mat_path)
         if m is not None:

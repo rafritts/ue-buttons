@@ -86,6 +86,11 @@ def _rebuild(actor, meta):
     unreal.GeometryScript_MeshDeformers.apply_displace_from_per_vertex_vectors(
         mesh, unreal.GeometryScriptMeshSelection(), dlist, 1.0)
     comp.set_editor_property("enable_complex_collision", True)
+    # A DynamicMesh has no simple collision shapes; without complex-as-simple the pawn's
+    # physics sweeps find nothing and fall straight through in PIE (editor traces passed
+    # trace_complex=True, which is why every mechanical read still said "solid").
+    comp.set_editor_property("collision_type",
+                             unreal.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE)
     comp.set_dynamic_mesh(mesh)
     comp.set_collision_enabled(unreal.CollisionEnabled.QUERY_AND_PHYSICS)
     mat_path = meta.get("material")
