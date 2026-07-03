@@ -74,6 +74,16 @@ This adds two tests to the 2×2:
 Litmus for every future name: say the sentence "I <verb>ed the <op>…" to the user. If
 they'd have to ask what it means, the name is wrong — even if the 2×2 cell is right.
 
+**Pragmatism clause (the user's ruling, 2026-07-03).** The law is a default, not dogma.
+Deviating from the UE word is fine when the agent and server are OBVIOUSLY better off
+and the reason is easily defensible — `landscape`→`terrain` is the canonical example:
+the UE word actively mis-teaches, so leaving it is the harm. What is banned is
+**arbitrary uniqueness** — a different word with no defense beyond taste or habit
+(`scatter` when Foliage exists, `nudge` when Move exists). Operational form: every
+deviation carries its one-sentence defense in the schema (the R1 cousin line usually IS
+that defense); a deviation that can't state its defense in one sentence reverts to the
+UE word.
+
 We deliberately do NOT adopt blender-buttons' `buttons-<purpose>-macro` verb-name prefix.
 bb needed a namespace to group ~31 macros living among ~150 native ops; we have a handful
 of macros and the negative-space rule already prevents impersonation. Instead every macro
