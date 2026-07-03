@@ -1,5 +1,10 @@
 # SPEC-05 — Verb alignment: UE-native names, legible provenance
 
+> This MCP server aims to accomplish the heroic undertaking of letting an LLM drive UE5
+> to completion. Pragmatism is chief among all things: we ship pragmatic, working code
+> that is easy to reason about, maintain, and predict — over rigid ideas about how the
+> codebase should be.
+
 Status: **DRAFT — fleshed out 2026-07-03, awaiting the user's sign-off.** This spec fixes
 the shape of the whole future surface; nothing in SPEC-06..09 (deixis, probes, lint,
 runtime lint) should land until the decisions here are agreed, because they all add verbs
