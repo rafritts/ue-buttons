@@ -198,6 +198,23 @@ on its owning verb.
 6. **The status block is a hard invariant** (SPEC-02/03, unchanged by any rename): every
    act-verb reply carries it; senses don't. The two forced senses and the render line
    survive the cutover untouched.
+7. **The schema weight budget (the user's ruling, 2026-07-03).** Fat schemas are the
+   accepted price of ~350–500 ops behind ~25 tools — but the fat is op COUNT, not prose.
+   The model must be able to GUESS an op's behavior from its name plus a one-line
+   summary; that's what the alignment buys, so spend it. Concretely:
+   - **Document the delta, never the concept.** `foliage op=paint` needs zero words
+     explaining what foliage painting is — training data owns that. It needs only what
+     differs here: our region grammar, the author-time motion gate, cm units. Schema
+     length is proportional to **distance from UE**, not to functionality size: native
+     ops are nearly free; macros pay full documentation freight (which is itself
+     pressure toward native design).
+   - **One line per op**, ending in its API citation. Params whose names are guessable
+     (`density`, `region`, `seed`) get no prose; only non-obvious params earn a tag.
+   - **No defensive robustness** — no exhaustive constraint prose, no re-stated
+     defaults, no "must be positive" boilerplate. A wrong guess should be corrected by
+     a self-correcting error (the established enumerate-the-valid-values pattern), not
+     pre-empted by documentation the model pays for on every single call. Runtime
+     errors are paid once when hit; schema prose is paid every turn forever.
 
 ## How the MCP feels to use (the target experience)
 
