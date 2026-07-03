@@ -139,6 +139,17 @@ def _link_materialised(c):
         if m.get_path_name() in _DEFAULT_MATERIALS:
             return False, (f"slot {i} is the engine DEFAULT material (unassigned — renders "
                            f"as flat grey) → assign the intended material")
+        # G32(b): a non-surface domain (decal/UI/post-process) on a mesh slot passes the
+        # null check but renders wrong or not at all — the "materialised: ok" white lie.
+        try:
+            base = m.get_base_material()
+            dom = base.get_editor_property("material_domain") if base else None
+        except Exception:
+            dom = None
+        if dom is not None and dom != unreal.MaterialDomain.MD_SURFACE:
+            return False, (f"slot {i} material domain is {str(dom).split('.')[-1]} — not a "
+                           "surface material; it won't render on a mesh → assign a "
+                           "surface-domain material (asset describe vets one)")
     return True, None
 
 

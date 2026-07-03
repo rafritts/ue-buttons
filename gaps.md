@@ -97,29 +97,6 @@ cure is an async job + progress pattern (kick the work off the dispatch path, po
 timeout, poll `/remote/info` and RE-READ state before re-issuing — timed-out work usually
 completed invisibly.
 
-### G32 — material suitability is invisible to the verbs (and no way to author one on-surface)
-Status: OPEN (found 2026-07-02, L1 replay — cost 3 render/probe round-trips)
-
-Assigning a terrain material is now one param — but nothing tells the agent whether a
-material CAN work on a mesh surface. Three traps hit in one session: a foliage-card
-masked master (Grass_Patch_1) renders as default checkerboard on the terrain; a
-vertex-color-blend diorama material (Diorama_Ground) renders as a MIRROR (its no-vertex-
-color layer is pond water); both pass `feel render_state`'s `materialised: ok` (the link
-only checks non-null slots). And when no suitable ground material existed in the palette,
-the fix (author `MI_UEB_Grass`: MIC of MM_Basic + the pack's Grass_* tiling textures,
-tuned Roughness/Normal Power) had to be done with raw editor Python — off the verb
-surface. Wants: (a) `asset describe` on a material reports domain/blend/master +
-a usability hint; (b) render_state's materialised link flags decal-domain/default-
-fallback; (c) a minimal `asset` action to instance a master material with texture/scalar
-params. Note: `MaterialEditingLibrary.set_material_instance_*` setters return False even
-on success in 5.8 — read back `texture_parameter_values` to verify. Addendum (the tree-motion hunt): material MOTION is
-just as invisible as material suitability — the cabin pack's tree masters carry a
-hardcoded diorama bob (whole-mesh vertical WPO, no exposed parameter), and the PV
-plugin's MA_Foliage_Trees master deforms wildly on static bakes (its WPO expects PV
-data) — three escalating user reports before the cause was found, and no mechanical
-read can see WPO at all (collision never moves). A material vet should also report
-"has WPO / parented outside /Game" as a warning.
-
 ### G36 — `new_level_from_template` (Open World) yields always-loaded actors that never load in PIE
 Status: OPEN (found 2026-07-02, chasing the L1 black-screen-on-Play)
 

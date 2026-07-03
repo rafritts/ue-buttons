@@ -196,7 +196,8 @@ def view(action: str = "orbit", target: str | list = None, azimuth: float = 45.0
 def asset(action: str = "packs", pack: str = None, asset: str = None,
           query: str = None, kind: str = "mesh", family: str = None,
           measure: bool = False, budget: int = 60, commit: bool = True,
-          seconds: float = 20.0) -> str:
+          seconds: float = 20.0, parent: str = None, name: str = None,
+          textures: dict = None, scalars: dict = None, folder: str = None) -> str:
     """Perception over the project's Content — "what can I build with, and how big is it?"
 
     All dimensions are centimetres. Marketplace meshes are reported at native scale; the
@@ -224,6 +225,16 @@ def asset(action: str = "packs", pack: str = None, asset: str = None,
     action="describe" (asset):       one asset in full — dims, pivot, material slots,
                                      collision, dependency/referencer counts. Short name or
                                      full /Game path; errors with candidates if ambiguous.
+                                     On a MATERIAL: the vet (G32) — master + parent chain,
+                                     domain/blend, exposed parameters, and warnings for
+                                     world-position-offset (the mesh will MOVE), a master
+                                     outside /Game, or a non-surface domain. Run it BEFORE
+                                     dressing anything in an unknown material.
+    action="instance_material" (parent, name, textures, scalars, folder):
+                                     author a MaterialInstanceConstant of a master —
+                                     textures={param: texture name}, scalars={param: value};
+                                     param names validated against the master, every set
+                                     verified by read-back. folder default /Game/UEB_Materials.
     action="find" (query, kind):     name-substring search; kind=mesh|blueprint|skeletal|
                                      material|any (material finds surfaces for landscape
                                      material= / path surface).
@@ -234,6 +245,10 @@ def asset(action: str = "packs", pack: str = None, asset: str = None,
     p = {"action": action, "pack": pack, "asset": asset, "query": query,
          "kind": kind, "family": family, "measure": measure, "budget": budget,
          "commit": commit, "seconds": seconds}
+    for k, v in (("parent", parent), ("name", name), ("textures", textures),
+                 ("scalars", scalars), ("folder", folder)):
+        if v is not None:
+            p[k] = v
     # measure / family-drill load meshes — give them room; default inventory is cheap.
     timeout = 180 if (measure or family) else 60
     return render(call_ue("asset", p, timeout=timeout))

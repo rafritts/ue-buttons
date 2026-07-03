@@ -188,10 +188,11 @@ def handle(p):
     fn = {
         "packs": _a_packs, "inventory": _a_inventory, "describe": _a_describe,
         "find": _a_find, "whats_new": _a_whats_new,
+        "instance_material": _a_instance_material,
     }.get(action)
     if fn is None:
         return {"error": f"unknown asset action '{action}'. known: "
-                         "packs|inventory|describe|find|whats_new"}
+                         "packs|inventory|describe|find|whats_new|instance_material"}
     return fn(p)
 
 
@@ -354,7 +355,8 @@ def _a_describe(p):
     q = p.get("asset")
     if not q:
         return {"error": "describe requires asset= (short name or /Game path)"}
-    path, candidates = _resolve_asset_path(q)
+    path, candidates = _resolve_asset_path(
+        q, classes=[STATIC_MESH, BLUEPRINT, "Material", "MaterialInstanceConstant"])
     if path is None:
         if not candidates:
             return {"error": f"no asset matches '{q}'"}
@@ -364,6 +366,8 @@ def _a_describe(p):
     ad_list = _ar().get_assets_by_package_name(unreal.Name(path.split(".")[0]))
     cls = _class_name(ad_list[0]) if ad_list else "?"
     out = {"asset": q, "path": path, "class": cls}
+    if cls in ("Material", "MaterialInstanceConstant"):
+        return _describe_material(path, out)
     measured = _measure_mesh(path)
     if measured is not None:
         _save_cache()
@@ -382,6 +386,145 @@ def _a_describe(p):
         out["referencer_count"] = len(refs or [])
     except Exception as e:
         out["dependency_note"] = f"dep query unavailable: {e}"
+    return out
+
+
+def _describe_material(path, out):
+    """G32: the material VET — will this dress a mesh surface, and will it hold still?
+    Suitability (domain/blend/master) and MOTION (world-position-offset) are invisible to
+    every mechanical read — collision never moves — so they must be read off the material
+    graph BEFORE a mesh wears it. Three L1 burns behind this: a foliage-card master
+    rendering checkerboard, a diorama pond master rendering as a mirror, and a hardcoded
+    whole-mesh bob that took three user reports to corner."""
+    m = _ue.load_asset(path)
+    if m is None:
+        out["note"] = "material could not be loaded"
+        return out
+    mel = unreal.MaterialEditingLibrary
+    chain = []
+    cur = m
+    while isinstance(cur, unreal.MaterialInstance):
+        parent = cur.get_editor_property("parent")
+        if parent is None:
+            break
+        chain.append(parent.get_path_name().split(".")[0])
+        cur = parent
+    base = m.get_base_material()
+    if base is None:
+        out["warnings"] = ["no base material resolves — the instance chain is broken"]
+        return out
+    domain = base.get_editor_property("material_domain")
+    blend = base.get_editor_property("blend_mode")
+    out.update({
+        "master": base.get_path_name().split(".")[0],
+        "parent_chain": chain,
+        "domain": str(domain).split(".")[-1].split(":")[0],
+        "blend_mode": str(blend).split(".")[-1].split(":")[0],
+        "two_sided": bool(base.get_editor_property("two_sided")),
+        "parameters": {
+            "texture": [str(n) for n in mel.get_texture_parameter_names(base)],
+            "scalar": [str(n) for n in mel.get_scalar_parameter_names(base)],
+            "vector": [str(n) for n in mel.get_vector_parameter_names(base)],
+        },
+    })
+    warnings = []
+    wpo = mel.get_material_property_input_node(
+        base, unreal.MaterialProperty.MP_WORLD_POSITION_OFFSET)
+    if wpo is not None:
+        out["has_world_position_offset"] = True
+        warnings.append("has WORLD-POSITION-OFFSET: every mesh wearing it MOVES (wind/"
+                        "bob/deform) — no mechanical read can see this, and a master "
+                        "built for another system (foliage plugin, diorama) deforms "
+                        "arbitrary meshes wildly")
+    if not out["master"].startswith("/Game"):
+        warnings.append(f"master lives outside /Game ({out['master']}) — engine/plugin "
+                        "materials often expect runtime data this mesh won't have")
+    if domain != unreal.MaterialDomain.MD_SURFACE:
+        warnings.append(f"domain {out['domain']} — will NOT render as a mesh surface "
+                        "material (decal/UI/post-process)")
+    if warnings:
+        out["warnings"] = warnings
+    else:
+        out["verdict"] = "surface-suitable and motionless (opaque/masked surface master, no WPO)"
+    return out
+
+
+def _a_instance_material(p):
+    """G32(c): author a MaterialInstanceConstant of a master with texture/scalar params —
+    on-surface material authoring without raw editor Python. Param names are validated
+    against the master BEFORE the asset is created, and every set is verified by READ-BACK
+    (5.8's MaterialEditingLibrary setters return False even on success)."""
+    parent_q, name = p.get("parent"), p.get("name")
+    if not parent_q or not name:
+        return {"error": "instance_material requires parent= (a master material) and "
+                         "name= (the new instance's asset name)"}
+    ppath, cands = _resolve_asset_path(parent_q,
+                                       classes=["Material", "MaterialInstanceConstant"])
+    if ppath is None:
+        if not cands:
+            return {"error": f"no material matches '{parent_q}'"}
+        return {"error": f"material '{parent_q}' is ambiguous", "candidates": cands[:10]}
+    parent = _ue.load_asset(ppath)
+    if parent is None:
+        return {"error": f"could not load '{ppath}'"}
+    mel = unreal.MaterialEditingLibrary
+    base = parent.get_base_material()
+    known = {"texture": [str(n) for n in mel.get_texture_parameter_names(base)],
+             "scalar": [str(n) for n in mel.get_scalar_parameter_names(base)]}
+    textures = p.get("textures") or {}
+    scalars = p.get("scalars") or {}
+    bad = ([k for k in textures if k not in known["texture"]]
+           + [k for k in scalars if k not in known["scalar"]])
+    if bad:
+        return {"error": f"parameter(s) {bad} don't exist on master "
+                         f"'{base.get_name()}' — a wrong name silently no-ops",
+                "available": known}
+    tex_assets = {}
+    for k, tq in textures.items():
+        tpath, tc = _resolve_asset_path(tq, classes=["Texture2D"])
+        if tpath is None:
+            if not tc:
+                return {"error": f"no texture matches '{tq}'"}
+            return {"error": f"texture '{tq}' is ambiguous", "candidates": tc[:10]}
+        t = _ue.load_asset(tpath)
+        if t is None:
+            return {"error": f"could not load texture '{tpath}'"}
+        tex_assets[k] = t
+    folder = (p.get("folder") or "/Game/UEB_Materials").rstrip("/")
+    full = f"{folder}/{name}"
+    if _ue.load_asset(full) is not None:
+        return {"error": f"'{full}' already exists — pick a new name"}
+    at = unreal.AssetToolsHelpers.get_asset_tools()
+    mi = at.create_asset(name, folder, unreal.MaterialInstanceConstant,
+                         unreal.MaterialInstanceConstantFactoryNew())
+    if mi is None:
+        return {"error": f"asset creation failed for {full}"}
+    mel.set_material_instance_parent(mi, parent)
+    for k, t in tex_assets.items():
+        mel.set_material_instance_texture_parameter_value(mi, k, t)
+    for k, v in scalars.items():
+        mel.set_material_instance_scalar_parameter_value(mi, k, float(v))
+    unreal.EditorAssetLibrary.save_asset(full)
+    # read back — the setters' return values lie in 5.8; the stored values don't
+    applied_tex = {}
+    for tp in mi.get_editor_property("texture_parameter_values"):
+        pn = str(tp.get_editor_property("parameter_info").get_editor_property("name"))
+        pv = tp.get_editor_property("parameter_value")
+        applied_tex[pn] = pv.get_name() if pv else None
+    applied_sca = {}
+    for sp in mi.get_editor_property("scalar_parameter_values"):
+        pn = str(sp.get_editor_property("parameter_info").get_editor_property("name"))
+        applied_sca[pn] = sp.get_editor_property("parameter_value")
+    missing = ([k for k in tex_assets if applied_tex.get(k) != tex_assets[k].get_name()]
+               + [k for k in scalars if k not in applied_sca])
+    out = {"created": full, "parent": ppath,
+           "applied": {"textures": applied_tex, "scalars": applied_sca}}
+    if missing:
+        out["warning"] = f"read-back missing/mismatched: {missing} — the set did NOT take"
+    vet = _describe_material(full, {"asset": name, "path": full,
+                                    "class": "MaterialInstanceConstant"})
+    if vet.get("warnings"):
+        out["warnings"] = vet["warnings"]
     return out
 
 
