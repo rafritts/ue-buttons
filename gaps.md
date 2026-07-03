@@ -163,3 +163,22 @@ the carved path — geometrically correct, verified at grade — was "the tinies
 lines" to the user. Path legibility at eye level NEEDS a material strip (dirt vs grass),
 not just carve geometry; a `path` without a material story is invisible in the render
 even when perfect in the mesh.
+
+G23 addendum (post-crash observation): after a full editor PROCESS restart (nvidia-driver
+crash), both the registry and the op log came back empty — the phantom state lives in the
+editor's in-process Python session, not on disk. So the haunting crosses level changes
+within one editor run but not process restarts. The fix scope is narrower than first
+thought: clear/namespace the op log on level change, same trigger G16's reconcile uses.
+
+### G29 — no way to remove an asset pack through the surface (KiteDemo, implicated in editor hangs, needed manual deletion)
+Status: OPEN (found 2026-07-02; the user fingered KiteDemo's legacy non-Nanite meshes for
+"waiting for static meshes" editor hangs and asked for full removal)
+
+Asset curation is half-in half-out of the surface: `asset` can perceive packs
+(packs/inventory/describe/whats_new) but can't retire one. Removing KiteDemo meant
+closing the editor and deleting `Content/KiteDemo` on NTFS by hand — outside every verb.
+Also stale-state hazard: the server's persisted dims cache and registry snapshot still
+reference the deleted pack until a `whats_new` rebaseline. Resolution: probably keep
+deletion manual (destructive, rare) but make the surface honest about it — `whats_new`
+should flag vanished packs and evict their cached dims, and `asset packs` shouldn't
+serve a pack that no longer exists on disk.
