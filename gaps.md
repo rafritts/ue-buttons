@@ -15,23 +15,6 @@ Gaps are *friction / missing-capability / design*. Outright defects go in `bugs.
 
 ---
 
-### G10 — modular room composition isn't expressible in the pure relational DSL
-Status: OPEN (design note; E2 used derived-grid `at`, which is legitimate)
-
-E2's exit test wants a cabin "composed from modular pieces using relational placement
-only." The adjacency DSL (`left_of`/`in_front_of`/`at_corner`) expresses *abutting* pieces
-well (a straight wall run tiles flush), but it can't express the two things a 4 m-grid room
-needs: (a) spanning a fixed module — placing the back wall exactly 400 cm from the front,
-not face-to-face — and (b) a perpendicular corner join where a yaw-90 wall meets the end of
-another. E2 built the enclosure by reading the first wall's ground-snapped centre off the
-scene and placing the other three at ±400 cm grid offsets (`at=` with `ground:true`). Under
-the "derived, not divined" principle this is legitimate — the module (400 cm) is *measured*
-from the wall family and the origin is a *perceived* anchor — but it isn't the relational
-vocabulary. A future placement term would close the gap: `grid=(anchor, module, cell)` or a
-`corner_join=(wall, end)` that snaps a perpendicular piece to another's end on the shared
-grid. Verified mechanically: front↔back centre distance = 400.0 cm exactly; corners overlap
-(negative gaps); roof eaves rest over the wall tops.
-
 ### G11 — the pack's "prebuilt cabins" are World assets, not spawnable Blueprints
 Status: OPEN (palette knowledge for the user; E2/E6 adapt)
 

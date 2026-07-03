@@ -105,6 +105,20 @@ def resolve_placement(actor, place):
         else:
             cz = rb["min"][2] + h            # sink to the shared floor
 
+    elif "grid" in place:
+        # G10: modular composition — span a fixed module from an anchor piece instead of
+        # abutting face-to-face. cell counts modules along x/y (UE map axes); z stays level
+        # with the anchor's centre so a wall ring shares its datum (combine with
+        # {"ground": true} to reseat). The module is MEASURED (from the wall family), the
+        # anchor is PERCEIVED — derived, not divined.
+        spec = place["grid"]                 # {"anchor": label, "module": cm, "cell": [i, j]}
+        rb = _ue.bounds(_need(spec["anchor"]))
+        module = float(spec["module"])
+        ci, cj = spec.get("cell", [0, 0])
+        cx = rb["center"][0] + ci * module
+        cy = rb["center"][1] + cj * module
+        cz = rb["center"][2]
+
     # adjacency overrides the axis it controls (UE: left/right = Y, front/back = X)
     if "left_of" in place:
         rb = ref_bounds("left_of")

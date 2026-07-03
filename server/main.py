@@ -76,6 +76,12 @@ def add(label: str, what: str = None, asset: str = None, dims: list = None,
       {"left_of"|"right_of"|"in_front_of"|"behind": "<label>", "gap": <cm>}
                                                  adjacent (left/right = ±Y, front/back = ±X)
       {"mirror_of": "<label>", "axis": "X|Y|Z"}  mirror about world origin
+      {"grid": {"anchor": "<label>", "module": <cm>, "cell": [i, j]}}
+                                                 modular composition (G10): centre exactly
+                                                 i×module along x / j×module along y from
+                                                 the anchor's centre, z level with it —
+                                                 spans a fixed module (a 4 m-grid room)
+                                                 instead of abutting face-to-face
       {"at": [x, y, z]}                          raw coords (documented ripcord only)
     """
     p = {"label": label, "place": place or {}}
