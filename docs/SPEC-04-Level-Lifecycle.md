@@ -44,6 +44,12 @@ the outward-facing-action rule: an irreversible discard needs explicit authoriza
 default. blender-buttons' hard-won lesson (a history desync wiped a 27-op build) applies
 doubly to a whole level.
 
+The same dirty signal belongs on the **status block's `level:` line** — `level:
+Untitled_1 (UNSAVED)` — on every call, not just at transition time. Every dogfood build
+to date has ended stranded in an unsaved `Untitled_1` with the save left as tribal
+knowledge for the human; the block flagging it makes the hazard ambient. (Added
+2026-07-03 from the post-SPEC-05 L1 retrospective.)
+
 ## Reconcile is not optional — it rides every transition
 
 `new`/`open`/`clear` **must** run SPEC-03's `reconcile` (GC orphaned registry entries) as
