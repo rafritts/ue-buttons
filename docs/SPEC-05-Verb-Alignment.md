@@ -74,6 +74,14 @@ This adds two tests to the 2×2:
 Litmus for every future name: say the sentence "I <verb>ed the <op>…" to the user. If
 they'd have to ask what it means, the name is wrong — even if the 2×2 cell is right.
 
+**Agent-only verbs (the user's ruling, 2026-07-03).** Custom verbs are permitted for
+functionality specific to the AGENT — senses that exist because the agent is blind
+(`feel`, `validate`). The human never conceptually invokes these, so they are exempt
+from the UI-visible-label bar; the plain-English bar still applies (their results get
+narrated: "feel says the gap is 12 cm" must parse). This is bb's SENSE family, stated
+as a rule: an agent-only verb is legitimate exactly when there is NO UE surface for
+what it does — the moment UE ships one, the verb becomes a cousin and R2 applies.
+
 **Pragmatism clause (the user's ruling, 2026-07-03).** The law is a default, not dogma.
 Deviating from the UE word is fine when the agent and server are OBVIOUSLY better off
 and the reason is easily defensible — `landscape`→`terrain` is the canonical example:
@@ -143,6 +151,24 @@ finds real seams.
 must not wear the name). Environment lighting (sun/sky/fog/clouds) needs no verb: those
 are placed actors (`add` + future `details`) and UE's own grouping surface is the Env.
 Light Mixer panel — decide when the need is live, against the build.
+
+### Capacity audit (2026-07-03): does the pattern carry 300–500 ops?
+
+Yes — estimated per-verb op inventories, from what each UE surface actually contains:
+`asset` 25–40 (Content Browser: import/migrate/redirectors/references/audit/collections…),
+`material` 15–25, `foliage` 15–20 (paint family + FoliageType settings), `level` 10–20,
+`terrain` 10–20, `transform` 10–15, `spline` 10–15, `outliner` 10–15, `play` 10–15,
+`select` ~10, `viewport` 8–12, and `add`/`validate`/`feel`/`history`/`build` 5–15 each —
+**~150–220 ops on the current roster alone**. Reserved surfaces carry the rest:
+`sequencer` 20–30, real `landscape` 20–30, `modeling` 30–50 (Geometry Script), plus
+`blueprint`/`niagara`/`pcg`/`fracture`/`data_layers` ~10 each — **~350–500 total at
+~25 verbs**. The load-bearing fact: it is UE's own information architecture organizing
+the count, not our taxonomy — the editor organizes thousands of operations this way.
+
+Two flagged obesity risks: `modeling` and `sequencer` are whole applications wearing a
+verb. If either bloats, UE itself provides the split seams (Modeling mode's native tool
+palettes: Create / PolyModel / Deform / UVs / Bake) — even the failure mode resolves to
+UE's taxonomy, not an invented one.
 
 ### `details` — the one genuinely hard call (deliberately deferred)
 
