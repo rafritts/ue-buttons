@@ -96,3 +96,47 @@ cure is an async job + progress pattern (kick the work off the dispatch path, po
 `job_status`), or per-verb chunking as each new slow path appears. Until then: after any
 timeout, poll `/remote/info` and RE-READ state before re-issuing — timed-out work usually
 completed invisibly.
+
+### G31 — scatter family resolution over-matches across packs
+Status: OPEN (found 2026-07-02, L1 replay)
+
+`scatter meshes=["Rock"]` silently matched 48 variants across TWO packs
+(Rock_Collection_04's 7 measured rocks + 41 unmeasured RockEnv_Pack meshes → 46
+FoliageTypes, most dims-blind, scale-jittered). `add` errors on ambiguous short names
+with candidates; scatter family matching should be as honest — error (or at least warn
+with pack attribution) when a family name resolves across multiple packs, and accept a
+`pack=` scope. Workaround used: pass explicit variant names.
+
+### G32 — material suitability is invisible to the verbs (and no way to author one on-surface)
+Status: OPEN (found 2026-07-02, L1 replay — cost 3 render/probe round-trips)
+
+Assigning a terrain material is now one param — but nothing tells the agent whether a
+material CAN work on a mesh surface. Three traps hit in one session: a foliage-card
+masked master (Grass_Patch_1) renders as default checkerboard on the terrain; a
+vertex-color-blend diorama material (Diorama_Ground) renders as a MIRROR (its no-vertex-
+color layer is pond water); both pass `feel render_state`'s `materialised: ok` (the link
+only checks non-null slots). And when no suitable ground material existed in the palette,
+the fix (author `MI_UEB_Grass`: MIC of MM_Basic + the pack's Grass_* tiling textures,
+tuned Roughness/Normal Power) had to be done with raw editor Python — off the verb
+surface. Wants: (a) `asset describe` on a material reports domain/blend/master +
+a usability hint; (b) render_state's materialised link flags decal-domain/default-
+fallback; (c) a minimal `asset` action to instance a master material with texture/scalar
+params. Note: `MaterialEditingLibrary.set_material_instance_*` setters return False even
+on success in 5.8 — read back `texture_parameter_values` to verify.
+
+### G33 — terrain has no UV-tiling control: near-field ground texture smears
+Status: OPEN (found 2026-07-02, L1 replay)
+
+The DynamicMesh terrain's UVs stretch a tiling ground texture (2 m-ish textures over a
+300 m mesh) — at eye level the ground reads as smeared/blurry watercolor; roughness sheen
+amplified it into a wet look until the material's Normal/Roughness Power were tuned down.
+`landscape` wants a `uv_tile_cm=` (target texel density) applied when the mesh is built,
+so a tiling material renders at its authored scale.
+
+### G34 — path surface ribbon: terrain pokes through between samples
+Status: OPEN (found 2026-07-02, L1 replay — cosmetic, one spot in 274 m)
+
+The strip drapes vertex pairs every ~175 cm with lift=3 cm; a terrain bump cresting
+between two sample rows can pierce the ribbon (one green patch mid-trail in the L1
+shots). Cheap fixes: sample the max of several traces per across-segment, or default
+lift a bit higher (5–8 cm), or subdivide where the longitudinal slope changes fastest.
