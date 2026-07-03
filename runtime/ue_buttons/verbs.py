@@ -70,6 +70,15 @@ def handle(verb, params):
     fn = _VERBS.get(verb)
     if fn is None:
         return {"error": f"unknown verb '{verb}'. known: {sorted(_VERBS)}"}
+    # B8: during PIE the editor world reads as None/empty — a verb that runs then sees a
+    # void level: mutations silently no-op and reconcile GC's every live registry entry.
+    # The verb surface targets the EDITOR world only; refuse until Play stops.
+    if (unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor()
+            or _ue.editor_world() is None):
+        return {"error": "the editor is in PIE (Play) — the verb surface reads and mutates "
+                         "the EDITOR world, and during Play that world reads as empty "
+                         "(mutations would no-op; reconcile would GC live registries — B8). "
+                         "Stop Play and re-issue."}
     level_note = _level_guard()
     result = fn(params)
     if level_note and isinstance(result, dict) and "error" not in result:

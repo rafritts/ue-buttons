@@ -27,3 +27,19 @@ Format: `### B<n> — <title>` · status · repro · root cause · fix · verifi
   union-typed runtime contract but a scalar tool schema has the same exposure.
 - **Fix direction**: type it `str | list` (FastMCP/pydantic union) or accept a JSON
   string and parse runtime-side.
+
+### B8 — verbs run during PIE see a void editor world: silent no-ops + reconcile GC's live registries
+Status: FIXED pending live-verify (2026-07-02, found during the L1 tree upgrade)
+
+- **Repro**: with the user in Play (PIE), `scatter remove` reported `components_cleared: 0`
+  (instances untouched), the status block read `level: ?`, and `scene op=reconcile` declared
+  terrain/trail/scatters orphaned — and GC'd all four registry entries — because
+  `UnrealEditorSubsystem.get_editor_world()` returns None during PIE and the actor census
+  reads empty.
+- **Root cause**: no PIE guard on dispatch; every verb assumes the editor world is present.
+- **Fix**: `verbs.handle` refuses with a clear error while `is_in_play_in_editor()` or
+  `editor_world() is None` (before the level guard, so the void level never stamps
+  `level_stamp` either).
+- **Recovery pattern for burned registries**: landscape meta rehydrates from
+  ueb_landscapes.json; paths/scatters are re-created from the recorded recipe (seeds make
+  scatter idempotent) after clearing the now-untracked foliage.
