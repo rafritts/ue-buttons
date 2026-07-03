@@ -1,17 +1,18 @@
 # SPEC-05 — Verb alignment: UE-native names, legible provenance
 
-Status: **DRAFT** — written 2026-07-03 to be shaped with the user before implementation.
-This spec comes FIRST in the new family (before SPEC-06..09 deixis/probes/lint/runtime):
-diagnostics built on misaligned verbs would harden the misalignment.
+Status: **DRAFT — fleshed out 2026-07-03, awaiting the user's sign-off.** This spec fixes
+the shape of the whole future surface; nothing in SPEC-06..09 (deixis, probes, lint,
+runtime lint) should land until the decisions here are agreed, because they all add verbs
+and ops that must be born aligned.
 
-Ported doctrine — read both before fleshing out:
-- `blender-buttons/docs/SPEC-05-verb-collapse.md`: **one verb per native menu/mode.** Lean
-  on the tool knowledge the model already has from training, so schemas specify args
-  instead of teaching concepts. The taxonomy is self-closing when it mirrors the native
-  UI's own organization.
-- `blender-buttons/docs/SPEC-20-verb-provenance.md`: make it legible AT THE CALL SITE
-  whether a verb is a native feature made drivable or our invention. Its `scatter` was
-  deleted for impersonating a native feature it shared no code with.
+Ported doctrine — the two blender-buttons sources, both read in full before this draft:
+- `blender-buttons/docs/SPEC-05-verb-collapse.md` — one verb per native surface; lean on
+  the model's training data so schemas specify args instead of teaching concepts; the
+  taxonomy is self-closing when it mirrors the native UI's own organization; docker-shape
+  (one binary per verb, subcommands inside); schema ergonomics (Addendum A).
+- `blender-buttons/docs/SPEC-20-verb-provenance.md` — provenance legible at the call
+  site; mandatory native-cousin tags; no from-scratch cousin reimplementations;
+  provenance derived from the build, never model memory; version anchoring.
 
 ## Goal (the user's words, 2026-07-03)
 
@@ -21,95 +22,213 @@ UE5 constructs**. At ~10 verbs an agent can memorize a private vocabulary; at hu
 cannot — the only documentation that scales is the model's own training data, and that
 data is written in UE's words. Every op named by its UE construct is an op the agent
 already knows before reading the schema; every privately-named op is a permanent tax on
-every future session. The taxonomy is also self-closing (bb SPEC-05): when the surface
-mirrors UE's own organization, it can't sprawl into a landfill — a new op has one obvious
-home, named by the construct it drives.
+every future session. The taxonomy is also self-closing: when the surface mirrors UE's
+own organization, a new op has exactly one obvious home, named by the construct it drives.
 
-## Problem
+## The naming law: a 2×2
 
-ue-buttons inherited blender-buttons' verb NAMES without re-deriving them from UE's own
-taxonomy. The predictability argument cuts in UE's favor too: the model's training is
-dense with UE tutorials, docs, and forum posts that use UE's words — Foliage, Landscape,
-PCG, Place Actors, Content Browser, Details, Outliner. A verb that uses UE's word for a
-UE thing is guessable and self-documenting; a verb that uses OUR word for a UE thing
-(or worse, UE's word for a NON-UE thing) forces the agent to memorize a private mapping,
-and mis-teaches every reflex the training data provides.
+Everything in this spec reduces to one matrix. For any verb or op, ask two questions:
+*is the thing it drives a UE construct?* and *is the name a UE word?*
 
-Two live exhibits, one in each direction:
+|  | **names a UE word** | **names a non-UE word** |
+|---|---|---|
+| **drives a UE construct** | ✅ NATIVE — the goal state (`foliage`, `transform`, `asset`) | ❌ the **scatter sin** — our word hides the native thing; training-data reflexes can't find it |
+| **drives our invention** | ❌ the **landscape sin** — native word promises capabilities we don't have; every trained reflex misfires | ✅ MACRO/SENSE — honest negative-space naming (`terrain`, `feel`, `validate`) |
 
-1. **`scatter` hides a native concept (bb's scatter sin, inverted-but-same).** The verb
-   IS UE's Foliage system — it writes `InstancedFoliageActor.add_instances()` and mints
-   `FoliageType_InstancedStaticMesh` assets — but nothing at the call site says so. A
-   UE-trained reflex says "paint foliage"; nothing in the surface answers to "foliage".
-   The G40 debugging session had to *discover* that scatter = foliage before it could
-   even enumerate the instances. And UE 5.x's modern native scatter is **PCG** (the
-   Procedural Content Generation framework) — the cousin audit must decide whether our
-   sampler is a from-scratch cousin of PCG (R2 territory) or a legitimate thin layer
-   over the Foliage system with a PCG cousin-tag.
-2. **`landscape` wears a native name for a non-native thing (the inverse sin).** UE's
-   Landscape is a specific system — heightfields, layers, sculpt/paint tools, landscape
-   materials, grass types. Our `landscape` verb builds **StaticMesh terrain** precisely
-   BECAUSE UE 5.8 Python cannot create real Landscape (known constraint). The name
-   promises capabilities (sculpt layers, paint layers, grass) that don't exist here and
-   invites every Landscape reflex the training data has. Candidate: rename to `terrain`
-   with a cousin tag ("≈ UE Landscape, which Python cannot author; this is mesh terrain —
-   no layers/grass-types").
+Both live exhibits came from this repo, one in each forbidden cell:
+- **`scatter`** drives UE's Foliage system (`InstancedFoliageActor.add_instances`, minted
+  `FoliageType` assets) under a word UE doesn't use. The G40 debugging session had to
+  *discover* that scatter = foliage before it could enumerate the user's selection.
+- **`landscape`** builds StaticMesh terrain (because UE 5.8 Python cannot author real
+  Landscape) under the exact name of the native system it is not. The name invites every
+  Landscape reflex in the training data — sculpt layers, paint layers, grass types — and
+  the verb can honor none of them.
 
-## The rules (ported, UE-translated)
+**The law is fractal: it applies to ops exactly as to verbs.** `foliage op=paint` (UE's
+Foliage-mode tool name) is native-cell; `terrain op=carve` (our op on our thing) is
+macro-cell; `transform action=nudge` is a small scatter-sin (UE's word is Move) and gets
+renamed. Corollary before naming anything: check whether UE has a word for it (against
+the build/docs, not memory — R3), and check the word isn't already taken by a *different*
+UE concept.
 
-- **One verb per UE-native surface.** Where a verb maps to an editor mode, menu, panel,
-  or named system, use UE's own word: Foliage mode → `foliage`, Content Browser →
-  `asset`, Place Actors → `add`, Outliner/World Settings → `scene`. Senses (`feel`,
-  `validate`) and infrastructure (`history`) keep plain names — nobody mistakes them for
-  menu items (bb SENSE family ruling).
-- **R1 — native-cousin tag (mandatory).** Any verb/op that parallels a shipped UE feature
-  cites it in the schema and states the delta: "≈ Foliage paint, agent-driven sampling
-  instead of brush strokes"; "≈ PCG, but immediate instances, no graph asset".
-- **R2 — no from-scratch cousin reimplementations.** If UE ships the feature and Python
-  can drive it, we wrap it, never rebuild it. (Our scatter already passes half this test —
-  storage/rendering IS the native foliage path; the sampling layer is ours.)
-- **R3 — provenance from the build, never model memory.** Native-vs-macro is read from
-  the verb's implementation (which `unreal.*` APIs it calls). Cousin claims are verified
-  against the live 5.8 build — model memory is densest on UE ≤5.3-era APIs and
-  self-confirms (today's proof: three deprecated-API surprises in one session:
-  `validate_loaded_asset` absent, `has_vertex_colors` unexposed, mesh-description API
-  absent).
-- **R4 — version anchoring.** The status block / connect handshake should state the
-  attached UE version and the version the server was verified against, with a drift
-  tripwire. A short "UE 5.8 deltas vs the model's reflexes" primer belongs in the server
-  instructions (seed: the ue58-python-constraints list — no Landscape authoring, no
-  numpy, no Spline+HISM component-add; grows as R3 finds more).
+We deliberately do NOT adopt blender-buttons' `buttons-<purpose>-macro` verb-name prefix.
+bb needed a namespace to group ~31 macros living among ~150 native ops; we have a handful
+of macros and the negative-space rule already prevents impersonation. Instead every macro
+verb/op carries a **MACRO tag as the first line of its schema description** (see
+ergonomics below). Revisit if the macro count ever grows past a dozen.
 
-## The audit (the work of this spec)
+## The shape: verbs → ops, and nothing in between
 
-Classify every verb and op — `scene, add, transform, select, feel, history, asset,
-landscape, path, scatter, validate` — as NATIVE (wraps one UE feature; named by UE's
-word), MACRO (orchestrates several; must not impersonate), or SENSE (read-only, plain
-name). For each: what `unreal.*` surface it actually drives (read the code, R3), its
-nearest native cousin in 5.8 (Foliage, PCG, Landscape, Splines, Modeling Tools, …), and
-the verdict — keep name / rename / re-tag / wrap-native / delete.
+- **Root verbs are MCP tools, bounded by UE's own surface list** — editor modes, main
+  panels, main-menu entries, named systems. The set can only grow when we take on a new
+  UE surface (Sequencer, Niagara, Blueprint, …), which is exactly when growth is honest.
+  Expected steady state: ~20 verbs, hundreds of ops.
+- **Ops are the second and last level.** One discriminator param, named **`op`** on every
+  verb — the current `op=`/`action=` split is an unforced inconsistency and dies in this
+  spec. No sub-verbs, no third level: if an op wants sub-modes, those are params. The
+  docker analogy holds: `docker container prune --filter`, not `docker container prune
+  images`.
+- **No new flat tools per op, ever** (bb's rejected alternative: separate tools re-inflate
+  the count; `oneOf` unions render inconsistently across MCP clients). One verb = one
+  tool = one readable schema.
+- **Senses keep plain non-UE names** (`feel`, `validate`) — nobody mistakes them for menu
+  items, and they are the house style shared with the sister project.
 
-Known audit questions going in (not prejudged):
-- `scatter` → `foliage`? And if so, does the verb grow toward the native mode's semantics
-  (paint/fill/erase per FoliageType) rather than our one-shot generate?
-- `landscape` → `terrain`? (The strongest single misalignment: native name, non-native thing.)
-- `path` — cousins are SplineComponent / Landscape Splines; ours carves + builds mesh.
-  Macro; needs its R1 tag at minimum.
-- `add` for Blueprint actors vs plain meshes — does the schema speak UE's actor/asset
-  vocabulary correctly?
-- `history` — ours is op-history + `undo_to`, UE's is the transaction/undo stack. Same
-  concept? Tag the difference.
+## The verb roster
 
-## Verification story (rough)
+### Now (the rename/redistribution cutover)
 
-The bb standard: after renames, a fresh agent (no repo priors) given only the verb list
-and schemas correctly predicts what each verb drives and reaches for the right verb from
-a UE-phrased request ("paint some pines on the hillside" → `foliage`, not a hunt through
-`scatter`). Schema-only test, no live editor needed — plus one live pass proving renamed
-verbs still dispatch.
+| Verb | UE construct (provenance) | Ops after cutover | Change |
+|---|---|---|---|
+| `add` | “+ Add” / Place Actors panel (NATIVE) | spawn by asset/class, relational `place=` grammar | keep — ergonomics never demote a native op (bb litmus) |
+| `select` | editor selection / Select menu (NATIVE) | `op=set` (labels), `op=clear`, `op=user` — read the USER's live selection (SPEC-06 deixis) | gains `op` discriminator; deixis lands here |
+| `transform` | Move/Rotate/Scale gizmos + Details▸Transform (NATIVE) | `op=move` (was `nudge`), `op=rotate`, `op=scale`, `op=resize` (ours: absolute world-dims; tagged) | rename `nudge`→`move`; `action=`→`op=` |
+| `asset` | Content Browser / Asset Registry (NATIVE) | `op=packs / inventory / describe / find / whats_new` | `instance_material` moves out (→ `material`); `action=`→`op=` |
+| `material` | Material / Material Instance editors (NATIVE, **new**) | `op=instance` (from asset), `op=assign`, `op=params`; later the G40 motion certificate reads | born aligned; small at first |
+| `foliage` | **Foliage editor mode** (NATIVE — wraps `InstancedFoliageActor` + `FoliageType`) | `op=paint` (was create — UE's tool name), `op=erase` (region remove), `op=reseed` (was regenerate; our word, our concept), `op=describe`, `op=remove` | **rename of `scatter`** — the exhibit-A fix |
+| `terrain` | — (MACRO; cousin: UE Landscape, unauthorable from Python in 5.8) | `op=create / shape / flatten / describe / remove` + **`op=carve` (moves in from `path`)** | **rename of `landscape`** — the exhibit-B fix |
+| `spline` | SplineComponent (NATIVE) | `op=create` (points/route), `op=describe` (waypoints, `at_fraction`), `op=surface` (macro op, tagged: the visible strip), `op=remove` | **rename/refactor of `path`**: the curve is native; carving terrain along it belongs to `terrain op=carve along=<spline>` |
+| `outliner` | the Outliner panel (NATIVE) | `op=census` (default scene read), `op=reconcile` (ours, tagged: ueb-registry diff/GC) | **from `scene`** — UE has no user-facing “scene”; the actor census IS the Outliner |
+| `level` | Level / World Settings / World Partition (NATIVE) | `op=streaming` (from scene), SPEC-04 lifecycle (`new/save/load/list`) as it lands | **from `scene`** + SPEC-04 home |
+| `play` | Play In Editor (NATIVE) | `op=census` (was scene `pie_census`), `op=start / stop`; SPEC-09's scripted runs later | **from `scene`**; B8 PIE-guard doctrine lives here |
+| `viewport` | the Level Viewport camera (NATIVE — **no pixels, ever**) | `op=camera` (get/set pose), `op=frame` (aim at actor/region), `op=looking_at` (trace the user's view — SPEC-06 deixis) | reinstated WITHOUT vision: pose/frustum math only. `feel op=framing/visible` stay in `feel` — they are geometric senses about any hypothetical eye, not reads of the user's actual one |
+| `history` | Edit▸Undo History / transaction stack (NATIVE) | `op=list / undo_to` | keep |
+| `feel` | — (SENSE) | `describe / distance_between / gap_between / is_aligned / render_state / framing / visible` | keep; plain name by law |
+| `validate` | — (SENSE) | `run / expect / forget / intended`; SPEC-07/08 add the rule engine + `scope=selection\|label\|all` sweeps | keep |
 
-## Sequencing
+The `scene` verb dissolves entirely — its four ops were an outliner read, a
+world-partition read, a PIE read, and our registry reconcile, i.e. four different UE
+surfaces sharing a non-UE word. That dissolution is the strongest single proof the law
+finds real seams.
 
-Before SPEC-06..09 (they add verbs/ops — deixis reads, `validate` sweep scopes — that must
-be born aligned). Renames are breaking changes to recipes/docs; do them while the surface
-is young.
+### Reserved (future UE surfaces — names claimed now so nothing squats on them)
+
+`sequencer`, `niagara`, `blueprint`, `build` (Build menu: lighting/nav/HLOD),
+`modeling` (Modeling editor mode / Geometry Script), `fracture` (Chaos), `mesh_paint`,
+`data_layers`, `pcg` (if its Python surface matures — see the foliage ruling), `landscape`
+(reserved for the REAL system if Python ever authors it — the strongest reason `terrain`
+must not wear the name). Environment lighting (sun/sky/fog/clouds) needs no verb: those
+are placed actors (`add` + future `details`) and UE's own grouping surface is the Env.
+Light Mixer panel — decide when the need is live, against the build.
+
+### `details` — the one genuinely hard call (deliberately deferred)
+
+UE's Details panel is the per-actor/component property editor — arguably the most-used
+surface in the editor, and a natural `details op=get/set path=…` verb. Deferred because
+it is a **god-verb risk**: every future verb's ops could be expressed as details-sets,
+and the moment lazy op-design starts routing through raw property paths, the aligned
+surface rots from inside. Rule if/when it lands: `details` is the escape hatch for the
+long tail, and any property set the agent reaches for twice gets promoted into a real op
+on its owning verb.
+
+## Schema ergonomics (bb Addendum A, ported and extended)
+
+1. **`op` is a `Literal`** → the schema emits an enum; legal ops are structural, not prose.
+2. **Every op-specific param is tagged** `tag(T, "[op] …")` so the fat signature filters
+   down per op.
+3. **Args stay regular across ops** — shared vocabulary (`label=`, `at=`, `place=`,
+   `region=`, `along=`) identical across verbs; a verb's params are never a union of
+   unrelated signatures.
+4. **R1 cousin line** — first line of every MACRO verb/op description:
+   `MACRO ≈ <UE feature> — <what differs>`. E.g. `terrain`: “MACRO ≈ UE Landscape (Python
+   cannot author Landscape in 5.8) — StaticMesh terrain; no layers, no grass types.”
+5. **Per-op API citation** — each op's docstring line ends with the `unreal.*` surface it
+   drives: `paint — InstancedFoliageActor.add_instances`. This makes provenance legible
+   at the call site (SPEC-20's core demand) and is verified against the code during the
+   audit, not recalled.
+6. **The status block is a hard invariant** (SPEC-02/03, unchanged by any rename): every
+   act-verb reply carries it; senses don't. The two forced senses and the render line
+   survive the cutover untouched.
+
+## How the MCP feels to use (the target experience)
+
+A UE-fluent agent lands with zero repo priors and works from reflex:
+
+```
+asset op=find query="pine"                 → families, dims, tris, motion/spire tells
+add label="cabin" asset="Cabin_A" place="ground" at="map:C4"
+terrain op=carve along="valley_trail" blend_margin=400
+foliage op=paint meshes=["Bush_Tree","Bush_1"] region=… density=…
+   ⚠ 2 mesh(es) carry vertex-masked wind … the safe kind      ← author-time gate (G39/G40)
+   [status block: outliner delta, feel delta, render line]
+validate op=run scope=all                   → rule-engine findings, numbered, actor-labeled
+play op=census                              → game truth; auto-ends PIE (B8)
+select op=user                              → “the user has 1 actor selected: …” (deixis)
+```
+
+Every noun in that transcript is a UE noun. The agent never asks “which verb owns X?” —
+the answer is “whichever UE surface owns X,” which it already knows. The inverse also
+holds and matters as much: when the agent reads UE docs/forums to solve a problem
+(“use the Foliage fill tool”), the solution's vocabulary IS the verb surface's vocabulary
+— no translation layer in either direction.
+
+“The verb is the mode context” (bb's auto mode-switch) translates to UE as **world-state
+guards, not editor modes**: Python drives systems directly, so act-verbs instead
+auto-handle PIE (end Play before mutating — B8 standing doctrine, owned by `play`),
+game-thread dispatch, and level-loaded checks. The agent never hand-manages editor state.
+
+## Rules (ported, UE-translated — unchanged from the stub, now with teeth)
+
+- **R1 — native-cousin tag, mandatory** (ergonomics rule 4 above).
+- **R2 — no from-scratch cousins.** If UE ships it and Python can drive it, wrap it.
+  Ruling made now: **`foliage` wraps the Foliage system, not PCG.** PCG is 5.x's modern
+  procedural-scatter, but its 5.8 Python surface is thin where Foliage's is proven
+  (add_instances works today). `foliage` carries a PCG cousin tag; revisit when PCG's
+  Python matures (R3 check, not a memory check).
+- **R3 — provenance from the build.** Native-vs-macro is read from the verb's actual
+  `unreal.*` calls; cousin claims verified against the live 5.8 build. Today's proof of
+  necessity: three model-memory misses in one session (`validate_loaded_asset` absent,
+  `has_vertex_colors` unexposed, mesh-description API absent).
+- **R4 — version anchoring.** The server instructions carry a version-stamped “UE 5.8
+  deltas vs your reflexes” primer (seed: no Landscape authoring from Python, no numpy in
+  the editor venv, no Spline+HISM component-add, the three R3 misses above; grows as the
+  audit finds more). First dispatch of a session compares attached UE version to the
+  verified-against version and warns on drift.
+
+## Migration plan (staged, each stage live-verified then pruned from here)
+
+1. **Discriminator unification** — `action=` → `op=` everywhere; `transform nudge→move`.
+   Mechanical, one commit, recipes/docs updated in the same commit.
+2. **The two headline renames** — `scatter`→`foliage` (ops: paint/erase/reseed/describe/
+   remove), `landscape`→`terrain`. State keys, persisted registries, and
+   `dogfood_levels.md` recipes migrate in the same commit; G40's author-time gate lands
+   on `foliage op=paint` when SPEC-07 builds it.
+3. **The `scene` dissolution** — `outliner` (census, reconcile), `level` (streaming +
+   SPEC-04 lifecycle), `play` (census/start/stop). `scene` dies in the same commit the
+   three are born; no alias period (a wrong-cell name kept alive keeps mis-teaching).
+4. **`path` → `spline` + `terrain op=carve`** — the carve op moves to the thing it
+   mutates; the spline keeps the curve, waypoints, and (tagged macro op) surface strip.
+5. **Ergonomics pass** — Literal `op` enums, `[op]` param tags, R1 cousin lines, per-op
+   API citations, on all verbs.
+6. **R4 anchoring** — primer + drift tripwire.
+7. **New verbs** (`material`, `select op=user`, `viewport`) land with SPEC-06+, born
+   aligned.
+
+Renames are breaking; there is exactly one consumer (this partnership), the surface is
+young, and every day of delay adds recipes/docs/gaps written in the old words. Cut hard,
+no deprecation shims. `guidance_for_llms` / README / CLAUDE.md sweep rides stage 5.
+
+## Verification story
+
+- **The schema-only test** (bb standard): a fresh agent with no repo priors, given only
+  the verb list and schemas, correctly (a) predicts what each verb drives, (b) reaches
+  for the right verb from UE-phrased requests — “paint some pines on the hillside” →
+  `foliage`, “flatten a pad for the cabin” → `terrain op=flatten`, “what is the user
+  looking at?” → `viewport op=looking_at`. Run it as a real probe: a clean-context
+  subagent quizzed against the post-cutover schemas.
+- **The live pass**: every renamed/redistributed op dispatches over the RC bridge with
+  behavior identical to its pre-rename twin (same handlers underneath — the cutover moves
+  names, not engine code), status block intact, history/undo intact.
+- **The audit artifact**: the roster table above, with every op's API citation confirmed
+  by reading the handler — committed as part of this spec when the cutover lands.
+
+## Open questions for the user
+
+1. `outliner` vs keeping `scene` for the census read — the law says outliner; the
+   counterargument is that `scene` is cross-DCC lingua franca. (Recommendation: outliner.
+   We are optimizing for UE training data, not DCC generality.)
+2. Should `viewport` land now (it is small and SPEC-06 wants it) or with SPEC-06?
+   (Recommendation: with SPEC-06 — no speculative verbs, even aligned ones.)
+3. `details` — agree to defer under the god-verb rule above?
+4. Op-level names where UE has no word (`reseed`, `carve`, `whats_new`) — any the user
+   wants renamed while renaming is cheap?
