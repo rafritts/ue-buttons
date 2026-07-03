@@ -15,6 +15,40 @@ Gaps are *friction / missing-capability / design*. Outright defects go in `bugs.
 
 ---
 
+### G39 — WPO/wind is invisible at author time: the vet misses plugin-master displacement, and scatter/add never surface WPO at all → whole-mesh-bobbing foliage scatters silently
+Status: OPEN (found 2026-07-03; the user caught it visually in PIE — "the wind makes the
+whole tree sway up and down, trunk and all… they're all Spruce").
+
+What happened: L1's understory scattered ~20k Megaplant `Branch_*` instances (Norway Spruce,
+Goat Willow, European Spindle). Their foliage MI's master is the ProceduralVegetation plugin
+material `/ProceduralVegetationEditor/.../MA_Foliage_Trees` (OUTSIDE /Game), whose vertex
+displacement (`Displacement Power`, `Reduce Branch Displacement`) expects PV-runtime vertex
+data the scattered static-mesh instance doesn't carry. Result: the wind WPO displaces the
+WHOLE mesh — the trunk bobs vertically instead of the needles swaying. Correct-by-contrast:
+the pines (`MI_Pine_Tree_Branches` → /Game `MM_Tree_Branches`) and cabin bushes
+(`Bush_1` → /Game `MM_Foliage`) use `Wind Weight` VERTEX-MASKED wind — base anchored, leaves
+sway — and look right.
+
+Two blind spots stacked:
+  1. The material vet (`asset describe`) reports `has_world_position_offset: true` for the
+     /Game foliage masters (caught the pine + Bush_1 WPO correctly) but does NOT set it for
+     the plugin master `MA_Foliage_Trees` — only a soft "master lives outside /Game" note,
+     even though that master's params (`Displacement Power`/`Reduce Branch Displacement`) are
+     literally WPO. So the one material that bobs WORST is the one the WPO flag misses.
+  2. Even where WPO *is* detected, neither `scatter` nor `add` SURFACES it — you only see it
+     if you manually `asset describe` the material first. So a population of 20k bobbing
+     instances was authored with zero warning; the status/`render:` lines said DRAWS and
+     moved on.
+
+Fix candidates: (a) WPO detection follows plugin/engine masters too, or treats an
+outside-/Game foliage master carrying displacement params as WPO-positive; (b) `scatter`/`add`
+echo a one-line WPO/animation notice for the chosen mesh(es) at author time — and distinguish
+MASKED wind (`Wind Weight`, base-anchored, fine) from UNMASKED plugin displacement (needs
+runtime data → whole-mesh bob); (c) a `feel`/status tell for "this population animates."
+Workaround for L1: rebuilt the understory from cabin `Bush_1`/`Bush_Tree` (MM_Foliage,
+masked wind), which sway correctly. Megaplant `Branch_*` are unsafe to scatter as plain
+instances until the PV-runtime data or a wind-free MI is supplied.
+
 ### G38 — `asset inventory`'s aspect "silhouette tell" has no upper bound: a very-thin, low-tri mesh reads as a full tree but renders as a bare spire
 Status: OPEN (found 2026-07-03 building L1; cost a forest rebuild).
 
