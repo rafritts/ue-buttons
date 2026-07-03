@@ -16,7 +16,7 @@ Gaps are *friction / missing-capability / design*. Outright defects go in `bugs.
 ---
 
 ### G40 — motion verdicts ignore INSTANCING, and the status block has no level-wide motion census
-Status: OPEN (found 2026-07-03 in the first SPEC-05 deixis experiment — the user selected
+Status: OPEN (found 2026-07-03 in the first SPEC-06 deixis experiment — the user selected
 the forest and reported "whole trees float/rock, no bending"; design agreed, implementation
 deliberately deferred until the spec-shaping session ends.)
 
@@ -48,7 +48,7 @@ Tool to build (the "would have highlighted it immediately" answer):
 
 ### G41 — native-linter wrapping hazards: `MAP CHECK` over RC crashes the editor; Data Validation is silent on real defects
 Status: OPEN (recorded 2026-07-03 while testing whether stock UE tooling catches G40's
-case; informs SPEC-07 before it's fleshed out.)
+case; informs SPEC-08 before it's fleshed out.)
 
 Facts, all live-verified today:
 - `unreal.SystemLibrary.execute_console_command(None, "MAP CHECK")` issued through RC
@@ -61,7 +61,7 @@ Facts, all live-verified today:
   subsystem API surface is `is_asset_valid / is_object_valid / validate_assets_with_settings /
   validate_changelist(s) / add_validator` — no `validate_loaded_asset` in 5.8, and
   `is_asset_valid` wants `AssetData`, not a loaded object.
-Conclusion for SPEC-07: UE's native linters are a floor, not a roof — wrap them via the
+Conclusion for SPEC-08: UE's native linters are a floor, not a roof — wrap them via the
 validator-subsystem APIs (never console MAP CHECK through RC), and expect our own rules
 (registered via `add_validator` as Python `EditorValidatorBase` subclasses) to carry the
 real weight.

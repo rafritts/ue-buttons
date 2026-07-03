@@ -1,6 +1,6 @@
-# SPEC-06 — Symptom probes: the diagnostic verb layer
+# SPEC-07 — Symptom probes: the diagnostic verb layer
 
-Status: **DRAFT / STUB** — deliberately rough. Shaped after SPEC-05's editor-poking
+Status: **DRAFT / STUB** — deliberately rough. Shaped after SPEC-06's editor-poking
 session; do not implement from this document as-is.
 
 ## Reframe from the 2026-07-03 session: ONE rule engine, not a probe collection
@@ -26,7 +26,7 @@ Design consequences:
   (`scatter`/`add` refuse-or-warn BEFORE planting — primary defense: the G40 pines were
   planted by OUR OWN scatter verb, so the gate covers the real workflow), (2) level-wide
   census on the status block (safety net for defects introduced outside the verb surface),
-  (3) on-demand sweep (SPEC-07). A probe, a lint rule, and an author-time warning are the
+  (3) on-demand sweep (SPEC-08). A probe, a lint rule, and an author-time warning are the
   same row evaluated at different moments.
 - **The gate UX** (the user's words, near-verbatim): "These pine variants will float
   rigidly as instances (trunk WPO is pivot-anchored). Want them standalone (motion is
@@ -58,7 +58,7 @@ readable (`StaticMeshEditorSubsystem.get_num_uv_channels`).
 Every visual symptom the user reports has a non-visual cause living in a machine-readable
 surface (material graph, collision metadata, light settings, AABB math). Today each such
 report turns into ad-hoc probe.sh archaeology. This spec makes the symptom→cause bridge a
-first-class surface: the user points (SPEC-05) and names a symptom in plain words; the
+first-class surface: the user points (SPEC-06) and names a symptom in plain words; the
 agent runs the matching probe and confirms or refutes mechanically.
 
 ## Scope (rough)
@@ -74,7 +74,7 @@ Probably ONE `diagnose` verb with ops, not new verbs. Candidate ops:
 - `op=solid` — the "I walked through it" probe: collision complexity, simple-collision
   prim count.
 
-Each op is scoped by a SPEC-05 referent (selection, camera cone, or region). The op list
+Each op is scoped by a SPEC-06 referent (selection, camera cone, or region). The op list
 is expected to GROW by design: every new symptom the user reports becomes a candidate op.
 
 ## Open questions
@@ -93,5 +93,5 @@ localizes it — and stays quiet on the clean L1 rebuild.
 
 ## Sequencing
 
-After SPEC-05 (needs its referents). SPEC-07's lint sweeps are these probes run
+After SPEC-06 (needs its referents). SPEC-08's lint sweeps are these probes run
 unprompted at level scale.

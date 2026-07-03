@@ -1,11 +1,11 @@
-# SPEC-07 — Lint: whole-level sweeps
+# SPEC-08 — Lint: whole-level sweeps
 
-Status: **DRAFT / STUB** — deliberately rough. Shaped after SPEC-05/06 land; do not
+Status: **DRAFT / STUB** — deliberately rough. Shaped after SPEC-06/06 land; do not
 implement from this document as-is.
 
 ## Problem
 
-SPEC-06's probes are *targeted* — the user points, the agent checks. Lint is the
+SPEC-07's probes are *targeted* — the user points, the agent checks. Lint is the
 *unprompted* version: sweep the whole level, report every finding. It is also where
 accumulated tells (G38 sparse-spire, G39 motion, floaters/sinkers) get a permanent home
 instead of living scattered across verbs.
@@ -13,11 +13,11 @@ instead of living scattered across verbs.
 ## Learnings folded in (2026-07-03, G41 — read before fleshing out)
 
 - **Verb shape decided by the user:** no new `lint` verb — EXTEND `validate` with a sweep
-  scope: `scope=selection | label | all`. Selection scoping is SPEC-05 deixis reused
+  scope: `scope=selection | label | all`. Selection scoping is SPEC-06 deixis reused
   ("select the forest, say lint this").
-- **The sweep is SPEC-06's rule engine at firing point 3** — same rule table, evaluated
+- **The sweep is SPEC-07's rule engine at firing point 3** — same rule table, evaluated
   level-wide instead of against one referent. This spec owns the sweep loop, the findings
-  format, and the native-linter wrapping; the rules themselves live in SPEC-06.
+  format, and the native-linter wrapping; the rules themselves live in SPEC-07.
 - **Native linters are a floor, not a roof** (both live-verified): stock Data Validation
   returns VALID on the G40 material (asset-scoped validators are structurally blind to
   context-mismatch defects); the only Map Check result on record is 0 errors / 0 warnings.
@@ -35,7 +35,7 @@ instead of living scattered across verbs.
    - Data Validation subsystem — register our rules as Python `EditorValidatorBase`
      subclasses so they ALSO fire for humans on save/submit.
    - Output Log scraping: streaming failures, ensures, Blueprint compile errors.
-2. **Asset sweep** — run SPEC-06's material/motion/collision checks across the level's
+2. **Asset sweep** — run SPEC-07's material/motion/collision checks across the level's
    whole asset inventory instead of one referent.
 3. **Spatial sweep** — floaters/sinkers, interpenetration pairs, terrain seam
    discontinuities: generalize `validate` from "check this placement" to "audit the level."
@@ -62,5 +62,5 @@ on the clean L1 rebuild.
 
 ## Sequencing
 
-After SPEC-06 (lint is probes-at-scale plus engine-linter wrapping). SPEC-08 covers what
+After SPEC-07 (lint is probes-at-scale plus engine-linter wrapping). SPEC-09 covers what
 static lint can't see.

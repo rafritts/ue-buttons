@@ -1,7 +1,7 @@
-# SPEC-08 — Runtime lint: PIE-based checks
+# SPEC-09 — Runtime lint: PIE-based checks
 
 Status: **DRAFT / STUB** — deliberately rough, and the least certain scope of the family.
-Explicitly gated on SPEC-07 landing first; expected to be reshaped by whatever the static
+Explicitly gated on SPEC-08 landing first; expected to be reshaped by whatever the static
 linter turns out NOT to catch in practice. Do not implement from this document as-is.
 
 ## Problem
@@ -26,7 +26,7 @@ scripted PIE session.
 ## Learnings folded in (2026-07-03)
 
 Runtime lint's role sharpened by the G40 session: it is the fallback for rules with **no
-static tell** — where SPEC-06's certificate can't be computed from asset × usage data
+static tell** — where SPEC-07's certificate can't be computed from asset × usage data
 alone (e.g. actual rendered WPO magnitude, mask data the Python API can't read — mesh
 vertex-color presence is unreadable in 5.8). Every rule should live at the cheapest tier
 that can catch it: static certificate first, census second, PIE sampling last resort.
@@ -47,5 +47,5 @@ check, get the fall-through localized to the broken span; clean trail passes.
 
 ## Sequencing
 
-Last of the diagnostic family (SPEC-05 → 06 → 07 → 08). Deliberately deferred until
-dogfooding SPEC-07 shows what static lint misses — same reasoning that keeps G30 open.
+Last of the diagnostic family (SPEC-06 → 06 → 07 → 08). Deliberately deferred until
+dogfooding SPEC-08 shows what static lint misses — same reasoning that keeps G30 open.

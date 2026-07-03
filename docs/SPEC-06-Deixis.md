@@ -1,4 +1,4 @@
-# SPEC-05 — Deixis: shared referents between the user and the agent
+# SPEC-06 — Deixis: shared referents between the user and the agent
 
 Status: **DRAFT / STUB** — deliberately rough. The pattern gets nailed down in a live
 editor-poking session with the user before this is fleshed out. Do not implement from
@@ -21,7 +21,7 @@ conversation needs a shared way to point.
    answer "you're looking at X, Nm away." Same idea for the PIE pawn ("where I'm standing").
 3. **Complaint vocabulary** — a short doc section mapping ~15 plain-language symptoms
    ("checkerboard", "flickering", "jelly", "I fell through") to the probe the agent runs.
-   Documentation, not code, but part of this spec's contract. Probes themselves are SPEC-06.
+   Documentation, not code, but part of this spec's contract. Probes themselves are SPEC-07.
 
 ## Open questions (to answer by poking the editor together)
 
@@ -45,7 +45,7 @@ selection IS readable live; a foliage click lands on the IFA, and component-leve
 resolution was enough to diagnose — per-instance hit resolution wasn't needed this time
 and may matter less than assumed.
 
-Follow-on (same session): deixis referents also SCOPE the SPEC-07 sweep — `validate
+Follow-on (same session): deixis referents also SCOPE the SPEC-08 sweep — `validate
 scope=selection` means "lint what I've selected". One more consumer of the same read.
 
 ## Verification story (rough)
@@ -55,5 +55,5 @@ motion — live over the bridge, including a foliage-instance click.
 
 ## Sequencing
 
-First of the diagnostic family: SPEC-06 (symptom probes), SPEC-07 (lint), SPEC-08
+First of the diagnostic family: SPEC-07 (symptom probes), SPEC-08 (lint), SPEC-09
 (runtime lint) all consume its referents.
