@@ -240,6 +240,20 @@ self-correcting errors (the valid values arrive WITH the failure), the author-ti
 affordance is only effortless if the command it hands you is one you — and the human —
 already understand on sight.
 
+And it goes beyond the reactive cases (errors, warnings). The full form (the user,
+2026-07-03): **the server's herculean deterministic compute lavishly feeds the agent
+affordance grapes.** The server PRECOMPUTES the action space so the agent never derives
+it. The worked example: modular building assets — the server precalculates the snappable
+joints, so the agent asks "I have this wall piece, what are its snappable joints?" and
+receives the joints by id + description, ranked by proximity to the work site, WITH an
+example snap command ready to fire. The agent's move is pure intent selection ("snap the
+east joint to the corner post"); every coordinate, tolerance, and rotation was
+deterministic compute the server already did. Division of labor, stated once: **anything
+deterministically computable is the server's job to compute and serve unasked; the
+agent's context is spent exclusively on intent.** (UE even hands us the native construct
+for the worked example: StaticMesh **Sockets** — precomputed snap points would surface
+under the native word, `asset op=sockets`.)
+
 ## How the MCP feels to use (the target experience)
 
 A UE-fluent agent lands with zero repo priors and works from reflex:
