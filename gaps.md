@@ -83,3 +83,57 @@ z-fight on EVERY ground-snapped actor, louder than the silence it replaces. Its 
 — a substrate-only ground trace — now exists (G18), but the safe version needs the placer to
 seat with a known epsilon (or auto-declare) FIRST, else detector and placer fight. Land the
 placer-epsilon convention, then add the band.
+### G22 — the "blank" Open World template ships a collidable Landscape at z=0; the surface can't see it as ground, warn about it, or remove it
+Status: OPEN (found 2026-07-02, L1 rebuild through the MCP verbs; reattributed B3's root cause)
+
+A fresh Open World level carries 64 `LandscapeStreamingProxy` tiles — a real, collidable
+Landscape at z=0 spanning the world. Every ground trace whose true surface lies below z=0
+hits it first and returns a legitimate-looking 0.0 (see B3 reattribution). `scene` counts
+it among "untracked scaffolding" but nothing says "there is a second ground plane shadowing
+your terrain", and no verb can hide/remove engine actors. Workaround used: keep all
+authored geometry above z=0 (`transform nudge` the terrain up; min bound was −366 →
++600). Resolution directions: (a) traces prefer/filter-to ueb substrates and warn when the
+winning hit is engine scaffolding at exactly z=0; (b) an environment/level verb surfaces
+"what grounds exist here" and can neutralize the template Landscape (hide, or opt-in
+delete); (c) at minimum the status block should warn when authored terrain dips below an
+engine ground.
+
+### G23 — the ueb op log (`history`) outlives the level; reconcile (G16) cleaned the registry but not the log
+Status: OPEN (found 2026-07-02, L1 rebuild)
+
+Fresh level `Untitled_2`, `scene reconcile` reports fully clean — yet `history op=list`
+still shows op001–op004 from a prior session's test actors (`foll_a`, `d_a`, `d_b`), and
+every status block stamped `last_action: op004 nudge d_a` until the first new mutation.
+G16 gave the actor registry a level lifecycle; the mutation log needs the same (clear or
+namespace the log per level, and `undo_to` must refuse to cross a level boundary).
+
+### G24 — terrain has no lifecycle: `landscape create` refuses an existing label and there is no `landscape remove`
+Status: OPEN (found 2026-07-02, L1 rebuild)
+
+Wanted to rebuild the terrain with a different `base_height` (G22 workaround);
+`create` errors with "label 'terrain' already exists" and the action set
+(create/shape/flatten/describe) has no remove/replace. `shape replace=True` resets
+features but can't change size/origin/base. Workaround: `transform nudge` on the terrain
+actor (worked — traces follow the moved mesh). Resolution: `landscape remove` (mirror of
+`scatter remove` / `path remove`), or let `create` on an existing label mean idempotent
+rebuild.
+
+### G25 — the `render:` line prescribes "assign the intended material" but no verb can assign materials
+Status: OPEN (found 2026-07-02, L1 rebuild)
+
+After every terrain edit the status block warns: "slot 0 is the engine DEFAULT material
+(unassigned — renders as flat grey) → assign the intended material". The advice is
+correct and un-followable — no verb touches materials (the KiteDemo pack's terrain-grade
+landscape materials sit unusable). The forced-sense loop prescribes an action outside the
+verb surface. Resolution: a minimal material-assign facility (e.g. on `landscape`/`add`:
+material=<asset>), or stop prescribing what the surface can't do.
+
+### G26 — `landscape describe` model fields don't track the terrain actor's transform
+Status: OPEN (found 2026-07-02, L1 rebuild)
+
+After `transform nudge terrain [0,0,600]`, describe's traced `z` is correct
+(mesh reality), but `z_model`, `bounds.z`, and `height_range_cm` still report the
+un-transformed height function (600 low), so EVERY sample is flagged "diverges" forever
+and the flag loses its signal value (it should mean "carved/flattened here", not "the
+whole actor moved"). Resolution: compose the actor transform into the model side of
+describe (offset z_model/bounds by the actor's world transform).

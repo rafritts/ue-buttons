@@ -43,6 +43,19 @@ Done enough — it's still teaching (three live findings), but the next lessons 
 G16 fixes, not more valley. Leaving the geometry as-is (dogfood: don't agonize over the
 scene).
 
+REBUILT 2026-07-02 (fresh session, entirely through the MCP verbs — zero dispatch). 300 m
+valley (trough along X + E/W ridges + noise, 99 m relief), 274 m carved trail (14 waypoints,
+±16–24° oscillation, all draped clean — no z=0.0), 2,570-instance forest (8 species from
+GV_FreeShrubsPack's full shrubs, 2–9.7 m — real canopy scale this time; 1,761 slope-rejected
+at the treeline, 92 clear-rejected around the trail, DRAWS verdict). What the rebuild
+taught: **B3 reattributed** — the z=0.0 drape wasn't a collision-cook race; the "blank"
+Open World template ships a collidable Landscape at z=0 that wins every trace below zero
+(→ G22; workaround: lift authored terrain above z=0 via `transform nudge`). **B6** —
+long game-thread jobs (`asset measure`, `path carve`) outrun the HTTP timeout, bridge goes
+dark for minutes, and the timed-out work completes invisibly. Plus G23 (op log outlives the
+level), G24 (no terrain lifecycle), G25 (`render:` prescribes material assignment no verb
+can do), G26 (describe model ignores the actor transform). Visual pass is the user's step.
+
 ## Level 2 — Canyon to cave, cabin inside
 
 A slot canyon that leads to a cave; inside the cave, a cabin.

@@ -15,6 +15,30 @@ Format: `### B<n> — <title>` · status · repro · root cause · fix · verifi
 
 ---
 
+### B6 — `asset inventory measure=True` wedges the RC bridge for minutes; the timed-out call keeps running invisibly
+Status: OPEN (found 2026-07-02 driving Level 1 rebuild through the MCP verbs)
+
+Repro: fresh editor session (cold asset cache), `asset(action="inventory",
+pack="GV_FreeShrubsPack", measure=True, budget=66)`. The MCP call timed out; every
+subsequent call — including a plain `scene()` — returned "remote control unreachable
+(timed out)" for **~13 minutes** while the editor loaded/measured the 66 Nanite meshes on
+the game thread. When the bridge came back, the dims cache was fully warmed: the work had
+completed server-side the whole time.
+
+Two defects vs the documented contract ("bounded batches … never blocks the bridge"):
+(1) the budget bounds the mesh *count*, not the wall-clock — one batch of first-load
+Nanite meshes can hold the game thread far past any HTTP timeout, taking the whole verb
+surface down with it (the default budget=60 is in the same danger zone); (2) a timed-out
+call whose work keeps running is indistinguishable from a lost one — the agent can't tell
+"retry" from "wait", and a blind retry would double-queue the load. Fix directions: chunk
+the batch internally by wall-clock (e.g. stop after N seconds, return partial progress +
+"call again"), and/or make the measure job async with a progress field on `inventory`.
+
+Not measure-specific: `path carve` on a 22.5k-vertex terrain did the same (client timeout
+→ bridge dark ~30 s → work landed anyway, verified by re-tracing the bed at grade). Any
+long game-thread job outruns the HTTP timeout; the general fix is a job/progress pattern
+(or per-verb wall-clock chunking) for every potentially-slow mutation.
+
 ### B3 — path drape traces the terrain before collision is ready → silent z=0.0, then `carve` bakes it into the mesh
 Status: OPEN (found 2026-07-02 driving Level 1 dogfood; root cause characterized, not fixed)
 
@@ -25,7 +49,21 @@ terrain height (e.g. `[-3264,1311,418.9]`). The scatter that ran later reported
 `no_ground: 0` — every one of ~11k candidates traced fine. So the *same* `trace_ground`
 missed for the path and hit for the scatter, minutes apart, on the same terrain.
 
-Root cause (two-stage): `path._drape` (path.py:129-130) does
+**Root cause REATTRIBUTED (2026-07-02, L1 rebuild):** the collision-cook-race theory is
+wrong (or at most secondary). The default Open World template ("blank" level) ships with a
+real engine **Landscape at z=0** (64 `LandscapeStreamingProxy` tiles, visible via
+`scene(include_all=True)`). Every ground trace whose true terrain surface lies **below
+z=0** hits that Landscape first and returns 0.0 — a *legitimate hit on the wrong ground*,
+not a miss. Verified live: `landscape describe` on a fresh valley read z=0.0 exactly where
+the model went negative, the 0.0 persisted across settle-and-retry (no cook race), and
+after nudging the terrain +600 so all geometry clears z=0, every trace agreed with
+model+offset and a 14-waypoint path draped with zero 0.0s. Explains all prior evidence,
+including the \"self-consistent flat 0.0 re-trace\" (it was re-hitting the template
+Landscape). Fix directions shift accordingly: traces should filter to (or prefer) the ueb
+terrain / warn when the hit actor is engine scaffolding at exactly z=0; and the surface
+should surface the stowaway Landscape's existence (see G22).
+
+Original (superseded) root-cause theory: `path._drape` (path.py:129-130) does
 `z = _ue.trace_ground(x,y); draped.append([x, y, z if z is not None else 0.0])`. Right
 after `shape`, the DynamicMesh's **complex collision hasn't finished cooking**, so
 `SceneTools._trace_world` returns `None` for the first waypoints — silently defaulted to
