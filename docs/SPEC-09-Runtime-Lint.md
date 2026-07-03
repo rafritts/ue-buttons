@@ -8,7 +8,7 @@ linter turns out NOT to catch in practice. Do not implement from this document a
 
 A class of defect is invisible statically and only exists while the game runs: the pawn
 falls through the trail, wind displacement renders at 10x the authored intent, frame time
-craters near the scatter, an ensure fires on BeginPlay. The only honest check is a
+craters near the stand, an ensure fires on BeginPlay. The only honest check is a
 scripted PIE session.
 
 ## Scope (rough)

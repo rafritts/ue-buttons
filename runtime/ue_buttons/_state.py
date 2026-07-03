@@ -72,14 +72,14 @@ dims_cache = {}       # {asset_path: {measured dict}}
 dims_cache_loaded = [False]   # disk cache hydrated into dims_cache exactly once per session
 
 # ── SPEC-01 domain registries (survive handler hot-reload; live in never-reloaded _state) ──
-# Terrain / path / scatter carry declarative state the actor alone can't reconstruct — the
+# Terrain / spline / foliage carry declarative state the actor alone can't reconstruct — the
 # feature list that synthesised a heightfield, the waypoints behind a spline, the seed+rules
-# behind a scatter population. Keyed by label so describe/regenerate/view(map) can reason
-# about them and rebuild deterministically. Persisted to disk by their verbs where restart
-# survival matters (terrain heightfields especially).
-landscapes = {}       # {label: {origin, size, base_height, resolution, features:[...]}}
-paths = {}            # {label: {points:[[x,y,z],...], width, tangents:[[x,y],...]}}
-scatters = {}         # {label: {meshes, region, density, seed, rules, counts}}
+# behind a foliage stand. Keyed by label so describe/reseed can reason about them and
+# rebuild deterministically. Persisted to disk by their verbs where restart survival
+# matters (terrain heightfields especially).
+terrains = {}         # {label: {origin, size, base_height, resolution, features:[...]}}
+splines = {}          # {label: {points:[[x,y,z],...], width, tangents:[[x,y],...]}}
+foliage_stands = {}   # {label: {meshes, region, density, seed, rules, counts}}
 
 # ── SPEC-02 validate floor (lives here so a handler hot-reload never wipes it) ──
 # The declared-intent registry (`validate op=expect`) and the epistemic-drift accumulator

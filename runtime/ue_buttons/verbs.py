@@ -12,13 +12,18 @@ from . import _state
 from . import _ue
 from . import relational
 from . import asset
-from . import terrain
-from . import landscape
+from . import material as materialmod
+from . import heightfield
+from . import terrain as terrainmod
 from . import map_ref
-from . import path as pathmod
-from . import scatter as scattermod
+from . import spline as splinemod
+from . import foliage as foliagemod
 from . import render as rendermod
 from . import validate as validatemod
+
+# R4 (SPEC-05): the runtime is verified against this engine version; a session on a
+# different build gets one warning on its first dispatch — trained reflexes may misfire.
+VERIFIED_UE = "5.8"
 
 # Verbs that mutate the world: they log an op, run inside a ueb:<id> transaction, and get
 # the status block appended. Everything else is a pure read / navigation.
@@ -30,7 +35,7 @@ STATUS_ONLY = {"select"}
 # cleanly undoable via the transaction stack (DynamicMesh/HISM edits don't sit in it — G12),
 # so they never log to the 1:1 history nor push a _Txn. They get a status block; each carries
 # an honest `undoable: false`, and teardown is their own `remove`/editor delete.
-SPATIAL = {"landscape", "path", "scatter"}
+SPATIAL = {"terrain", "spline", "foliage"}
 # `history` with op=undo_to mutates but manages its own undo accounting — never logs
 # itself (would desync the 1:1 count) and never nests a transaction.
 
@@ -47,7 +52,7 @@ def _level_guard():
     dispatch after a level change, clear both — op001 from a dead level must never stamp a
     fresh level's status blocks, and undo_to can never cross a level boundary. (A save-as
     rename counts as a change — conservative and documented.) Actor/foliage registries have
-    their own lifecycle (`scene op=reconcile`, G16)."""
+    their own lifecycle (`outliner op=reconcile`, G16)."""
     if not hasattr(_state, "level_stamp"):
         _state.level_stamp = [None]
     lvl = _ue.level_name()
@@ -64,7 +69,7 @@ def _level_guard():
     if n_ops or n_int:
         return (f"level changed ({prev} → {lvl}) — cleared {n_ops} logged op(s) and "
                 f"{n_int} declared intent(s) from the old level (G23); "
-                f"scene op=reconcile to check the registries")
+                f"outliner op=reconcile to check the registries")
     return None
 
 
@@ -90,20 +95,29 @@ def handle(verb, params):
     params = _unstringify(params)
     # B8: during PIE the editor world reads as None/empty — a verb that runs then sees a
     # void level: mutations silently no-op and reconcile GC's every live registry entry.
-    # The verb surface targets the EDITOR world only; refuse until Play stops. One exempt
-    # op: scene op=pie_census reads the GAME world by design (G36) and ends Play itself.
+    # The verb surface targets the EDITOR world only; refuse until Play stops. `play` is
+    # exempt: it owns PIE (op=stop ends it; op=census reads the GAME world by design, G36).
     if (unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor()
             or _ue.editor_world() is None):
-        if verb == "scene" and params.get("op") == "pie_census":
-            return _pie_census(params)
+        if verb == "play":
+            return _v_play(params)
         return {"error": "the editor is in PIE (Play) — the verb surface reads and mutates "
                          "the EDITOR world, and during Play that world reads as empty "
                          "(mutations would no-op; reconcile would GC live registries — B8). "
-                         "Stop Play and re-issue."}
+                         "play op=stop (or play op=census, which ends Play itself), then "
+                         "re-issue."}
     level_note = _level_guard()
     result = fn(params)
     if level_note and isinstance(result, dict) and "error" not in result:
         result.setdefault("notes", []).append(level_note)
+    # R4 drift tripwire: once per session, on the first successful dispatch.
+    if not hasattr(_state, "ue_version_checked"):
+        _state.ue_version_checked = True
+        ver = unreal.SystemLibrary.get_engine_version()
+        if not ver.startswith(VERIFIED_UE) and isinstance(result, dict):
+            result.setdefault("notes", []).append(
+                f"engine is {ver.split('-')[0]} but this runtime is verified against UE "
+                f"{VERIFIED_UE} (R4) — expect API drift; verify against the build, not memory")
     if (verb in MUTATING or verb in STATUS_ONLY or verb in SPATIAL) \
             and isinstance(result, dict) and "error" not in result:
         result["status"] = _status_block(verb, params, result)
@@ -198,9 +212,9 @@ def _status_block(verb, params, result):
         lines.append("validate: OFF for this edit — the actor floor checks placed actors "
                      "(add/transform), not the terrain/population itself; `validate op=run` "
                      "to sweep placed actors against it")
-        # Sense 3 for populations — the motivating case (a scatter correct in every data
-        # probe that draws nothing). Terrain/path render-walk is the next increment.
-        if verb == "scatter" and focus:
+        # Sense 3 for populations — the motivating case (a stand correct in every data
+        # probe that draws nothing). Terrain/spline render-walk is the next increment.
+        if verb == "foliage" and focus:
             lines.append(rendermod.population_line(focus))
     elif verb in STATUS_ONLY:
         fd = validatemod.feel_delta(focus)
@@ -300,8 +314,8 @@ def _pie_census(p):
     resolve at runtime render Play as an unlit void while every editor-side read says fine.
     Two-step because begin_play is asynchronous:
       call 1 (editor): snapshot the always-loaded expectation, request Play, return.
-      call 2 (in PIE — exempt from the B8 guard): census the GAME world per class, diff
-              against the snapshot, END Play, and name who is missing."""
+      call 2 (in PIE — `play` is exempt from the B8 guard): census the GAME world per
+              class, diff against the snapshot, END Play, and name who is missing."""
     les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
     if not les.is_in_play_in_editor():
         expect = {}
@@ -322,13 +336,13 @@ def _pie_census(p):
         les.editor_request_begin_play()
         return {"pie": "starting",
                 "expected_always_loaded": {k: len(v) for k, v in expect.items()},
-                "note": "PIE spin-up is asynchronous — call scene op=pie_census again in "
+                "note": "PIE spin-up is asynchronous — call play op=census again in "
                         "~2 s; that call censuses the game world and ends Play"}
     snap = getattr(_state, "pie_census_expect", None)
     if snap is None:
         les.editor_request_end_play()
-        return {"error": "no census snapshot — Play was started outside pie_census. "
-                         "Play is being stopped; re-issue scene op=pie_census."}
+        return {"error": "no census snapshot — Play was started outside the census. "
+                         "Play is being stopped; re-issue play op=census."}
     gw = None
     for getter in ("get_game_world",):
         try:
@@ -372,22 +386,19 @@ def _pie_census(p):
     return out
 
 
-def _v_scene(p):
-    """Actor tree grouped by type, counts, level name. Scoped to ueb-spawned actors by
-    default (gaps.md G7); pass include_all:true to see the whole level. Untracked count
-    is always reported so the engine scaffolding is acknowledged, not hidden.
-
-    op="streaming" (SPEC-03 link 1): the WorldPartition residency picture — partition status,
-    data layers + effective runtime state, per-actor is_spatially_loaded/grid.
-    op="reconcile" (SPEC-03, closes G16): diff the ueb registry against the editor's own
+def _v_outliner(p):
+    """The Outliner panel as a verb (SPEC-05: `scene` dissolved — its ops were four
+    different UE surfaces sharing a non-UE word).
+    op="census" (default): actor tree grouped by type, counts, level name. Scoped to
+      ueb-spawned actors by default (gaps.md G7); include_all:true for the whole level.
+      Untracked count is always reported so engine scaffolding is acknowledged, not hidden.
+    op="reconcile" (SPEC-03, closes G16): diff the ueb registries against the editor's own
     tally — clean/dirty/orphaned with attribution; GCs orphaned registry entries."""
-    op = p.get("op")
-    if op == "streaming":
-        return rendermod.streaming_report()
+    op = p.get("op", "census")
     if op == "reconcile":
         return validatemod.reconcile(gc=p.get("gc", True))
-    if op == "pie_census":
-        return _pie_census(p)
+    if op != "census":
+        return {"error": f"unknown outliner op '{op}'. known: census|reconcile"}
     include_all = p.get("include_all", False)
     pool = _ue.all_actors() if include_all else _ue.ueb_actors()
     groups = {}
@@ -407,13 +418,48 @@ def _v_scene(p):
     # reading `scene` learns which ground its traces will answer to.
     proxies = _ue.engine_landscape_actors()
     if proxies:
-        authored = any(_ue.find_by_label(l) is not None for l in _state.landscapes)
+        authored = any(_ue.find_by_label(l) is not None for l in _state.terrains)
         out["engine_ground"] = (
             f"{len(proxies)} engine Landscape actor(s) form a template ground plane at z≈0"
             + ("; ground traces IGNORE it while your ueb terrain exists" if authored
                else "; with no ueb terrain it IS the ground every trace answers")
-            + ("; currently HIDDEN (G37)" if landscape.template_hidden() else ""))
+            + ("; currently HIDDEN (G37)" if terrainmod.template_hidden() else ""))
     return out
+
+
+def _v_level(p):
+    """Level / World Settings / World Partition (SPEC-05; SPEC-04 lifecycle lands here).
+    op="streaming" (SPEC-03 link 1): the WorldPartition residency picture — partition
+      status, data layers + effective runtime state, per-actor is_spatially_loaded/grid."""
+    op = p.get("op", "streaming")
+    if op == "streaming":
+        return rendermod.streaming_report()
+    return {"error": f"unknown level op '{op}'. known: streaming "
+                     "(new/save/load/list land with SPEC-04)"}
+
+
+def _v_play(p):
+    """Play In Editor (SPEC-05). Owns PIE — exempt from the B8 guard.
+    op="census" (default; was scene pie_census, G36): two-step GAME-truth census — first
+      call snapshots + starts Play; call again ~2 s later to census the game world, end
+      Play, and diff. op="start" / op="stop": plain PIE control (B8 doctrine lives here)."""
+    op = p.get("op", "census")
+    les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
+    if op == "census":
+        return _pie_census(p)
+    if op == "start":
+        if les.is_in_play_in_editor():
+            return {"error": "already in Play (play op=stop to end it)"}
+        les.editor_request_begin_play()
+        return {"pie": "starting", "note": "editor verbs refuse during Play (B8) — "
+                                           "play op=stop ends it"}
+    if op == "stop":
+        if not les.is_in_play_in_editor():
+            return {"error": "not in Play"}
+        les.editor_request_end_play()
+        _state.pie_census_expect = None
+        return {"pie": "stopping"}
+    return {"error": f"unknown play op '{op}'. known: census|start|stop"}
 
 
 def _ground_flag(place):
@@ -431,13 +477,13 @@ def _ground_flag(place):
 
 
 def _facing_yaw(place, facing):
-    """Compass yaw (deg) that points the actor's +X toward a path. `facing` is a path label;
-    the object faces the path point at the along-fraction it was placed at (or the midpoint),
-    from its offset side — "cabin_2 facing the path" reads as looking at the road."""
+    """Compass yaw (deg) that points the actor's +X toward a spline. `facing` is a spline
+    label; the object faces the spline point at the along-fraction it was placed at (or the
+    midpoint), from its offset side — "cabin_2 facing the trail" reads as looking at the road."""
     import math
     spec = place.get("along") or {}
     frac = spec.get("fraction", 0.5)
-    pt, tan = pathmod.point_and_tangent(facing, frac)
+    pt, tan = splinemod.point_and_tangent(facing, frac)
     off = spec.get("offset", spec.get("offset_cm", 0.0))
     side = spec.get("side", "left")
     perp = (-tan[1], tan[0]) if side == "left" else (tan[1], -tan[0])
@@ -575,8 +621,8 @@ def _add_asset(p, label, place, snap, yaw, facing=None):
     if path is None:
         if not candidates:
             return {"error": f"no asset matches '{query}'"}
-        return {"error": f"'{query}' is ambiguous — pick one or use scatter for random "
-                         "variants", "candidates": candidates[:20],
+        return {"error": f"'{query}' is ambiguous — pick one or use foliage op=paint for "
+                         "random variants", "candidates": candidates[:20],
                 "candidate_count": len(candidates)}
 
     is_bp = unreal.EditorAssetLibrary.load_blueprint_class(path) is not None
@@ -616,39 +662,43 @@ def _add_asset(p, label, place, snap, yaw, facing=None):
 
 
 def _v_transform(p):
-    """action: nudge | resize | rotate. target: label. See docstrings per action."""
-    action = p.get("action", "nudge")
+    """op: move (was nudge — UE's word is Move) | resize | rotate. target: label."""
+    op = p.get("op", "move")
     target = p.get("target")
     actor = _ue.find_by_label(target) if target else None
     if actor is None:
         return {"error": f"no actor labelled '{target}'"}
     with _Txn("transform") as txn:
-        if action == "nudge":
+        if op == "move":
             d = p.get("by", [0, 0, 0])  # cm, world axes
             loc = actor.get_actor_location()
             actor.set_actor_location(
                 unreal.Vector(loc.x + d[0], loc.y + d[1], loc.z + d[2]), False, False)
-        elif action == "resize":
+        elif op == "resize":
             _ue.set_scale_for_dims(actor, p.get("dims"))
-        elif action == "rotate":
+        elif op == "rotate":
             r = p.get("to", [0, 0, 0])  # [yaw, pitch, roll] deg (UE Rotator convention)
             # Rotator positional order is (roll, pitch, yaw) — use kwargs (bugs.md B1).
             actor.set_actor_rotation(
                 unreal.Rotator(yaw=r[0], pitch=r[1], roll=r[2]), False)
         else:
-            return {"error": f"unknown transform action '{action}'"}
+            return {"error": f"unknown transform op '{op}'. known: move|resize|rotate"}
         _ue.actor_subsystem().set_selected_level_actors([actor])
-    op_id = _state.log_op(txn.op_id, "transform", f"{action} {target}",
+    op_id = _state.log_op(txn.op_id, "transform", f"{op} {target}",
                           f"ueb transform {target}")
-    return {"transformed": target, "action": action, "op": op_id}
+    return {"transformed": target, "op_kind": op, "op": op_id}
 
 
 def _v_select(p):
-    """Select actors by label or clear. params: labels:[...] | clear:true."""
+    """op=set (labels:[...]) | clear. (op=user — read the USER's live selection — lands
+    with SPEC-06 deixis.)"""
     eas = _ue.actor_subsystem()
-    if p.get("clear"):
+    op = p.get("op", "set")
+    if op == "clear":
         eas.set_selected_level_actors([])
         return {"selected": []}
+    if op != "set":
+        return {"error": f"unknown select op '{op}'. known: set|clear"}
     labels = p.get("labels", [])
     actors = [a for a in (_ue.find_by_label(l) for l in labels) if a]
     eas.set_selected_level_actors(actors)
@@ -678,20 +728,25 @@ def _v_asset(p):
     return asset.handle(p)
 
 
-def _v_landscape(p):
-    """Terrain as a heightfield — create | shape | flatten | describe. Spatial verb: gets a
-    status block, not undoable via history (see landscape.py / G12)."""
-    return landscape.handle(p)
+def _v_terrain(p):
+    """Terrain as a heightfield — create | shape | flatten | carve | describe | remove.
+    Spatial verb: status block, not undoable via history (see terrain.py / G12)."""
+    return terrainmod.handle(p)
 
 
-def _v_path(p):
-    """Splines as intent — create | carve | describe | remove. Spatial verb. See path.py."""
-    return pathmod.handle(p)
+def _v_spline(p):
+    """Routes as intent — create | surface | describe | remove. Spatial verb. See spline.py."""
+    return splinemod.handle(p)
 
 
-def _v_scatter(p):
-    """Populations — create | describe | regenerate | remove. Spatial verb. See scatter.py."""
-    return scattermod.handle(p)
+def _v_foliage(p):
+    """Populations — paint | describe | reseed | remove. Spatial verb. See foliage.py."""
+    return foliagemod.handle(p)
+
+
+def _v_material(p):
+    """Material Instance authoring — instance. Asset-side (no status block). See material.py."""
+    return materialmod.handle(p)
 
 
 def _v_validate(p):
@@ -741,15 +796,18 @@ def _v_history(p):
 
 
 _VERBS = {
-    "scene": _v_scene,
     "add": _v_add,
     "transform": _v_transform,
     "select": _v_select,
     "feel": _v_feel,
     "history": _v_history,
     "asset": _v_asset,
-    "landscape": _v_landscape,
-    "path": _v_path,
-    "scatter": _v_scatter,
+    "material": _v_material,
+    "foliage": _v_foliage,
+    "terrain": _v_terrain,
+    "spline": _v_spline,
+    "outliner": _v_outliner,
+    "level": _v_level,
+    "play": _v_play,
     "validate": _v_validate,
 }

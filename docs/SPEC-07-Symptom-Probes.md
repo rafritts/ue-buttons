@@ -23,8 +23,8 @@ Design consequences:
   one level richer. Folder names / naming conventions are noise (the G40 pine ships in a
   folder literally named `Foliage/`).
 - **Three firing points, same rule:** (1) author-time gate in the mutating verbs
-  (`scatter`/`add` refuse-or-warn BEFORE planting — primary defense: the G40 pines were
-  planted by OUR OWN scatter verb, so the gate covers the real workflow), (2) level-wide
+  (`foliage op=paint`/`add` refuse-or-warn BEFORE planting — primary defense: the G40 pines
+  were planted by OUR OWN paint op, so the gate covers the real workflow), (2) level-wide
   census on the status block (safety net for defects introduced outside the verb surface),
   (3) on-demand sweep (SPEC-08). A probe, a lint rule, and an author-time warning are the
   same row evaluated at different moments.

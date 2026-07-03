@@ -27,19 +27,20 @@ from . import _state          # NEVER reloaded — holds history + label state (
 from . import _ue
 from . import relational
 from . import asset
+from . import material
+from . import heightfield
 from . import terrain
-from . import landscape
 from . import map_ref
-from . import path
-from . import scatter
+from . import spline
+from . import foliage
 from . import render
 from . import validate
 from . import verbs
 
 # Reload order matters: dependencies before dependents, and _state is absent by design.
 # render before validate/verbs — both consume its source-filter predicate (SPEC-03).
-_RELOADABLE = [_ue, relational, asset, terrain, landscape, map_ref, path, scatter,
-               render, validate, verbs]
+_RELOADABLE = [_ue, relational, asset, material, heightfield, terrain, map_ref, spline,
+               foliage, render, validate, verbs]
 
 SENTINEL = "UEB>>>"
 

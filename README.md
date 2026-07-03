@@ -101,9 +101,10 @@ scripts/sync-runtime.sh deploy runtime/ → <project>/Content/Python/ (repo = so
 gaps.md / bugs.md       friction + defect worklists (fix → live-verify → clear)
 ```
 
-Verbs: `scene`, `add`, `transform`, `select`, `feel`, `view`, `history`. Every mutating
-verb appends the auto-status block and runs inside a `ueb:<id>` transaction kept 1:1 with
-the editor undo stack. **Exit test passes**: an agent builds a table (top + 4 legs at
+Verbs (M1 names — see the SPEC-05 cutover below for today's roster): `scene`, `add`,
+`transform`, `select`, `feel`, `view`, `history`. Every mutating verb appends the
+auto-status block and runs inside a `ueb:<id>` transaction kept 1:1 with the editor undo
+stack. **Exit test passes**: an agent builds a table (top + 4 legs at
 corners) via relational placement only, confirms with `feel`, and `undo_to` tears it down
 cleanly. Open items live in `gaps.md`.
 
@@ -126,23 +127,24 @@ modules:
 ```
 asset.py       perception over Content — packs/inventory/describe/find/whats_new. Families
                + variants, dims/pivot/tris/Nanite; lazy disk-cached measurement (G9).
-terrain.py     pure-Python heightfield engine (no numpy) — the one height_at() that backs
-               the mesh and describe sampling; + region math for flatten/scatter.
-landscape.py   terrain as a GeometryScript DynamicMesh (G12: Landscape API unscriptable) —
-               create/shape/flatten/describe/remove; complex collision so traces conform;
-               material= assignment (G25).
+heightfield.py pure-Python heightfield engine (no numpy) — the one height_at() that backs
+               the mesh and describe sampling; + region math for flatten/paint.
+terrain.py     terrain as a GeometryScript DynamicMesh (G12: Landscape API unscriptable) —
+               create/shape/flatten/carve/describe/remove; complex collision so traces
+               conform; material= assignment (G25).
 map_ref.py     map-position resolver — polar {from,bearing,distance} + absolute [x,y].
-path.py        splines as Catmull-Rom over waypoints (G13) — create/carve/surface/describe/
-               remove; route walking; drape/carve; a draped material ribbon (`surface`)
-               that makes the path visible; along=/facing= placement terms.
-scatter.py     instanced-foliage populations — create/describe/regenerate/remove; seeded
-               jittered-grid sampling, per-point ground trace + slope, auto-clears paths &
-               buildings. Instances go through the editor foliage subsystem so they render
-               (G14: a hand-built HISM has no render proxy from script).
+spline.py      routes as Catmull-Rom over waypoints (G13) — create/surface/describe/
+               remove; route walking; drape; a draped material ribbon (`surface`)
+               that makes the route visible; along=/facing= placement terms.
+foliage.py     instanced-foliage populations — paint/describe/reseed/remove; seeded
+               jittered-grid sampling, per-point ground trace + slope, auto-clears splines
+               & buildings. Instances go through the editor foliage subsystem so they
+               render (G14: a hand-built HISM has no render proxy from script).
+material.py    MaterialInstanceConstant authoring — op=instance, read-back verified.
 ```
 
-Verbs added: `asset`, `landscape`, `path`, `scatter`; `add(asset=, yaw=, facing=, place.along/
-ground)`. Spatial verbs carry an honest `undoable: false` (DynamicMesh/
+Verbs added (SPEC-01 names, since renamed): `asset`, `landscape`, `path`, `scatter`;
+`add(asset=, yaw=, facing=, place.along/ground)`. Spatial verbs carry an honest `undoable: false` (DynamicMesh/
 HISM edits don't sit in the transaction stack). **Exit test (the hamlet) passes end-to-end
 through the verbs**: a 200 m valley-edge terrain (rocky ridge, gentle floor, noise), a
 5-waypoint winding lane carved to grade, three cabins placed along+facing it on flattened
@@ -153,6 +155,22 @@ nearest tree 990 cm vs a 575 cm clearance). The 3D "does it read as a place?" ju
 PIE walk are the user's step, from their own screen — the agent verifies in numbers, never
 pixels (there is no screenshot/render verb; see the vision policy). New friction is in
 `gaps.md` (G9–G13) and `bugs.md` (B2).
+
+## SPEC-05 — verb alignment cut over (2026-07-03)
+
+The whole surface was renamed onto UE's own vocabulary in one hard cut (no shims; see
+`docs/SPEC-05-Verb-Alignment.md` for the law and `docs/vision.md` for the why). Current
+roster — 14 verbs, `op=` the one discriminator everywhere:
+
+| verb | drives | note |
+|---|---|---|
+| `add` `select` `transform` `asset` `history` | Place Actors / selection / gizmos / Content Browser / Undo History | `transform op=move` (was nudge) |
+| `material` | Material Instance editor | `op=instance` (from asset) |
+| `foliage` | Foliage mode (was `scatter`) | `op=paint/describe/reseed/remove` |
+| `terrain` | MACRO ≈ Landscape (was `landscape`) | + `op=carve along=<spline>` (from path) |
+| `spline` | SplineComponent (was `path`) | curve + surface strip; carve moved out |
+| `outliner` `level` `play` | the three surfaces `scene` conflated | census/reconcile · streaming · census/start/stop |
+| `feel` `validate` | agent-only senses | unchanged |
 
 ## Next design step
 

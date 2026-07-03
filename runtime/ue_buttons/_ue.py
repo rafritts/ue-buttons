@@ -207,7 +207,7 @@ def engine_landscape_actors():
 
 def _engine_grounds_memo(refresh=False):
     """Per-level memo of the engine ground actors (a full-actor scan per trace would tax
-    scatter's ~50k traces). HLOD actors stream in/out, so callers refresh when a hit actor
+    a paint's ~50k traces). HLOD actors stream in/out, so callers refresh when a hit actor
     isn't covered; the level guard clears it on level change."""
     from . import _state
     lvl = level_name()
@@ -221,18 +221,18 @@ def _engine_grounds_memo(refresh=False):
 
 def _authored_terrain_exists():
     from . import _state
-    from . import landscape
-    landscape._hydrate()
-    return any(find_by_label(l) is not None for l in _state.landscapes)
+    from . import terrain
+    terrain._hydrate()
+    return any(find_by_label(l) is not None for l in _state.terrains)
 
 
 def substrate_labels():
-    """Every label that is a SUBSTRATE, not a placed actor: terrains, scatter stands, path
-    labels, and path surface strips. Shared by validate's neighbor pool, scatter's
+    """Every label that is a SUBSTRATE, not a placed actor: terrains, foliage stands, spline
+    labels, and spline surface strips. Shared by validate's neighbor pool, foliage's
     clearance builder, and the map's marker filter — one definition, no drift."""
     from . import _state
-    subs = set(_state.landscapes) | set(_state.scatters) | set(_state.paths)
-    for pd in _state.paths.values():
+    subs = set(_state.terrains) | set(_state.foliage_stands) | set(_state.splines)
+    for pd in _state.splines.values():
         sa = pd.get("surface_actor")
         if sa:
             subs.add(sa)

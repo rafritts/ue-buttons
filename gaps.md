@@ -43,7 +43,7 @@ Tool to build (the "would have highlighted it immediately" answer):
    kind, surface the bad combo as a forced warning, e.g.
    `⚠ motion: 549/4794 foliage instances FLOAT rigidly — MM_Tree_Trunk WPO is
    pivot-anchored and breaks under instancing (G40)`.
-3. Same check fired at author time by `scatter`/foliage paint paths (extends the G39
+3. Same check fired at author time by `foliage op=paint`/`add` (extends the G39
    author-time announcement, which today would only say "MOVES", not "moves WRONG").
 
 ### G41 — native-linter wrapping hazards: `MAP CHECK` over RC crashes the editor; Data Validation is silent on real defects
@@ -74,7 +74,7 @@ can't chunk (the next dispatch would stall behind it on the game thread anyway);
 the async job + progress pattern when a new concrete offender appears to shape it,
 not speculatively.)
 
-B6's fixes hold: `path carve` batches its flatten features into ONE mesh rebuild (38-disc
+B6's fixes hold: `terrain op=carve` batches its flatten features into ONE mesh rebuild (38-disc
 carve round-trips in <0.5 s, was ~30 s dark), and `asset inventory measure=True` bounds each
 batch by wall-clock (`seconds=`, default 20 s) as well as count. But the wall-clock check
 runs BETWEEN mesh loads — a single cold Nanite mesh whose first load takes >60 s would still

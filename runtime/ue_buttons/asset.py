@@ -78,7 +78,7 @@ def _game_roots():
 
 
 # ── family inference ─────────────────────────────────────────────────────────────
-# Families are what an agent plans with ("place a Pine_Tree"); variants are what scatter
+# Families are what an agent plans with ("place a Pine_Tree"); variants are what paint
 # randomises over (Pine_Tree_01..05). Strip trailing variant numbers and metric size
 # suffixes so SM_Pine_Tree_01 and Wall_Window_2_4m collapse onto their family stems.
 _SIZE_SUFFIX = re.compile(r"_\d+(?:_\d+)?m$", re.IGNORECASE)   # _4m, _2_4m, _8m
@@ -184,15 +184,17 @@ def _reg_facts(ad):
 # ── actions ──────────────────────────────────────────────────────────────────────
 def handle(p):
     _hydrate_cache()
-    action = p.get("action", "packs")
+    op = p.get("op", "packs")
     fn = {
         "packs": _a_packs, "inventory": _a_inventory, "describe": _a_describe,
         "find": _a_find, "whats_new": _a_whats_new,
-        "instance_material": _a_instance_material,
-    }.get(action)
+    }.get(op)
     if fn is None:
-        return {"error": f"unknown asset action '{action}'. known: "
-                         "packs|inventory|describe|find|whats_new|instance_material"}
+        if op == "instance_material":
+            return {"error": "material authoring moved to its own verb — use "
+                             "material op=instance parent=… name=…"}
+        return {"error": f"unknown asset op '{op}'. known: "
+                         "packs|inventory|describe|find|whats_new"}
     return fn(p)
 
 
@@ -228,7 +230,7 @@ def _a_inventory(p):
       - family="Pine_Tree": full per-variant detail for one family, measuring just those.
       - measure=true, budget=N: warm the dims cache in bounded batches (default 60/call),
         returning {measured, remaining, complete} so it never blocks the bridge (G9).
-    Skeletal meshes are counted but excluded (HISM scatter is static-mesh only)."""
+    Skeletal meshes are counted but excluded (foliage painting is static-mesh only)."""
     pack = p.get("pack")
     if not pack:
         return {"error": "inventory requires pack= (a /Game root name or full path)"}
@@ -333,7 +335,7 @@ def _a_inventory(p):
             entry["sparse_spire"] = (
                 "likely bare spire/snag, NOT a fuller tree (the aspect tell peaks ≳3): "
                 + "; ".join(spires)
-                + " — verify solo before weighting a scatter toward these (G38)")
+                + " — verify solo before weighting a stand toward these (G38)")
         if only_family:                 # drill mode carries full per-variant detail
             entry["detail"] = vs
         grouped[fam] = entry
@@ -353,7 +355,7 @@ def _resolve_asset_path(query, classes=None):
     """Turn an inventory short name (or family+variant) or full path into a concrete
     asset path. Returns (path, candidates): path set on a unique hit, else candidates
     lists the ambiguous matches for the caller to disambiguate. `classes` narrows the
-    search (default: meshes + blueprints; landscape/path pass material classes — G25)."""
+    search (default: meshes + blueprints; terrain/spline pass material classes — G25)."""
     if query.startswith("/Game"):
         return query, []
     # Exact name wins over fuzzy — but the same name can belong to BOTH a StaticMesh and a
@@ -543,7 +545,7 @@ def _mesh_motion(mesh):
 
 
 def motion_notes(mesh_paths):
-    """Author-time WPO notice for meshes about to be scattered/added (G39): a population
+    """Author-time WPO notice for meshes about to be painted/added (G39): a population
     that will MOVE is announced when it is authored, not discovered in PIE. Masked wind
     is named as safe; unmasked/suspected displacement is a loud per-mesh warning."""
     moving, masked = {}, 0
@@ -562,85 +564,6 @@ def motion_notes(mesh_paths):
         notes.append(f"{masked} mesh(es) carry vertex-masked wind (Wind Weight) — base "
                      "anchored, leaves sway; the safe kind")
     return notes
-
-
-def _a_instance_material(p):
-    """G32(c): author a MaterialInstanceConstant of a master with texture/scalar params —
-    on-surface material authoring without raw editor Python. Param names are validated
-    against the master BEFORE the asset is created, and every set is verified by READ-BACK
-    (5.8's MaterialEditingLibrary setters return False even on success)."""
-    parent_q, name = p.get("parent"), p.get("name")
-    if not parent_q or not name:
-        return {"error": "instance_material requires parent= (a master material) and "
-                         "name= (the new instance's asset name)"}
-    ppath, cands = _resolve_asset_path(parent_q,
-                                       classes=["Material", "MaterialInstanceConstant"])
-    if ppath is None:
-        if not cands:
-            return {"error": f"no material matches '{parent_q}'"}
-        return {"error": f"material '{parent_q}' is ambiguous", "candidates": cands[:10]}
-    parent = _ue.load_asset(ppath)
-    if parent is None:
-        return {"error": f"could not load '{ppath}'"}
-    mel = unreal.MaterialEditingLibrary
-    base = parent.get_base_material()
-    known = {"texture": [str(n) for n in mel.get_texture_parameter_names(base)],
-             "scalar": [str(n) for n in mel.get_scalar_parameter_names(base)]}
-    textures = p.get("textures") or {}
-    scalars = p.get("scalars") or {}
-    bad = ([k for k in textures if k not in known["texture"]]
-           + [k for k in scalars if k not in known["scalar"]])
-    if bad:
-        return {"error": f"parameter(s) {bad} don't exist on master "
-                         f"'{base.get_name()}' — a wrong name silently no-ops",
-                "available": known}
-    tex_assets = {}
-    for k, tq in textures.items():
-        tpath, tc = _resolve_asset_path(tq, classes=["Texture2D"])
-        if tpath is None:
-            if not tc:
-                return {"error": f"no texture matches '{tq}'"}
-            return {"error": f"texture '{tq}' is ambiguous", "candidates": tc[:10]}
-        t = _ue.load_asset(tpath)
-        if t is None:
-            return {"error": f"could not load texture '{tpath}'"}
-        tex_assets[k] = t
-    folder = (p.get("folder") or "/Game/UEB_Materials").rstrip("/")
-    full = f"{folder}/{name}"
-    if _ue.load_asset(full) is not None:
-        return {"error": f"'{full}' already exists — pick a new name"}
-    at = unreal.AssetToolsHelpers.get_asset_tools()
-    mi = at.create_asset(name, folder, unreal.MaterialInstanceConstant,
-                         unreal.MaterialInstanceConstantFactoryNew())
-    if mi is None:
-        return {"error": f"asset creation failed for {full}"}
-    mel.set_material_instance_parent(mi, parent)
-    for k, t in tex_assets.items():
-        mel.set_material_instance_texture_parameter_value(mi, k, t)
-    for k, v in scalars.items():
-        mel.set_material_instance_scalar_parameter_value(mi, k, float(v))
-    unreal.EditorAssetLibrary.save_asset(full)
-    # read back — the setters' return values lie in 5.8; the stored values don't
-    applied_tex = {}
-    for tp in mi.get_editor_property("texture_parameter_values"):
-        pn = str(tp.get_editor_property("parameter_info").get_editor_property("name"))
-        pv = tp.get_editor_property("parameter_value")
-        applied_tex[pn] = pv.get_name() if pv else None
-    applied_sca = {}
-    for sp in mi.get_editor_property("scalar_parameter_values"):
-        pn = str(sp.get_editor_property("parameter_info").get_editor_property("name"))
-        applied_sca[pn] = sp.get_editor_property("parameter_value")
-    missing = ([k for k in tex_assets if applied_tex.get(k) != tex_assets[k].get_name()]
-               + [k for k in scalars if k not in applied_sca])
-    out = {"created": full, "parent": ppath,
-           "applied": {"textures": applied_tex, "scalars": applied_sca}}
-    if missing:
-        out["warning"] = f"read-back missing/mismatched: {missing} — the set did NOT take"
-    vet = _describe_material(full, {"asset": name, "path": full,
-                                    "class": "MaterialInstanceConstant"})
-    if vet.get("warnings"):
-        out["warnings"] = vet["warnings"]
-    return out
 
 
 def _a_find(p):

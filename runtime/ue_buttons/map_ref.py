@@ -4,11 +4,11 @@ Two forms resolve to the same internal point:
   * polar (preferred): {"from": <anchor>, "bearing": <deg>, "distance": <cm>} — how humans
     give directions; keeps the agent relating to things it placed.
   * absolute: [x, y] in map cm — legal, but expected to be READ off a source (an actor centre
-    from feel/scene, a path describe waypoint, a landscape bound), not invented.
+    from feel/outliner, a spline describe waypoint, a terrain bound), not invented.
 
 Compass: north = +X, east = +Y, bearing measured clockwise from north — numerically identical
-to UE yaw. Anchors: "center" (map origin), an actor label, a named terrain, ("path", fraction)
-a point along a path, or raw [x, y]. All arithmetic happens here so the model never dead-reckons.
+to UE yaw. Anchors: "center" (map origin), an actor label, a named terrain, ("spline", fraction)
+a point along a spline, or raw [x, y]. All arithmetic happens here so the model never dead-reckons.
 """
 import math
 
@@ -36,7 +36,7 @@ def _anchor(a):
     if a is None or a == "center":
         return [0.0, 0.0]
     if isinstance(a, (list, tuple)):
-        # ("path_label", fraction) → a point along a path
+        # ("spline_label", fraction) → a point along a spline
         if len(a) == 2 and isinstance(a[0], str):
             return _path_point(a[0], a[1])
         return [float(a[0]), float(a[1])]                            # raw-coord anchor
@@ -45,7 +45,7 @@ def _anchor(a):
         if act is not None:
             c = _ue.bounds(act)["center"]
             return [c[0], c[1]]
-        meta = _state.landscapes.get(a)
+        meta = _state.terrains.get(a)
         if meta is not None:
             return [meta["origin"][0], meta["origin"][1]]
         raise ValueError(f"unknown anchor '{a}' (not an actor, terrain, or 'center')")
@@ -53,6 +53,6 @@ def _anchor(a):
 
 
 def _path_point(label, fraction):
-    from . import path as _path
-    pt, _tan = _path.point_and_tangent(label, fraction)
+    from . import spline as _spline
+    pt, _tan = _spline.point_and_tangent(label, fraction)
     return [pt[0], pt[1]]

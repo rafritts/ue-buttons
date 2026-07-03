@@ -24,8 +24,8 @@ discipline: a floor is never silent about its own blind spots):
             so residency is reported only as the coarse actor `is_spatially_loaded` hint.
   • link 2  Registered (has a scene proxy — the G14 HISM lesson) — no Python binding
             (`is_registered` / `is_render_state_created` are absent on PrimitiveComponent).
-            The scatter path already FORCES registration by routing through the foliage
-            subsystem (scatter.py G14); `was_recently_rendered` exists but is unreliable in
+            The paint op already FORCES registration by routing through the foliage
+            subsystem (foliage.py G14); `was_recently_rendered` exists but is unreliable in
             a non-focused editor viewport, so registration is not gated here yet.
   • link 8  On-screen size + the camera family (framing / occlusion / visible-surface) —
             `GameplayStatics.project_world_to_screen` is present; this is the next
@@ -266,10 +266,10 @@ def render_line(labels):
 
 def render_state(target):
     """The on-demand deep-dive behind the one-line summary — `feel op=render_state
-    target=…`. Walks the full chain for one actor (or scatter population) and returns the
+    target=…`. Walks the full chain for one actor (or foliage stand) and returns the
     per-link verdict + the fix. As `feel` is the detail behind the spatial line, this is
     the detail behind the render line."""
-    if target in _state.scatters:
+    if target in _state.foliage_stands:
         return population_state(target)
     a = _ue.find_by_label(target)
     if a is None:
@@ -288,17 +288,17 @@ def render_state(target):
             "verdict": "DRAWS" if w["draws"] else f"WILL NOT DRAW — {w['first_break'][0]}"}
 
 
-# ── scatter populations (the motivating case: 6,236 reported, nothing drew) ─────
+# ── foliage stands (the motivating case: 6,236 reported, nothing drew) ─────
 
 def population_state(label):
-    """Walk a scatter population's foliage: total instances and whether their components
+    """Walk a foliage stand: total instances and whether their components
     are visible. This is the exact blindness that made the spec — a population correct in
-    every data probe that draws nothing. Registration is guaranteed by scatter's foliage
+    every data probe that draws nothing. Registration is guaranteed by paint's foliage
     path (G14), so the catchable failures here are 0-instances and hidden components."""
-    from . import scatter as scattermod
-    tag = scattermod._SCATTER_TAG + label
+    from . import foliage as foliagemod
+    tag = foliagemod._FOLIAGE_TAG + label
     total, comps, hidden = 0, 0, 0
-    for c in scattermod._ifa_fismcs():
+    for c in foliagemod._ifa_fismcs():
         if tag not in [str(t) for t in c.get_editor_property("component_tags")]:
             continue
         comps += 1
@@ -308,7 +308,7 @@ def population_state(label):
     if comps == 0:
         return {"target": label, "kind": "population", "draws": False, "instances": 0,
                 "components": 0, "verdict": "WILL NOT DRAW — no registered foliage components "
-                "(nothing was committed) → regenerate"}
+                "(nothing was committed) → foliage op=reseed"}
     draws = total > 0 and hidden < comps
     verdict = "DRAWS" if draws else (
         "WILL NOT DRAW — 0 instances placed → widen region/relax rules" if total == 0
@@ -318,7 +318,7 @@ def population_state(label):
 
 
 def population_line(label):
-    """The Sense-3 line for a scatter edit: the population walked as it was committed."""
+    """The Sense-3 line for a foliage edit: the stand walked as it was committed."""
     if not RENDER_FLOOR:
         return "render: OFF — floor is down"
     st = population_state(label)

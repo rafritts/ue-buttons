@@ -1,4 +1,9 @@
-"""`scatter` — populations, not actors (SPEC-01 E5).
+"""`foliage` — populations, not actors (SPEC-01 E5; SPEC-05 rename of `scatter`).
+
+NATIVE: wraps UE's Foliage system — the editor's Foliage mode, `InstancedFoliageActor`,
+minted `FoliageType` assets. `op=paint` is UE's own tool name for exactly this act.
+(Cousin: PCG is 5.x's modern procedural scatter, but its 5.8 Python surface is thin where
+Foliage's is proven — revisit against the build, not memory: SPEC-05 R2.)
 
 A forest is a population with rules, not thousands of placement decisions. The agent declares
 the rules; a seeded PRNG makes it reproducible; clearances protect the intent already placed.
@@ -11,11 +16,11 @@ because editor Python can't register a hand-constructed component with the rende
 `register_component`). The fix routes instances through the editor's own foliage subsystem:
 `InstancedFoliageActor.add_instances(world, FoliageType, transforms)`. That path creates a
 properly-registered `FoliageInstancedStaticMeshComponent` (real culling, per-mesh materials,
-Nanite) — so the population actually draws. Each scatter gets its own namespaced
+Nanite) — so the population actually draws. Each stand gets its own namespaced
 `FoliageType_InstancedStaticMesh` assets (under `/Game/UEB_Foliage`) so its components are
-distinct; those components are tagged `ueb_scatter:<label>` so `remove`/`regenerate` can clear
+distinct; those components are tagged `ueb_scatter:<label>` so `remove`/`reseed` can clear
 exactly this population and nothing else. Foliage lives in the level's IFA, not a ueb actor,
-so it never pollutes `scene`/`feel` — the "populations, not actors" intent survives the swap.
+so it never pollutes `outliner`/`feel` — the "populations, not actors" intent survives the swap.
 
 No numpy: sampling is a seeded jittered grid in pure Python; ground z + slope come from world
 traces so instances conform to the real terrain. Spatial verb — status block, not history-
@@ -28,19 +33,22 @@ import unreal
 
 from . import _state
 from . import _ue
-from . import terrain as terrain_mod
+from . import heightfield
 from . import asset
 
-_FOLIAGE_DIR = "/Game/UEB_Foliage"     # where per-scatter FoliageType assets live
-_SCATTER_TAG = "ueb_scatter:"          # component-tag prefix: identifies a scatter's foliage
+_FOLIAGE_DIR = "/Game/UEB_Foliage"     # where per-stand FoliageType assets live
+# Component-tag prefix identifying a stand's foliage components. The STRING predates the
+# scatter->foliage rename and is saved into levels — changing it would orphan every
+# existing stand, so the old spelling stays as opaque persisted data (SPEC-05 pragmatism).
+_FOLIAGE_TAG = "ueb_scatter:"
 
 
 def handle(p):
-    fn = {"create": _create, "describe": _describe, "regenerate": _regenerate,
-          "remove": _remove}.get(p.get("action", "create"))
+    fn = {"paint": _paint, "describe": _describe, "reseed": _reseed,
+          "remove": _remove}.get(p.get("op", "paint"))
     if fn is None:
-        return {"error": f"unknown scatter action '{p.get('action')}'. known: "
-                         "create|describe|regenerate|remove"}
+        return {"error": f"unknown foliage op '{p.get('op')}'. known: "
+                         "paint|describe|reseed|remove"}
     return fn(p)
 
 
@@ -94,7 +102,7 @@ def _family_variants(name, pack=None):
 
 # ── clearance predicates ─────────────────────────────────────────────────────────
 def _build_clearances(p):
-    """Assemble reject-tests for a candidate (x,y). Default (SPEC-01): every scatter clears
+    """Assemble reject-tests for a candidate (x,y). Default (SPEC-01): every paint clears
     existing PATHS by width/2 + margin and existing BUILDINGS by footprint + margin, so a
     path reads as going *through* the trees, not carved out afterwards. `clear_of` adds
     explicit path/actor labels and regions."""
@@ -103,21 +111,21 @@ def _build_clearances(p):
     tests = []
 
     # existing paths (auto + explicit) — reject within width/2 + margin of the polyline
-    from . import path as pathmod
+    from . import spline as splinemod
     explicit = rules.get("clear_of", [])
-    path_labels = set(_state.paths.keys())
+    path_labels = set(_state.splines.keys())
     for lbl in explicit:
-        if isinstance(lbl, str) and lbl in _state.paths:
+        if isinstance(lbl, str) and lbl in _state.splines:
             path_labels.add(lbl)
     for lbl in path_labels:
-        pdata = _state.paths[lbl]
-        poly, _cum = pathmod._sample_polyline([[x, y] for x, y, _ in pdata["points"]])
+        pdata = _state.splines[lbl]
+        poly, _cum = splinemod._sample_polyline([[x, y] for x, y, _ in pdata["points"]])
         half = pdata.get("width", 300.0) / 2.0 + margin
         tests.append(("path:" + lbl, _near_polyline_test(poly, half)))
 
     # existing buildings/actors — reject within footprint + margin. Scatter populations are
     # foliage (in the level IFA, not ueb actors), so they never appear here — only real
-    # placed geometry does; substrates are excluded (you scatter ONTO a terrain, and a path
+    # placed geometry does; substrates are excluded (you paint ONTO a terrain, and a spline
     # SURFACE strip's AABB spans the whole route — the polyline test already clears paths).
     subs = _ue.substrate_labels()
     for a in _ue.ueb_actors():
@@ -152,7 +160,7 @@ def _in_box_test(x0, y0, x1, y1):
 
 
 def _in_region_test(region, margin):
-    return lambda x, y: terrain_mod.region_inset(x, y, region) >= -margin
+    return lambda x, y: heightfield.region_inset(x, y, region) >= -margin
 
 
 def _dist_seg(px, py, a, b):
@@ -206,7 +214,7 @@ def _sample_points(region, spacing, rng):
         while x <= x1:
             jx = x + (rng.random() - 0.5) * spacing
             jy = y + (rng.random() - 0.5) * spacing
-            if region.get("kind") == "landscape" or terrain_mod.in_region(jx, jy, region):
+            if region.get("kind") == "terrain" or heightfield.in_region(jx, jy, region):
                 pts.append((jx, jy))
             x += spacing
         y += spacing
@@ -239,7 +247,7 @@ def _clear_tagged(tag):
 
 
 def _foliage_type_for(label, idx, mesh_path):
-    """A per-scatter FoliageType_InstancedStaticMesh asset (namespaced by label+variant) with
+    """A per-stand FoliageType_InstancedStaticMesh asset (namespaced by label+variant) with
     its mesh set. Recreated fresh each build so it never carries stale settings/instances."""
     name = f"FT_{_sanitize(label)}__{idx}"
     full = f"{_FOLIAGE_DIR}/{name}"
@@ -254,7 +262,7 @@ def _foliage_type_for(label, idx, mesh_path):
 
 def _add_tagged(world, ft, transforms, tag):
     """Add instances through the foliage subsystem (which registers the component so it draws)
-    and tag the freshly-created component(s) so `remove` can find exactly this scatter's foliage.
+    and tag the freshly-created component(s) so `remove` can find exactly this stand's foliage.
 
     Diff on `get_path_name()`, NOT `get_name()`: World Partition shards foliage into one
     InstancedFoliageActor per grid cell, and component names restart at _0 inside each IFA — so
@@ -286,7 +294,7 @@ def _canopy_notes(meshes, spacing, jit):
     interpenetration (the 'ultra clipped' 1/10 playtest). Check the requested spacing
     against the widest cached footprint among the scattered variants (at max scale jitter)
     and WARN with the numbers — the fix is derived, not divined. Reads the dims cache only
-    (never forces mesh loads mid-scatter); unmeasured variants are named as a blind spot."""
+    (never forces mesh loads mid-paint); unmeasured variants are named as a blind spot."""
     widest, widest_fam, unmeasured, total = 0.0, None, 0, 0
     for m in meshes:
         for vp in m["variants"]:
@@ -314,20 +322,20 @@ def _canopy_notes(meshes, spacing, jit):
     return notes
 
 
-def _create(p):
-    label = p.get("label", "scatter")
-    tag = _SCATTER_TAG + label
+def _paint(p):
+    label = p.get("label", "foliage")
+    tag = _FOLIAGE_TAG + label
     live = any(tag in [str(t) for t in c.get_editor_property("component_tags")]
                and c.get_instance_count() > 0 for c in _ifa_fismcs())
-    if label in _state.scatters or live:
-        return {"error": f"scatter '{label}' already exists (remove it first)"}
+    if label in _state.foliage_stands or live:
+        return {"error": f"foliage stand '{label}' already exists (remove it first)"}
     region = p.get("region")
     if not region:
-        return {"error": "scatter requires region={kind:circle|rect|polygon|landscape, ...}"}
-    if region.get("kind") == "landscape":
-        meta = _state.landscapes.get(p.get("terrain", "terrain"))
+        return {"error": "paint requires region={kind:circle|rect|polygon|terrain, ...}"}
+    if region.get("kind") == "terrain":
+        meta = _state.terrains.get(p.get("terrain", "terrain"))
         if meta is None:
-            return {"error": "region kind 'landscape' needs a terrain (create one first)"}
+            return {"error": "region kind 'terrain' needs a terrain (create one first)"}
         ox, oy, _ = meta["origin"]; sx, sy = meta["size"]
         region = {"kind": "rect", "at": [ox, oy], "size": [sx, sy]}
     try:
@@ -335,7 +343,7 @@ def _create(p):
     except ValueError as e:
         return {"error": str(e)}
     if not meshes:
-        return {"error": "scatter requires meshes=[family, ...]"}
+        return {"error": "paint requires meshes=[family, ...]"}
 
     seed = int(p.get("seed", 1337))
     rules = p.get("rules") or {}
@@ -402,7 +410,7 @@ def _generate(label, region, meshes, seed, rules, p):
     # Commit the population as registered foliage — one FoliageType asset + one component per
     # variant that actually got instances. This is the step HISM couldn't do: draw (G14).
     world = _ue.editor_world()
-    tag = _SCATTER_TAG + label
+    tag = _FOLIAGE_TAG + label
     _clear_tagged(tag)                                   # drop any orphaned empties for this label
     ft_paths = []
     for idx, vp in enumerate(variant_paths):
@@ -413,7 +421,7 @@ def _generate(label, region, meshes, seed, rules, p):
         ft_paths.append(full)
         _add_tagged(world, ft, tlist, tag)
 
-    _state.scatters[label] = {
+    _state.foliage_stands[label] = {
         "region": region,
         "meshes": [m["family"] for m in meshes],
         "seed": seed, "rules": rules, "count": placed,
@@ -423,13 +431,13 @@ def _generate(label, region, meshes, seed, rules, p):
         "meshes_spec": p.get("meshes", []),
         "foliage_types": ft_paths,
     }
-    out = {"scattered": label, "instances": placed, "species": len(meshes),
-           "per_family": _state.scatters[label]["per_family"],
+    out = {"painted": label, "instances": placed, "species": len(meshes),
+           "per_family": _state.foliage_stands[label]["per_family"],
            "seed": seed, "rejected": rejected, "foliage_types": len(ft_paths),
            "undoable": False,
            "note": "instanced foliage (registered) — renders in the viewport"}
     # G39: a population that will MOVE (WPO wind/displacement) is announced at author
-    # time — a whole-mesh-bobbing understory must never scatter silently again.
+    # time — a whole-mesh-bobbing understory must never paint silently again.
     notes = _canopy_notes(meshes, spacing, jit) + asset.motion_notes(variant_paths)
     if notes:
         out["notes"] = notes
@@ -449,35 +457,35 @@ def _fold_families(per_variant, meshes):
 
 
 def _describe(p):
-    label = p.get("label", "scatter")
-    s = _state.scatters.get(label)
+    label = p.get("label", "foliage")
+    s = _state.foliage_stands.get(label)
     if s is None:
-        return {"error": f"no scatter labelled '{label}'"}
+        return {"error": f"no foliage stand labelled '{label}'"}
     return {"label": label, "instances": s["count"], "region": s["region"],
             "seed": s["seed"], "rules": s["rules"], "per_family": s["per_family"],
             "species": s["meshes"]}
 
 
-def _regenerate(p):
+def _reseed(p):
     """Same rules, new dice — the human's 'reroll that stand' button."""
-    label = p.get("label", "scatter")
-    s = _state.scatters.get(label)
+    label = p.get("label", "foliage")
+    s = _state.foliage_stands.get(label)
     if s is None:
-        return {"error": f"no scatter labelled '{label}'"}
+        return {"error": f"no foliage stand labelled '{label}'"}
     _remove({"label": label})
     newp = {"label": label, "region": s["region"], "meshes": s["meshes_spec"],
             "density_per_100m2": s["density_per_100m2"], "rules": s["rules"],
             "terrain": s["terrain"], "seed": p.get("seed", s["seed"] + 1)}
-    return _create(newp)
+    return _paint(newp)
 
 
 def _remove(p):
     """Clear exactly this scatter's foliage (components tagged ueb_scatter:<label>) and delete
     its FoliageType assets. Works even after a runtime reimport wiped _state — the tag lives on
     the component (saved with the level), so the population is recoverable by tag alone."""
-    label = p.get("label", "scatter")
-    s = _state.scatters.get(label)
-    tag = _SCATTER_TAG + label
+    label = p.get("label", "foliage")
+    s = _state.foliage_stands.get(label)
+    tag = _FOLIAGE_TAG + label
     cleared = _clear_tagged(tag)
     ft_paths = list((s or {}).get("foliage_types", []))
     if not ft_paths and unreal.EditorAssetLibrary.does_directory_exist(_FOLIAGE_DIR):
@@ -491,7 +499,7 @@ def _remove(p):
                 unreal.EditorAssetLibrary.delete_asset(fp)
             except Exception:
                 pass
-    _state.scatters.pop(label, None)
+    _state.foliage_stands.pop(label, None)
     if s is None and cleared == 0:
-        return {"error": f"no scatter labelled '{label}'"}
+        return {"error": f"no foliage stand labelled '{label}'"}
     return {"removed": label, "components_cleared": cleared, "undoable": False}

@@ -83,7 +83,7 @@ def _actor_tags(label):
 
 def _token_matches(token, actor_label):
     """A declaration token matches an actor by exact label OR — so one `expect
-    trees↔ground` covers a whole scatter — by TAG membership when the token names a tag
+    trees↔ground` covers a whole stand — by TAG membership when the token names a tag
     the actor carries (the UE analogue of blender-buttons' collection tokens). The
     reserved token "ground" only ever matches itself (handled by the caller)."""
     if token == actor_label:
@@ -174,10 +174,10 @@ def list_intents():
 # ── geometry helpers over world AABBs ──────────────────────────────────────────
 
 def _substrates():
-    """Labels the actor-floor never validates as actors: terrains, scatter stands, path
-    labels, path surface strips. A terrain IS the ground (the ground check consults it via
-    a trace, not an AABB overlap); a scatter stand's AABB spans its whole region (overlap
-    is meaningless); a path is not an actor and its surface strip is the path made visible.
+    """Labels the actor-floor never validates as actors: terrains, foliage stands, spline
+    labels, spline surface strips. A terrain IS the ground (the ground check consults it via
+    a trace, not an AABB overlap); a foliage stand's AABB spans its whole region (overlap
+    is meaningless); a spline is not an actor and its surface strip is the spline made visible.
     Everything placed ON these is validated normally. One shared definition (_ue)."""
     return _ue.substrate_labels()
 
@@ -237,7 +237,7 @@ def _pen_depth(a_label, b_label):
 def _ground_ignore():
     """Every placed (non-substrate) ueb actor — the trace excludes them all so the ground
     check reads the SUBSTRATE beneath, never a neighbour's roof or the actor's own top
-    (gaps.md G18). Substrates (terrain/scatter/path) stay hittable; the engine's own
+    (gaps.md G18). Substrates (terrain/foliage/spline) stay hittable; the engine's own
     landscape proxies aren't ueb actors, so they answer too."""
     subs = _substrates()
     return [a for a in _ue.ueb_actors() if a.get_actor_label() not in subs]
@@ -507,7 +507,7 @@ def _classify(check, findings, scope):
 
 def _class_hint(check, new):
     """When ≥6 new findings all involve one counterpart it's almost always a settled
-    group (a scatter on one substrate). Offer the ONE class declaration that collapses
+    group (a stand on one substrate). Offer the ONE class declaration that collapses
     them instead of leaving the agent to bless instances one by one (blender-buttons
     G125). For ground the counterpart is "ground"; suggest tagging + a tag token."""
     if len(new) < 6:
@@ -611,10 +611,10 @@ def feel_delta(label):
 
 # ── drift → periodic re-ground (SPEC-02 §4; blender-buttons G117) ──────────────
 # Per-op feedback is the spine; this re-anchors a stale mental model on a long build.
-# Weight by how much an op can invalidate what the agent believes: a landscape reshape or
-# a scatter rearranges everything; a nudge barely anything.
+# Weight by how much an op can invalidate what the agent believes: a terrain reshape or
+# a paint rearranges everything; a move barely anything.
 _DRIFT_THRESHOLD = 100.0
-_DRIFT_HIGH = {"landscape", "scatter", "path"}   # spatial ops move the world under you
+_DRIFT_HIGH = {"terrain", "foliage", "spline"}   # spatial ops move the world under you
 
 
 def accrue_drift(verb):
@@ -641,26 +641,26 @@ def _reground_recap():
 # blender-buttons keeps NO parallel server store — the datablocks ARE the registry
 # (handles.py). ueb can't: WP shards foliage into per-cell components and _state survives a
 # hot-reload (by design), so the registry can outlive the level it describes — the phantom
-# hamlet scatters (G16). reconcile diffs each registry against the editor's OWN tally and
+# hamlet stands (G16). reconcile diffs each registry against the editor's OWN tally and
 # classifies clean / dirty (drifted but resolves, with self|external attribution) / orphaned
 # (backing gone → GC'd, so a level change can't leave a permanent phantom) / untracked
 # (backing in the level with no registry entry — the reverse phantom).
 
 def _foliage_tally(label):
-    """(instances, components) the editor actually holds for a scatter label, by tag."""
-    from . import scatter as scattermod
-    tag = scattermod._SCATTER_TAG + label
-    comps = [c for c in scattermod._ifa_fismcs()
+    """(instances, components) the editor actually holds for a foliage-stand label, by tag."""
+    from . import foliage as foliagemod
+    tag = foliagemod._FOLIAGE_TAG + label
+    comps = [c for c in foliagemod._ifa_fismcs()
              if tag in [str(t) for t in c.get_editor_property("component_tags")]]
     return sum(c.get_instance_count() for c in comps), len(comps)
 
 
-def _editor_scatter_labels():
-    """Every scatter label the editor's foliage tags claim (may exceed the registry)."""
-    from . import scatter as scattermod
-    pref = scattermod._SCATTER_TAG
+def _editor_stand_labels():
+    """Every foliage-stand label the editor's tags claim (may exceed the registry)."""
+    from . import foliage as foliagemod
+    pref = foliagemod._FOLIAGE_TAG
     out = set()
-    for c in scattermod._ifa_fismcs():
+    for c in foliagemod._ifa_fismcs():
         for t in c.get_editor_property("component_tags"):
             s = str(t)
             if s.startswith(pref):
@@ -678,56 +678,56 @@ def _drift_attribution(label):
 
 
 def reconcile(gc=True):
-    """Diff the ueb registries (_state.scatters/landscapes/paths) against the editor's own
+    """Diff the ueb registries (_state.foliage_stands/terrains/splines) against the editor's own
     tally; classify + optionally GC orphans. The mechanical cure for G16 — a self-reported
     count in a vacuum is exactly what let the phantom hamlet persist."""
     report = {"clean": [], "dirty": [], "orphaned": [], "untracked": []}
 
-    for label, meta in list(_state.scatters.items()):
+    for label, meta in list(_state.foliage_stands.items()):
         inst, comps = _foliage_tally(label)
         recorded = meta.get("count", 0)
         if comps == 0:
-            report["orphaned"].append({"kind": "scatter", "label": label,
+            report["orphaned"].append({"kind": "foliage", "label": label,
                 "reason": f"registry claims {recorded} instances but the level has no foliage "
                           f"for it (level changed or cleared)"})
             if gc:
-                _state.scatters.pop(label, None)
+                _state.foliage_stands.pop(label, None)
         elif inst == recorded:
-            report["clean"].append({"kind": "scatter", "label": label, "instances": inst})
+            report["clean"].append({"kind": "foliage", "label": label, "instances": inst})
         else:
-            report["dirty"].append({"kind": "scatter", "label": label, "recorded": recorded,
+            report["dirty"].append({"kind": "foliage", "label": label, "recorded": recorded,
                 "editor": inst, "attribution": _drift_attribution(label),
                 "reason": f"registry {recorded} vs editor {inst} instances"})
 
-    for label in list(_state.landscapes):
+    for label in list(_state.terrains):
         if _ue.find_by_label(label) is None:
-            report["orphaned"].append({"kind": "landscape", "label": label,
+            report["orphaned"].append({"kind": "terrain", "label": label,
                 "reason": "no actor carries this label (level changed or the terrain was deleted)"})
             if gc:
-                _state.landscapes.pop(label, None)
+                _state.terrains.pop(label, None)
         else:
-            report["clean"].append({"kind": "landscape", "label": label})
+            report["clean"].append({"kind": "terrain", "label": label})
 
-    for label, pdata in list(_state.paths.items()):
+    for label, pdata in list(_state.splines.items()):
         terr = pdata.get("terrain", "terrain")
-        if terr not in _state.landscapes and _ue.find_by_label(terr) is None:
-            report["orphaned"].append({"kind": "path", "label": label,
+        if terr not in _state.terrains and _ue.find_by_label(terr) is None:
+            report["orphaned"].append({"kind": "spline", "label": label,
                 "reason": f"the terrain '{terr}' it was carved into is gone"})
             if gc:
-                _state.paths.pop(label, None)
-                strip = pdata.get("surface_actor")     # the ribbon dies with its path
+                _state.splines.pop(label, None)
+                strip = pdata.get("surface_actor")     # the ribbon dies with its spline
                 sa = _ue.find_by_label(strip) if strip else None
                 if sa is not None:
                     _ue.actor_subsystem().destroy_actor(sa)
         else:
-            report["clean"].append({"kind": "path", "label": label})
+            report["clean"].append({"kind": "spline", "label": label})
 
-    for label in _editor_scatter_labels():
-        if label not in _state.scatters:
+    for label in _editor_stand_labels():
+        if label not in _state.foliage_stands:
             inst, _ = _foliage_tally(label)
-            report["untracked"].append({"kind": "scatter", "label": label, "instances": inst,
+            report["untracked"].append({"kind": "foliage", "label": label, "instances": inst,
                 "reason": "foliage tagged in the level with no registry entry (registry wiped, "
-                          "or placed in another session) — `scatter remove` clears it by tag"})
+                          "or placed in another session) — `foliage op=remove` clears it by tag"})
 
     report["summary"] = (f"{len(report['clean'])} clean, {len(report['dirty'])} dirty, "
                          f"{len(report['orphaned'])} orphaned{' (GC’d from registry)' if gc else ''}, "

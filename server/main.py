@@ -1,14 +1,16 @@
-"""ue-buttons MCP server — the 7 M1 verbs (SPEC-00).
+"""ue-buttons MCP server — the SPEC-05 verb surface.
 
 Each @mcp.tool is a thin projection: it forwards a params dict to the editor runtime via
 call_ue and renders the result. All scene logic lives in the runtime; this file is the
-agent-facing surface. Conventions everywhere: centimetres, +X forward, +Y right, +Z up,
-rotation as [yaw, pitch, roll] degrees.
+agent-facing surface. Verbs are named by the UE surface they drive (SPEC-05's 2×2 law);
+`op` is the one discriminator everywhere. Conventions: centimetres, +X forward/north,
++Y right/east, +Z up, rotation as [yaw, pitch, roll] degrees, bearing = UE yaw.
 
 Run:  uv run ue-buttons        (or: uv run python server/main.py)
 """
 import sys
 from pathlib import Path
+from typing import Literal
 
 _PARENT = str(Path(__file__).resolve().parent.parent)
 if _PARENT not in sys.path:
@@ -18,35 +20,10 @@ from server._core import mcp, call_ue, render
 
 
 @mcp.tool()
-def scene(include_all: bool = False, op: str = None) -> str:
-    """List the scene's actors, grouped by type, with the level name.
-
-    Scoped to ue-buttons-spawned actors by default; pass include_all=True to see the
-    whole level (an Open World map has ~135 engine scaffolding actors). Always reports
-    the count of untracked actors.
-
-    op="streaming" (SPEC-03 link 1): the WorldPartition residency picture — is the world
-      partitioned, its data layers + effective runtime state, and per-actor
-      is_spatially_loaded/runtime_grid. Says so plainly when the map isn't partitioned.
-    op="reconcile" (SPEC-03, closes G16): diff the ueb registry against the editor's own
-      tally — clean / dirty (self|external attribution) / orphaned / untracked — and GC
-      orphaned registry entries, so a level change can't leave a permanent phantom.
-    op="pie_census" (G36): GAME truth — the editor and PIE views of a map can disagree
-      completely (always-loaded template actors that never load at runtime = black screen
-      on Play while every editor read says fine). Two-step: first call snapshots the
-      always-loaded set and starts Play; call it AGAIN ~2 s later to census the game
-      world, end Play, and get the missing-at-runtime diff. Run it after authoring a
-      level's lights/PlayerStart, before handing the level to a human.
-    """
-    if op in ("streaming", "reconcile", "pie_census"):
-        return render(call_ue("scene", {"op": op}))
-    return render(call_ue("scene", {"include_all": include_all}))
-
-
-@mcp.tool()
 def add(label: str, what: str = None, asset: str = None, dims: list = None,
         place: dict = None, yaw: float = None, facing: str = None) -> str:
-    """Spawn a primitive OR a project asset with relational placement.
+    """Spawn a primitive OR a project asset with relational placement — the Place Actors
+    panel / "+ Add" button. (EditorActorSubsystem.spawn_actor_from_*)
 
     Two spawn modes (give exactly one of what= / asset=):
       what:  cube | sphere | cylinder | cone | plane — a primitive at EXACT cm dims.
@@ -65,6 +42,7 @@ def add(label: str, what: str = None, asset: str = None, dims: list = None,
     label: unique human handle (errors on collision)
     dims:  [x, y, z] size in cm — required for primitives, optional override for assets
     yaw:   spawn rotation in degrees (compass/UE yaw: north=+X, clockwise)
+    facing: a spline label — turn the actor to face the route it was placed along
     place: relational placement spec (omit → rest on the floor at origin). Forms:
       {"ground": true}  or  {"on": "ground"}    drop onto the terrain by a downward trace
                                                  (combine with other keys: they set x/y,
@@ -87,6 +65,8 @@ def add(label: str, what: str = None, asset: str = None, dims: list = None,
                                                  the anchor's centre, z level with it —
                                                  spans a fixed module (a 4 m-grid room)
                                                  instead of abutting face-to-face
+      {"along": {"spline": "<label>", "fraction": f, "side": "left|right", "offset": <cm>}}
+                                                 beside a spline at a fraction of its length
       {"at": [x, y, z]}                          raw coords (documented ripcord only)
     """
     p = {"label": label, "place": place or {}}
@@ -99,15 +79,15 @@ def add(label: str, what: str = None, asset: str = None, dims: list = None,
 
 
 @mcp.tool()
-def transform(action: str, target: str, by: list = None, dims: list = None,
-              to: list = None) -> str:
-    """Move / resize / rotate an actor by label.
+def transform(op: Literal["move", "resize", "rotate"], target: str, by: list = None,
+              dims: list = None, to: list = None) -> str:
+    """The Move / Rotate / Scale gizmos + Details▸Transform, by actor label.
 
-    action="nudge":  by=[dx, dy, dz] cm along world axes (+X fwd, +Y right, +Z up)
-    action="resize": dims=[x, y, z] new world size in cm
-    action="rotate": to=[yaw, pitch, roll] degrees
+    op=move:   by=[dx, dy, dz] cm along world axes — set_actor_location
+    op=resize: dims=[x, y, z] new world size in cm — set_actor_scale3d off native size
+    op=rotate: to=[yaw, pitch, roll] degrees — set_actor_rotation
     """
-    p = {"action": action, "target": target}
+    p = {"op": op, "target": target}
     if by is not None: p["by"] = by
     if dims is not None: p["dims"] = dims
     if to is not None: p["to"] = to
@@ -115,279 +95,323 @@ def transform(action: str, target: str, by: list = None, dims: list = None,
 
 
 @mcp.tool()
-def select(labels: list = None, clear: bool = False) -> str:
-    """Select actors by label, or clear the selection (clear=True). Feeds the
-    active/selected fields of the status block."""
-    return render(call_ue("select", {"labels": labels or [], "clear": clear}))
+def select(op: Literal["set", "clear"] = "set", labels: list = None) -> str:
+    """Editor selection by label. op=set (labels=[...]) | clear — feeds the
+    active/selected fields of the status block. (EditorActorSubsystem selection)"""
+    return render(call_ue("select", {"op": op, "labels": labels or []}))
 
 
 @mcp.tool()
-def feel(op: str, target: str = None, a: str = None, b: str = None,
-         axis: str = "ANY", side: str = "CENTER_Z", fov: float = 90.0) -> str:
-    """Relational perception — measure, don't guess. Numbers, never a picture: this is
-    the whole perception surface (there is NO screenshot/render verb — see the vision
-    policy in the instructions).
+def outliner(op: Literal["census", "reconcile"] = "census",
+             include_all: bool = False) -> str:
+    """The Outliner panel — what is in the level.
 
-    op="describe" (target):        dims, bounds, on_floor, and relations (rests_on /
-                                   directly_under / flush_left_of / flush_right_of /
-                                   flush_in_front_of / flush_behind) to other ueb actors.
-    op="distance_between" (a,b,axis): centre-to-centre distance; axis=X|Y|Z|ANY.
-    op="gap_between" (a,b):        per-axis empty space (negative = overlap) + touching axes.
-    op="is_aligned" (a,b,side):    side ∈ TOP|BOTTOM|FRONT|BACK|LEFT|RIGHT|CENTER_X|
-                                   CENTER_Y|CENTER_Z (front/back = ±X, left/right = ±Y).
-    op="render_state" (target):    SPEC-03 — walk the render gating chain for one actor or
-                                   scatter population: per-link verdict (shown / bounded /
-                                   in-range / materialised / render-data) + the fix, and a
-                                   DRAWS / WILL-NOT-DRAW verdict. The deep-dive behind the
-                                   status block's one-line `render:` summary.
-    op="framing" (target, fov):    SPEC-03 — project the target's world AABB through the
-                                   editor viewport camera → frac_w/frac_h (screen coverage),
-                                   est_px (the sub-pixel tell), clipped edges, in_front, and a
-                                   FRAMED / SUB-PIXEL / CLIPPED / OFF-FRAME verdict. Every
-                                   number is stamped with its frame reference. Answers "is it
-                                   framed, is it big enough" as NUMBERS — never a rendered frame.
-    op="visible" (target, fov):    SPEC-03 — is the target SEEN or hidden behind other geometry:
-                                   raycasts from the camera to the target (occluded_fraction +
-                                   verdict), not a screenshot. With framing this tells sub-pixel
-                                   vs off-frustum vs occluded vs absent apart — all as numbers.
+    op=census (default): actors grouped by type, with the level name. Scoped to
+      ueb-tagged actors; include_all=True for the whole level (an Open World map has ~135
+      engine scaffolding actors — always counted, listed on request).
+    op=reconcile: MACRO ≈ nothing in UE — diff the ueb terrain/spline/foliage registries
+      against the editor's own tally (clean / dirty with self|external attribution /
+      orphaned / untracked) and GC orphans, so a level change can't leave a phantom (G16).
+    """
+    p = {"op": op}
+    if include_all: p["include_all"] = True
+    return render(call_ue("outliner", p))
+
+
+@mcp.tool()
+def level(op: Literal["streaming"] = "streaming") -> str:
+    """Level / World Settings / World Partition. (SPEC-04's new/save/load/list land here.)
+
+    op=streaming: the WorldPartition residency picture — is the world partitioned, its
+      data layers + effective runtime state, per-actor is_spatially_loaded/runtime_grid.
+      Says so plainly when the map isn't partitioned. (WorldPartitionBlueprintLibrary)
+    """
+    return render(call_ue("level", {"op": op}))
+
+
+@mcp.tool()
+def play(op: Literal["census", "start", "stop"] = "census") -> str:
+    """Play In Editor. Editor verbs refuse during Play (B8) — this verb owns PIE.
+
+    op=census (G36): GAME truth — editor and PIE views of a map can disagree completely
+      (always-loaded template actors that never load at runtime = black screen on Play
+      while every editor read says fine). Two-step: first call snapshots the always-loaded
+      set and starts Play; call AGAIN ~2 s later to census the game world, END Play, and
+      get the missing-at-runtime diff. Run it before handing a level to a human.
+    op=start | stop: plain PIE control. (LevelEditorSubsystem.editor_request_begin/end_play)
+    """
+    return render(call_ue("play", {"op": op}))
+
+
+@mcp.tool()
+def feel(op: Literal["describe", "distance_between", "gap_between", "is_aligned",
+                     "render_state", "framing", "visible"],
+         target: str = None, a: str = None, b: str = None,
+         axis: str = "ANY", side: str = "CENTER_Z", fov: float = 90.0) -> str:
+    """SENSE (agent-only) — relational perception: measure, don't guess. Numbers, never a
+    picture: this is the whole perception surface (there is NO screenshot/render verb —
+    see the vision policy in the instructions).
+
+    op=describe (target):        dims, bounds, on_floor, and relations (rests_on /
+                                 directly_under / flush_left_of / flush_right_of /
+                                 flush_in_front_of / flush_behind) to other ueb actors.
+    op=distance_between (a,b,axis): centre-to-centre distance; axis=X|Y|Z|ANY.
+    op=gap_between (a,b):        per-axis empty space (negative = overlap) + touching axes.
+    op=is_aligned (a,b,side):    side ∈ TOP|BOTTOM|FRONT|BACK|LEFT|RIGHT|CENTER_X|
+                                 CENTER_Y|CENTER_Z (front/back = ±X, left/right = ±Y).
+    op=render_state (target):    walk the render gating chain for one actor or foliage
+                                 stand: per-link verdict + the fix, and a DRAWS /
+                                 WILL-NOT-DRAW verdict — the deep-dive behind the status
+                                 block's one-line `render:` summary (SPEC-03).
+    op=framing (target, fov):    project the target's world AABB through the editor
+                                 viewport camera → frac_w/frac_h, est_px (the sub-pixel
+                                 tell), clipped edges, in_front, and a FRAMED / SUB-PIXEL /
+                                 CLIPPED / OFF-FRAME verdict — as NUMBERS, never a frame.
+    op=visible (target, fov):    SEEN or hidden behind other geometry: raycasts from the
+                                 camera (occluded_fraction + verdict), not a screenshot.
+                                 With framing this tells sub-pixel vs off-frustum vs
+                                 occluded vs absent apart.
     """
     p = {"op": op, "target": target, "a": a, "b": b, "axis": axis, "side": side, "fov": fov}
     return render(call_ue("feel", p))
 
 
 @mcp.tool()
-def asset(action: str = "packs", pack: str = None, asset: str = None,
-          query: str = None, kind: str = "mesh", family: str = None,
-          measure: bool = False, budget: int = 60, commit: bool = True,
-          seconds: float = 20.0, parent: str = None, name: str = None,
-          textures: dict = None, scalars: dict = None, folder: str = None) -> str:
-    """Perception over the project's Content — "what can I build with, and how big is it?"
+def asset(op: Literal["packs", "inventory", "describe", "find", "whats_new"] = "packs",
+          pack: str = None, name: str = None, query: str = None, kind: str = "mesh",
+          family: str = None, measure: bool = False, budget: int = 60,
+          seconds: float = 20.0, commit: bool = True) -> str:
+    """The Content Browser / Asset Registry — "what can I build with, and how big is it?"
 
-    All dimensions are centimetres. Marketplace meshes are reported at native scale; the
-    dims are placement information, not an invitation to resize (a 400 cm wall is 400 cm
-    because its doorframe is human-sized). Pivot is reported per asset — base (origin at
-    the foot: trees, walls) vs center — because grounding math depends on it.
+    All dimensions are centimetres, at native scale (a 400 cm wall is 400 cm because its
+    doorframe is human-sized). Pivot is reported per asset — base (trees, walls) vs center
+    — because grounding math depends on it.
 
-    action="packs":                  top-level /Game roots, per-class counts, one-line
-                                     character. Cheap (registry only).
-    action="inventory" (pack):       COMPACT by default — one dict per inferred FAMILY
-                                     (Pine_Tree_01..05 → family Pine_Tree) with variant
-                                     names, tris, Nanite, and where measured: height,
-                                     footprint (widest of x/y) and aspect_h_over_w — the
-                                     SILHOUETTE tells (aspect ≈1 reads as a bush/blob; a
-                                     trunk-and-canopy tree runs ~1.5–3; the tell PEAKS —
-                                     past ~3 you're usually looking at a bare spire/snag,
-                                     not a fuller tree; suspects are flagged sparse_spire
-                                     with tris-per-height corroboration — G38). Don't pick
-                                     forest species on height alone. Measuring a mesh
-                                     means loading it, so dims are filled lazily:
-                                       measure=True [budget=N, seconds=S]: warm the dims
-                                         cache in bounded batches (≤N meshes AND ≤S seconds
-                                         of wall-clock, defaults 60/20 s) — repeat until
-                                         complete; never blocks the bridge.
-                                       family="Pine_Tree": full per-variant detail for one
-                                         family, measuring just those. Measured dims persist
-                                         to disk (survive editor restart).
-    action="describe" (asset):       one asset in full — dims, pivot, material slots,
-                                     collision, dependency/referencer counts. Short name or
-                                     full /Game path; errors with candidates if ambiguous.
-                                     On a MATERIAL: the vet (G32) — master + parent chain,
-                                     domain/blend, exposed parameters, and a MOTION verdict
-                                     (G39): masked_wind (Wind Weight — base anchored, safe)
-                                     vs wpo / wpo_suspect (the mesh MOVES; material-
-                                     attributes masters hide the WPO pin, so displacement
-                                     params are read too), plus warnings for a master
-                                     outside /Game or a non-surface domain. Run it BEFORE
-                                     dressing anything in an unknown material.
-    action="instance_material" (parent, name, textures, scalars, folder):
-                                     author a MaterialInstanceConstant of a master —
-                                     textures={param: texture name}, scalars={param: value};
-                                     param names validated against the master, every set
-                                     verified by read-back. folder default /Game/UEB_Materials.
-    action="find" (query, kind):     name-substring search; kind=mesh|blueprint|skeletal|
-                                     material|any (material finds surfaces for landscape
-                                     material= / path surface).
-    action="whats_new" (commit):     diff the registry against a persisted snapshot — how
-                                     a freshly-downloaded pack becomes visible. commit=False
-                                     peeks without updating the snapshot.
+    op=packs:                  top-level /Game roots, per-class counts, one-line character.
+                               Cheap (registry only).
+    op=inventory (pack):       COMPACT by default — one dict per inferred FAMILY
+                               (Pine_Tree_01..05 → family Pine_Tree) with variant names,
+                               tris, Nanite, and where measured: height, footprint and
+                               aspect_h_over_w — the SILHOUETTE tells (aspect ≈1 reads as
+                               a bush/blob; a trunk-and-canopy tree runs ~1.5–3; past ~3
+                               you're usually looking at a bare spire/snag — flagged
+                               sparse_spire, G38). Don't pick forest species on height
+                               alone. Dims are measured lazily (loading a mesh is the one
+                               expensive step):
+                                 measure=True [budget=N, seconds=S]: warm the dims cache
+                                   in bounded batches (≤N meshes AND ≤S s, defaults
+                                   60/20 s) — repeat until complete; never blocks the bridge.
+                                 family="Pine_Tree": full per-variant detail for one
+                                   family, measuring just those. Measured dims persist.
+    op=describe (name):        one asset in full — dims, pivot, material slots, collision,
+                               dependency/referencer counts. On a MATERIAL: the vet (G32) —
+                               master + parent chain, exposed parameters, and a MOTION
+                               verdict (G39): masked_wind (base anchored, safe) vs wpo /
+                               wpo_suspect (the mesh MOVES). Run it BEFORE dressing
+                               anything in an unknown material.
+    op=find (query, kind):     name-substring search; kind=mesh|blueprint|skeletal|
+                               material|any (material finds surfaces for terrain
+                               material= / spline op=surface).
+    op=whats_new (commit):     diff the registry against a persisted snapshot — how a
+                               freshly-downloaded pack becomes visible. commit=False peeks
+                               without updating the snapshot.
     """
-    p = {"action": action, "pack": pack, "asset": asset, "query": query,
-         "kind": kind, "family": family, "measure": measure, "budget": budget,
+    p = {"op": op, "pack": pack, "asset": name, "query": query, "kind": kind,
+         "family": family, "measure": measure, "budget": budget,
          "commit": commit, "seconds": seconds}
-    for k, v in (("parent", parent), ("name", name), ("textures", textures),
-                 ("scalars", scalars), ("folder", folder)):
-        if v is not None:
-            p[k] = v
     # measure / family-drill load meshes — give them room; default inventory is cheap.
     timeout = 180 if (measure or family) else 60
     return render(call_ue("asset", p, timeout=timeout))
 
 
 @mcp.tool()
-def scatter(action: str = "create", label: str = "scatter", meshes: list = None,
-            region: dict = None, density_per_100m2: float = None, seed: int = 1337,
-            rules: dict = None, terrain: str = "terrain", pack: str = None) -> str:
-    """Populations, not actors — declare rules, get a reproducible, path-respecting stand.
+def material(op: Literal["instance"] = "instance", parent: str = None, name: str = None,
+             textures: dict = None, scalars: dict = None, folder: str = None) -> str:
+    """The Material Instance editor — author materials without raw editor Python.
 
-    One labelled actor holds the whole population (HISM instances), never thousands of rows.
-    Ground z + slope come from world traces, so instances conform to the real terrain.
-    Spatial verb (not history-undoable); teardown is action="remove".
+    op=instance (parent, name, textures, scalars, folder): a MaterialInstanceConstant of
+      a master — textures={param: texture name}, scalars={param: value}. Param names are
+      validated against the master BEFORE creation; every set is verified by read-back
+      (5.8's setters return False even on success). folder default /Game/UEB_Materials.
+      (MaterialEditingLibrary + AssetTools.create_asset)
+    """
+    p = {"op": op}
+    for k, v in (("parent", parent), ("name", name), ("textures", textures),
+                 ("scalars", scalars), ("folder", folder)):
+        if v is not None:
+            p[k] = v
+    return render(call_ue("material", p))
 
-    action="create":
+
+@mcp.tool()
+def foliage(op: Literal["paint", "describe", "reseed", "remove"] = "paint",
+            label: str = "foliage", meshes: list = None, region: dict = None,
+            density_per_100m2: float = None, seed: int = 1337, rules: dict = None,
+            terrain: str = "terrain", pack: str = None) -> str:
+    """The Foliage editor mode — populations, not actors: declare rules, get a
+    reproducible, spline-respecting stand. One labelled stand holds the whole population
+    (instanced foliage components in the level's InstancedFoliageActor), never thousands
+    of rows. Ground z + slope come from world traces. Spatial verb (not history-undoable);
+    teardown is op=remove. (Cousin: PCG — its 5.8 Python surface is too thin; R2.)
+
+    op=paint — InstancedFoliageActor.add_instances + minted FoliageType assets:
       meshes:  inventory FAMILY names, optional weight — ["Pine_Tree", "Black_Alder:0.3"]
                (variants randomised per instance). A family that resolves across MULTIPLE
                packs errors with pack-attributed candidates (G31) — scope with pack= or
                pass explicit variant names.
-      pack:    scope family resolution to one /Game/<pack> root.
       region:  {"kind":"circle","at":[x,y],"radius":cm} | {"kind":"rect","at":[x,y],
-               "size":[w,h]} | {"kind":"polygon","points":[[x,y],...]} | {"kind":"landscape"}
+               "size":[w,h]} | {"kind":"polygon","points":[[x,y],...]} | {"kind":"terrain"}
                (the whole terrain). MAP coords.
       density_per_100m2:  instances per 100 m² (or set rules.min_spacing_cm).
       seed:    determinism — same seed + rules ⇒ same stand.
       rules:   {min_spacing_cm, max_slope_deg, align_to_slope (rocks yes / trees no),
-               scale_jitter:[lo,hi], yaw_random, clear_margin, clear_of:[path/actor labels,
-               regions]}. DEFAULT: every scatter auto-clears existing paths (width/2+margin)
-               and buildings (footprint+margin) — the path stays open THROUGH the trees.
-               Spacing below the measured canopy width warns (clipped-geometry tell): derive
-               min_spacing_cm from the widest scattered family's footprint, never intuition.
-               Meshes whose materials MOVE them are announced at author time (G39): masked
-               wind (Wind Weight) is named safe; unmasked/plugin displacement warns — the
-               whole mesh would bob.
-    action="describe": counts per family, region, seed, rules — enough to reason/regenerate.
-    action="regenerate" (seed): same rules, new dice — the "reroll that stand" button.
-    action="remove": delete the whole stand as a unit.
+               scale_jitter:[lo,hi], yaw_random, clear_margin, clear_of:[spline/actor
+               labels, regions]}. DEFAULT: every paint auto-clears existing splines
+               (width/2+margin) and buildings (footprint+margin) — the trail stays open
+               THROUGH the trees. Spacing below the measured canopy width warns (G28);
+               derive min_spacing_cm from the widest family's footprint, never intuition.
+               Meshes whose materials MOVE them are announced at author time (G39/G40).
+    op=describe: counts per family, region, seed, rules — enough to reason/rebuild.
+    op=reseed (seed): same rules, new dice — the "reroll that stand" button (ours; UE has
+      no reroll concept).
+    op=remove: delete the whole stand as a unit (by component tag).
     """
-    p = {"action": action, "label": label, "seed": seed, "terrain": terrain}
+    p = {"op": op, "label": label, "seed": seed, "terrain": terrain}
     for k, v in (("meshes", meshes), ("region", region), ("pack", pack),
                  ("density_per_100m2", density_per_100m2), ("rules", rules)):
         if v is not None:
             p[k] = v
-    return render(call_ue("scatter", p, timeout=240))
+    return render(call_ue("foliage", p, timeout=240))
 
 
 @mcp.tool()
-def path(action: str = "create", label: str = "path", points: list = None,
-         route: dict = None, width: float = None, at_fraction: float = None,
-         terrain: str = "terrain", blend_margin: float = None, material: str = None,
-         lift: float = None, tile: float = None) -> str:
-    """Paths as first-class intent — a winding route draped over the terrain (SPEC-01 E4).
+def spline(op: Literal["create", "surface", "describe", "remove"] = "create",
+           label: str = "spline", points: list = None, route: dict = None,
+           width: float = None, at_fraction: float = None, terrain: str = "terrain",
+           material: str = None, lift: float = None, tile: float = None) -> str:
+    """SplineComponent as intent — a winding route draped over the terrain. (5.8 blocks
+    adding a SplineComponent from Python, G13, so the curve is a Catmull-Rom spline over
+    waypoints; the CONCEPT is UE's.) Carving the terrain along a spline is `terrain
+    op=carve along=<label>` — the op lives on the thing it mutates.
 
     All positions are MAP points: polar {"from":<anchor>,"bearing":deg,"distance":cm}
-    (anchor = "center" | actor label | terrain | ["path_label", fraction]) or absolute [x,y]
-    with a READ provenance (an actor centre from feel/scene, a prior waypoint, a landscape
-    bound). Compass: north=+X, bearing clockwise = UE yaw. z is draped onto the terrain by
-    tracing. Spatial verb (not history-undoable).
+    (anchor = "center" | actor label | terrain | ["spline_label", fraction]) or absolute
+    [x,y] with a READ provenance. Compass: north=+X, bearing clockwise = UE yaw. z is
+    draped onto the terrain by tracing. Spatial verb (not history-undoable).
 
-    action="create" (points | route, width):
-        points=[map position, ...]  — waypoints; a smooth Catmull-Rom curve runs through them.
+    op=create (points | route, width):
+        points=[map position, ...] — waypoints; a smooth curve runs through them.
         route={"start":<pos>, "start_bearing":deg, "steps":[...]} — a WALK; each step is
-          {"bearing":deg,"distance":cm} (absolute) or {"turn":±deg,"distance":cm} (relative —
-          the natural encoding of "winding"). Returns every resolved waypoint.
-    action="carve" (terrain, blend_margin): flatten the terrain to grade along the route,
-        feathered to the path width — cuts the geometric bed (one mesh rebuild). If the path
-        already has a surface strip, it is re-draped automatically.
-    action="surface" (material, width, lift, tile): make the path VISIBLE — a thin material
-        ribbon draped onto the ground along the route (a carve alone is nearly invisible
-        without a material contrast, G25). material = a material name or /Game path (find
-        one via asset find kind=material — e.g. a dirt/gravel Megascans surface); lift = cm
-        above the ground (default 3); tile = cm per texture repeat (default 400). Idempotent:
-        re-running replaces the strip. Typical order: create → carve → surface.
-    action="describe" (at_fraction): length, waypoints, and (at_fraction) the world point +
-        tangent + bearing there — the hamlet's skeleton for `along=`/`facing=` placement.
-    action="remove": forget the path (and delete its surface strip).
+          {"bearing":deg,"distance":cm} (absolute) or {"turn":±deg,"distance":cm}
+          (relative — the natural encoding of "winding"). Returns every resolved waypoint.
+    op=surface (material, width, lift, tile): MACRO ≈ Landscape splines' road mesh — make
+        the route VISIBLE: a thin material ribbon draped onto the ground (a carve alone is
+        nearly invisible without material contrast, G25). material = name or /Game path
+        (asset op=find kind=material); lift = cm above ground (default 5); tile = cm per
+        texture repeat (default 400). Idempotent: re-running replaces the strip.
+        Typical order: create → terrain op=carve → surface.
+    op=describe (at_fraction): length, waypoints, and (at_fraction) the world point +
+        tangent + bearing there — the skeleton for `along=`/`facing=` placement.
+    op=remove: forget the spline (and delete its surface strip).
 
-    Placement (on add/scatter): place={"along":{"path":label,"fraction":f,"side":"left|right",
-    "offset":cm}} puts a thing beside the path; add(facing=label) turns it to face the path.
+    Placement (on add/foliage): place={"along":{"spline":label,"fraction":f,"side":
+    "left|right","offset":cm}} puts a thing beside the route; add(facing=label) turns it
+    to face the route.
     """
-    p = {"action": action, "label": label, "terrain": terrain}
+    p = {"op": op, "label": label, "terrain": terrain}
     for k, v in (("points", points), ("route", route), ("width", width),
-                 ("at_fraction", at_fraction), ("blend_margin", blend_margin),
-                 ("material", material), ("lift", lift), ("tile", tile)):
+                 ("at_fraction", at_fraction), ("material", material),
+                 ("lift", lift), ("tile", tile)):
         if v is not None:
             p[k] = v
-    return render(call_ue("path", p, timeout=180))
+    return render(call_ue("spline", p, timeout=180))
 
 
 @mcp.tool()
-def landscape(action: str = "create", label: str = "terrain", size: list = None,
-              origin: list = None, base_height: float = None, features: list = None,
-              region: dict = None, height: float = None, blend_margin: float = None,
-              at: list = None, replace: bool = False, resolution: list = None,
-              material: str = None, uv_tile_cm: float = None) -> str:
-    """Terrain as a heightfield — you describe landforms, the runtime synthesises the mesh.
+def terrain(op: Literal["create", "shape", "flatten", "carve", "describe",
+                        "remove"] = "create",
+            label: str = "terrain", size: list = None, origin: list = None,
+            base_height: float = None, features: list = None, region: dict = None,
+            height: float = None, blend_margin: float = None, at: list = None,
+            along: str = None, replace: bool = False, resolution: list = None,
+            material: str = None, uv_tile_cm: float = None) -> str:
+    """MACRO ≈ UE Landscape (Python cannot author Landscape in 5.8) — StaticMesh terrain
+    synthesised from a declarative heightfield; no layers, no grass types. You describe
+    landforms, the runtime builds the mesh (Geometry Script DynamicMesh, collidable — so
+    ground-snap / foliage / spline-drape trace it directly). All coords are MAP cm.
+    NOT undoable via history (see the `undoable` field). While a ueb terrain exists, the
+    engine template's z=0 Landscape is neither traced NOR rendered (G37); removing the
+    last ueb terrain restores it.
 
-    All coords are MAP centimetres (converted to terrain-local internally). Compass: north=+X,
-    east=+Y, bearing clockwise = UE yaw. Terrain is a collidable mesh, so ground-snap / scatter
-    / path-drape trace it directly. NOT undoable via history (see the `undoable` field).
-    While a ueb terrain exists, the engine template's z=0 Landscape is neither traced NOR
-    rendered: ground traces ignore it, and create HIDES it (editor + game) so it can't show
-    through a sub-zero floor dip or past a raised terrain's edge (G37); removing the last
-    ueb terrain restores it.
-
-    action="create" (size, origin, base_height, material): new flat terrain. size=[x_cm,y_cm]
-        (hamlet ~[20000,20000] = 200 m); origin = map centre (default [0,0]).
-    action="shape" (features, replace, material): apply landform features, composed in order —
+    op=create (size, origin, base_height, material): new flat terrain. size=[x_cm,y_cm]
+        (a hamlet ~[20000,20000] = 200 m); origin = map centre (default [0,0]).
+    op=shape (features, replace, material): landform features, composed in order —
         {"kind":"valley","axis":"x|y","floor_width":cm,"wall_height":cm,"roughness":0..1}
         {"kind":"hill"|"ridge","at":[x,y],"radius":cm,"height":cm,"length":cm,"axis":"x|y"}
         {"kind":"noise","amplitude":cm,"scale":cm,"octaves":n,"seed":n}
         {"kind":"plateau","at":[x,y],"radius":cm,"height":cm,"blend_margin":cm}
       replace=True resets the feature list first (idempotent rebuild); default appends.
-    action="flatten" (region, height, blend_margin): carve a pad/bed — blend the terrain to a
-        level inside region={kind:"circle"|"rect"|"polygon", ...}, feathered over blend_margin.
-        height is WORLD z; defaults to the current grade at the region anchor (pad at grade).
-    action="describe" (at): bounds, height range, and z + slope sampled at map points
-        at=[[x,y],...] — agrees with world traces (same height function built the mesh, and
-        the model side composes the actor's live transform + base_height).
-    action="remove": tear the terrain down (actor + meta) so create can rebuild from scratch.
+    op=flatten (region, height, blend_margin): carve a pad/bed — blend the terrain to a
+        level inside region={kind:"circle"|"rect"|"polygon", ...}, feathered over
+        blend_margin. height is WORLD z; defaults to the current grade (pad at grade).
+    op=carve (along, blend_margin): flatten to grade along a spline's route, feathered to
+        its width — cuts the geometric bed in ONE mesh rebuild, and re-drapes the
+        spline's surface strip automatically. along=<spline label>.
+    op=describe (at): bounds, height range, and z + slope sampled at map points
+        at=[[x,y],...] — agrees with world traces (same height function built the mesh).
+    op=remove: tear the terrain down (actor + meta) so create can rebuild from scratch.
 
-    material: a material name or /Game path to assign to the terrain surface (find one via
-        asset find kind=material); persists across reshapes. Accepted on create/shape.
-    uv_tile_cm: ground-texture repeat in cm (default 400) — one UV tile every uv_tile_cm,
-        so a tiling material renders at its authored scale instead of smearing (G33).
-        Accepted on create/shape; persists across reshapes.
+    material: a material name or /Game path for the surface (asset op=find kind=material);
+        persists across reshapes. Accepted on create/shape.
+    uv_tile_cm: ground-texture repeat in cm (default 400) — so a tiling material renders
+        at its authored scale instead of smearing (G33). Accepted on create/shape.
     """
-    p = {"action": action, "label": label, "replace": replace}
+    p = {"op": op, "label": label, "replace": replace}
     for k, v in (("size", size), ("origin", origin), ("base_height", base_height),
                  ("features", features), ("region", region), ("height", height),
-                 ("blend_margin", blend_margin), ("at", at), ("resolution", resolution),
-                 ("material", material), ("uv_tile_cm", uv_tile_cm)):
+                 ("blend_margin", blend_margin), ("at", at), ("along", along),
+                 ("resolution", resolution), ("material", material),
+                 ("uv_tile_cm", uv_tile_cm)):
         if v is not None:
             p[k] = v
-    return render(call_ue("landscape", p, timeout=180))
+    return render(call_ue("terrain", p, timeout=180))
 
 
 @mcp.tool()
-def history(op: str = "list", id: str = None) -> str:
-    """Inspect or rewind the mutation log.
+def history(op: Literal["list", "undo", "undo_to"] = "list", id: str = None,
+            n: int = 1) -> str:
+    """Edit▸Undo History — inspect or rewind the mutation log.
 
-    op="list":            the ordered op log (id, verb, summary).
-    op="undo_to" (id):    undo every op after `id`, via the editor's transaction stack.
-                          Note: the undo stack is shared with your manual editor edits —
-                          a manual edit interleaved with ueb ops can desync this (gaps.md G1).
+    op=list:          the ordered op log (id, verb, summary).
+    op=undo (n=1):    "undo that" — N raw editor undos on the SHARED transaction stack,
+                      newest first, agent op OR human edit (the blunt, human-facing button).
+    op=undo_to (id):  undo every op after `id`, via the editor's transaction stack. The
+                      stack is shared with manual editor edits — an interleaved manual
+                      edit can desync this (gaps.md G1).
     """
-    return render(call_ue("history", {"op": op, "id": id}))
+    return render(call_ue("history", {"op": op, "id": id, "n": n}))
 
 
 @mcp.tool()
-def validate(op: str = "run", targets: str = None, a: str = None, b: str = None,
-             reason: str = None, check: str = "penetration", max_depth: float = None,
+def validate(op: Literal["run", "expect", "forget", "intended"] = "run",
+             targets: str = None, a: str = None, b: str = None, reason: str = None,
+             check: str = "penetration", max_depth: float = None,
              verbose: bool = False) -> str:
-    """The always-on correctness floor — the second forced sense (SPEC-02).
+    """SENSE (agent-only) — the always-on correctness floor (SPEC-02). A spatial-lint
+    floor runs AUTOMATICALLY on the touched delta after every add/transform and reports by
+    exception on the status block; this verb is its on-demand + declaration surface.
+    Three checks: ground (float/bury vs a trace), penetration (AABB depth), and z_fight
+    (coplanar overlapping faces). Every finding carries its fix.
 
-    A spatial-lint floor runs AUTOMATICALLY on the touched delta after every add/transform
-    and reports by exception on the status block; this verb is its on-demand + declaration
-    surface. Three checks: ground (float/bury vs a trace), penetration (AABB depth), and
-    z_fight (coplanar overlapping faces). Every finding carries its fix.
-
-    op="run" (targets, verbose):  sweep the whole scene, or a comma-separated `targets`
+    op=run (targets, verbose):  sweep the whole scene, or a comma-separated `targets`
         list. verbose lists every finding uncapped. Run at milestones / before handoff.
-    op="expect" (a, b, reason, check, max_depth):  declare a contact INTENDED — the only
+    op=expect (a, b, reason, check, max_depth):  declare a contact INTENDED — the only
         way to quiet a laden finding (there is no "ignore"). reason is required — a
         falsifiable design claim. check=penetration (a↔b) | ground (a↔"ground"). max_depth
         (cm) bounds a blessed penetration so a deeper one still surfaces. a/b may name an
-        actor TAG to bless a whole scatter class at once. z_fight is intent-free (rejected).
-    op="forget" (a, b, check):  retire a declaration (re-arms the finding).
-    op="intended":  list the live declared-intent registry.
+        actor TAG to bless a whole class at once. z_fight is intent-free (rejected).
+    op=forget (a, b, check):  retire a declaration (re-arms the finding).
+    op=intended:  list the live declared-intent registry.
     """
     p = {"op": op, "check": check, "verbose": verbose}
     for k, v in (("targets", targets), ("a", a), ("b", b), ("reason", reason),

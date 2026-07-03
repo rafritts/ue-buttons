@@ -1,10 +1,11 @@
-"""`path` — splines as first-class intent (SPEC-01 E4).
+"""`spline` — routes as first-class intent (SPEC-01 E4; SPEC-05 rename of `path`).
 
-A path IS a list of waypoints (the rare case where the UE primitive and intent space agree).
-Modelled as a pure-Python Catmull-Rom spline over waypoints (G13: no editor SplineComponent
-from script), stored in `_state.paths`. The agent thinks in 2D map positions; the runtime
-drapes z onto the terrain by tracing, carves a bed, and answers position+tangent at any
-fraction. Route form encodes "winding" naturally as a walk of bearings/turns.
+A spline IS a list of waypoints — the UE construct is SplineComponent, though 5.8 blocks
+adding one from Python (G13), so the curve is a pure-Python Catmull-Rom spline over
+waypoints, stored in `_state.splines`. The agent thinks in 2D map positions; the runtime
+drapes z onto the terrain by tracing and answers position+tangent at any fraction. Route
+form encodes "winding" naturally as a walk of bearings/turns. Carving the terrain along a
+spline lives on `terrain op=carve` — the op belongs to the thing it mutates (SPEC-05).
 
 Map positions (polar or absolute) resolve through `map_ref.resolve` — derived, not divined.
 """
@@ -15,7 +16,7 @@ import unreal
 from . import _state
 from . import _ue
 from . import map_ref
-from . import terrain
+
 
 
 # ── Catmull-Rom spline over waypoints (pure Python) ─────────────────────────────
@@ -67,11 +68,11 @@ def _point_at_fraction(poly, cum, frac):
 
 
 def point_and_tangent(label, fraction):
-    """[x,y,z] and unit planar tangent at a fraction along a stored path. z is the stored
+    """[x,y,z] and unit planar tangent at a fraction along a stored spline. z is the stored
     draped value (interpolated). Used by map_ref anchors and the along=/facing= placement."""
-    path = _state.paths.get(label)
+    path = _state.splines.get(label)
     if path is None:
-        raise ValueError(f"no path labelled '{label}'")
+        raise ValueError(f"no spline labelled '{label}'")
     pts2 = [[x, y] for x, y, _ in path["points"]]
     poly, cum = _sample_polyline(pts2)
     (x, y), tan = _point_at_fraction(poly, cum, fraction)
@@ -85,11 +86,15 @@ def point_and_tangent(label, fraction):
 
 # ── actions ──────────────────────────────────────────────────────────────────────
 def handle(p):
-    fn = {"create": _create, "carve": _carve, "surface": _surface,
-          "describe": _describe, "remove": _remove}.get(p.get("action", "create"))
+    op = p.get("op", "create")
+    if op == "carve":
+        return {"error": "carve moved to the verb that mutates the terrain — use "
+                         "terrain op=carve along=<spline label> [blend_margin=]"}
+    fn = {"create": _create, "surface": _surface,
+          "describe": _describe, "remove": _remove}.get(op)
     if fn is None:
-        return {"error": f"unknown path action '{p.get('action')}'. known: "
-                         "create|carve|surface|describe|remove"}
+        return {"error": f"unknown spline op '{op}'. known: "
+                         "create|surface|describe|remove"}
     return fn(p)
 
 
@@ -99,7 +104,7 @@ def _resolve_points(p):
         return _walk_route(p["route"])
     pts = p.get("points")
     if not pts:
-        raise ValueError("path create needs points=[...] or route={start, steps}")
+        raise ValueError("spline create needs points=[...] or route={start, steps}")
     return [map_ref.resolve(pt) for pt in pts]
 
 
@@ -136,19 +141,19 @@ def _drape(points, width):
 
 
 def _create(p):
-    label = p.get("label", "path")
-    if label in _state.paths:
-        return {"error": f"path '{label}' already exists (remove it first)"}
+    label = p.get("label", "spline")
+    if label in _state.splines:
+        return {"error": f"spline '{label}' already exists (remove it first)"}
     points = _resolve_points(p)
     width = p.get("width", 300.0)
     draped, misses = _drape(points, width)
     poly, cum = _sample_polyline([[x, y] for x, y, _ in draped])
-    _state.paths[label] = {"points": draped, "width": width,
+    _state.splines[label] = {"points": draped, "width": width,
                            "length_cm": round(cum[-1], 1),
                            "terrain": p.get("terrain", "terrain")}
     out = {"created": label, "waypoints": [[round(v, 1) for v in pt] for pt in draped],
            "length_cm": round(cum[-1], 1), "width_cm": width,
-           "note": "z draped onto terrain by trace; path describe returns the waypoints"}
+           "note": "z draped onto terrain by trace; spline op=describe returns the waypoints"}
     if misses:
         out["notes"] = [f"{misses}/{len(draped)} waypoints traced NO ground — their z is a "
                         f"0.0 placeholder, not a surface (B3). Is the route on the terrain?"]
@@ -156,10 +161,10 @@ def _create(p):
 
 
 def _describe(p):
-    label = p.get("label", "path")
-    path = _state.paths.get(label)
+    label = p.get("label", "spline")
+    path = _state.splines.get(label)
     if path is None:
-        return {"error": f"no path labelled '{label}'"}
+        return {"error": f"no spline labelled '{label}'"}
     poly, cum = _sample_polyline([[x, y] for x, y, _ in path["points"]])
     out = {"label": label, "waypoint_count": len(path["points"]),
            "length_cm": round(cum[-1], 1), "width_cm": path["width"],
@@ -174,57 +179,6 @@ def _describe(p):
     return out
 
 
-def _carve(p):
-    """Flatten the terrain under the path: a chain of overlapping flatten features at grade,
-    feathered to the width + margin — appended in ONE batch with ONE mesh rebuild. The first
-    cut delegated disc-by-disc to landscape.flatten, which rebuilt the whole heightfield per
-    disc (141 rebuilds ≈ the 30 s bridge blackout, bugs.md B6)."""
-    from . import landscape
-    landscape._hydrate()                          # carve reaches into landscape meta directly
-    label = p.get("label", "path")
-    path = _state.paths.get(label)
-    if path is None:
-        return {"error": f"no path labelled '{label}'"}
-    terrain_label = p.get("terrain", path.get("terrain", "terrain"))
-    meta = landscape._meta_of(terrain_label)
-    actor = _ue.find_by_label(terrain_label)
-    if meta is None or actor is None:
-        return {"error": f"no terrain '{terrain_label}' to carve into"}
-    poly, cum = _sample_polyline([[x, y] for x, y, _ in path["points"]])
-    width = path["width"]
-    margin = p.get("blend_margin", width)
-    spacing = max(width / 2.0, 200.0)
-    n = max(2, int(cum[-1] / spacing))
-    # Sample every disc's target from the PRE-CARVE terrain up front. If we instead let each
-    # flatten default to the running grade, overlapping discs would each read the previous
-    # disc's flattened height and drag the whole bed to a near-constant level (the bug that
-    # levelled a valley-spanning road). Fixing targets to the natural grade makes the bed
-    # follow the terrain — level across the path, sloping along it. Coords/grades are in
-    # terrain-LOCAL space off the EFFECTIVE origin (G26: composes a nudged actor transform).
-    ox, oy, _oz = landscape._eff_origin(terrain_label, meta)
-    extent = min(meta["size"]) / 2.0
-    pre_feats = list(meta["features"])
-    feats = []
-    for i in range(n + 1):
-        (x, y), _t = _point_at_fraction(poly, cum, i / n)
-        lx, ly = x - ox, y - oy
-        grade = terrain.height_at(lx, ly, pre_feats, extent)
-        feats.append({"kind": "flatten", "height": grade, "blend_margin": margin,
-                      "region": {"kind": "circle", "at": [lx, ly], "radius": width / 2.0}})
-    meta["features"].extend(feats)
-    verts = landscape._rebuild(actor, meta)
-    landscape._save_meta()
-    out = {"carved": label, "terrain": terrain_label, "discs": len(feats),
-           "vertices": verts, "undoable": False,
-           "note": "path bed flattened to natural grade along the route (one rebuild)"}
-    if path.get("surface_actor"):
-        # The strip was draped on the PRE-carve ground — rebuild it on the new bed.
-        s = path.get("surface", {})
-        res = _surface({"label": label, **s})
-        out["surface_rebuilt"] = res.get("surfaced") or res.get("error")
-    return out
-
-
 def _surface(p):
     """Give the path a VISIBLE surface: a thin material ribbon draped onto the terrain
     (gaps.md G25 — a geometrically perfect carve reads as 'the tiniest of tiny lines'
@@ -232,15 +186,15 @@ def _surface(p):
     spline: paired left/right vertices every ~half-width, each traced onto the real ground
     and lifted a few cm so the strip sits ON the bed rather than z-fighting it. Idempotent:
     re-running replaces the strip (so carve can rebuild it on the new grade)."""
-    label = p.get("label", "path")
-    path = _state.paths.get(label)
+    label = p.get("label", "spline")
+    path = _state.splines.get(label)
     if path is None:
-        return {"error": f"no path labelled '{label}'"}
+        return {"error": f"no spline labelled '{label}'"}
     material = p.get("material")
     mat_path = None
     if material:
-        from . import landscape
-        mat_path, err = landscape.resolve_material(material)
+        from . import terrain
+        mat_path, err = terrain.resolve_material(material)
         if err:
             return {"error": err}
     elif path.get("surface", {}).get("material"):
@@ -350,7 +304,7 @@ def _surface(p):
     path["surface"] = {"material": mat_path, "lift": lift, "width": width, "tile": tile}
     out = {"surfaced": label, "actor": strip_label, "material": mat_path,
            "vertices": len(verts), "width_cm": width, "lift_cm": lift, "undoable": False,
-           "note": "ribbon draped on the traced ground; re-run after any later carve"}
+           "note": "ribbon draped on the traced ground; terrain op=carve re-drapes it automatically"}
     if not mat_path:
         out["notes"] = ["no material given — the strip renders with the engine default "
                         "(flat grey); pass material=<name|/Game path> "
@@ -364,10 +318,10 @@ def _surface(p):
 
 
 def _remove(p):
-    label = p.get("label", "path")
-    path = _state.paths.pop(label, None)
+    label = p.get("label", "spline")
+    path = _state.splines.pop(label, None)
     if path is None:
-        return {"error": f"no path labelled '{label}'"}
+        return {"error": f"no spline labelled '{label}'"}
     out = {"removed": label}
     strip = path.get("surface_actor")
     if strip:

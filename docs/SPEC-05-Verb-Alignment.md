@@ -3,12 +3,11 @@
 The project charter and destination live in `docs/vision.md`; this spec is the naming
 LAW that vision depends on. When in doubt here, break toward vision.md.
 
-Status: **DRAFT, decision-complete (2026-07-03)** — fleshed out same day; the four open
-questions were resolved by the agent at the user's delegation (see the resolved section
-at the bottom). Awaiting only the user's go on the staged migration cutover. This spec
-fixes the shape of the whole future surface; nothing in SPEC-06..09 (deixis, probes,
-lint, runtime lint) should land until the cutover, because they all add verbs and ops
-that must be born aligned.
+Status: **IMPLEMENTED (2026-07-03)** — the user gave the go ("no backwards
+compatibility, let it rip") and the staged migration ran as one hard cut, live-verified
+verb-by-verb against the editor the same day. This spec is now the standing LAW for the
+surface; SPEC-06..09 (deixis, probes, lint, runtime lint) add their verbs and ops on top
+of it, born aligned.
 
 Ported doctrine — the two blender-buttons sources, both read in full before this draft:
 - `blender-buttons/docs/SPEC-05-verb-collapse.md` — one verb per native surface; lean on
@@ -270,37 +269,39 @@ game-thread dispatch, and level-loaded checks. The agent never hand-manages edit
   audit finds more). First dispatch of a session compares attached UE version to the
   verified-against version and warns on drift.
 
-## Migration plan (staged, each stage live-verified then pruned from here)
+## Migration — landed (2026-07-03, one commit, no shims)
 
-1. **Discriminator unification** — `action=` → `op=` everywhere; `transform nudge→move`.
-   Mechanical, one commit, recipes/docs updated in the same commit.
-2. **The two headline renames** — `scatter`→`foliage` (ops: paint/erase/reseed/describe/
-   remove), `landscape`→`terrain`. State keys, persisted registries, and
-   `dogfood_levels.md` recipes migrate in the same commit; G40's author-time gate lands
-   on `foliage op=paint` when SPEC-07 builds it.
-3. **The `scene` dissolution** — `outliner` (census, reconcile), `level` (streaming +
-   SPEC-04 lifecycle), `play` (census/start/stop). `scene` dies in the same commit the
-   three are born; no alias period (a wrong-cell name kept alive keeps mis-teaching).
-4. **`path` → `spline` + `terrain op=carve`** — the carve op moves to the thing it
-   mutates; the spline keeps the curve, waypoints, and (tagged macro op) surface strip.
-5. **Ergonomics pass** — Literal `op` enums, `[op]` param tags, R1 cousin lines, per-op
-   API citations, on all verbs.
-6. **R4 anchoring** — primer + drift tripwire.
-7. **New verbs** (`material`, `select op=user`, `viewport`) land with SPEC-06+, born
-   aligned.
+Stages 1–6 of the original staged plan ran as a single cut (one consumer, young surface):
+`action=`→`op=` everywhere + `nudge`→`move`; `scatter`→`foliage`
+(paint/describe/reseed/remove) + `landscape`→`terrain`; `scene` dissolved into
+`outliner`/`level`/`play` (pie_census → `play op=census`); `path`→`spline` with carve
+moved to `terrain op=carve along=`; the ergonomics pass (Literal `op` enums, R1 cousin
+lines, per-op API citations, the weight budget); R4 primer + first-dispatch version
+tripwire. `material` (stage 7) landed early — `op=instance` moved out of `asset`. Still
+future, with SPEC-06+: `select op=user`, `viewport`, `foliage op=erase` (new engine
+code, not a rename — the cutover moved names only).
 
-Renames are breaking; there is exactly one consumer (this partnership), the surface is
-young, and every day of delay adds recipes/docs/gaps written in the old words. Cut hard,
-no deprecation shims. `guidance_for_llms` / README / CLAUDE.md sweep rides stage 5.
+Migration notes that outlive the cut: runtime modules renamed to match
+(scatter.py→foliage.py, landscape.py→terrain.py, path.py→spline.py, pure math →
+heightfield.py, new material.py); `_state` keys renamed (terrains/splines/
+foliage_stands); the persisted terrain meta file renamed ueb_landscapes.json →
+ueb_terrains.json with a one-time on-hydrate adoption; the `ueb_scatter:` component-tag
+STRING is level-persisted data and deliberately keeps its old spelling (renaming it
+would orphan every existing stand — pragmatism clause, defense stated in foliage.py).
+`place.along` takes `spline=` (was `path=`); region kind `terrain` (was `landscape`).
 
 ## Verification story
 
 - **The schema-only test** (bb standard): a fresh agent with no repo priors, given only
   the verb list and schemas, correctly (a) predicts what each verb drives, (b) reaches
-  for the right verb from UE-phrased requests — “paint some pines on the hillside” →
-  `foliage`, “flatten a pad for the cabin” → `terrain op=flatten`, “what is the user
-  looking at?” → `viewport op=looking_at`. Run it as a real probe: a clean-context
-  subagent quizzed against the post-cutover schemas.
+  for the right verb from UE-phrased requests. **RAN 2026-07-03, post-cutover: 10/10.**
+  A clean-context agent given only the verb+op roster reached correctly for all ten
+  UE-phrased requests (paint pines → `foliage op=paint`, flatten a pad → `terrain
+  op=flatten`, cut the trail bed → `terrain op=carve along=`, game truth → `play`,
+  mossy variant → `material op=instance`, …) and its construct guesses were the actual
+  provenance (foliage→InstancedFoliageActor; terrain→"NOT real Landscape, a StaticMesh
+  macro"; material→MaterialInstanceConstant; spline→SplineComponent). The training-data
+  bet holds.
 - **The live pass**: every renamed/redistributed op dispatches over the RC bridge with
   behavior identical to its pre-rename twin (same handlers underneath — the cutover moves
   names, not engine code), status block intact, history/undo intact.

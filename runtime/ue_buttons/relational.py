@@ -133,17 +133,17 @@ def resolve_placement(actor, place):
         rb = ref_bounds("behind")
         cx = rb["min"][0] - w - gap; cy, cz = rb["center"][1], rb["center"][2]
 
-    if "along" in place:                     # a point offset to one side of a path
+    if "along" in place:                     # a point offset to one side of a spline
         spec = place["along"]
-        from . import path as _pathmod
-        pt, tan = _pathmod.point_and_tangent(spec["path"], spec.get("fraction", 0.5))
+        from . import spline as _splinemod
+        pt, tan = _splinemod.point_and_tangent(spec["spline"], spec.get("fraction", 0.5))
         off = spec.get("offset", spec.get("offset_cm", 0.0))
         side = spec.get("side", "left")
         # left of travel = rotate the planar tangent +90° (N=+X up, E=+Y right on view(map))
         perp = (-tan[1], tan[0]) if side == "left" else (tan[1], -tan[0])
         cx = pt[0] + perp[0] * off
         cy = pt[1] + perp[1] * off
-        cz = pt[2] + h                        # bottom sits on the draped path height
+        cz = pt[2] + h                        # bottom sits on the draped spline height
 
     if "mirror_of" in place:                 # mirror about world origin on `axis`
         src = _ue.bounds(_need(place["mirror_of"]))["center"]

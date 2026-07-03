@@ -12,14 +12,15 @@ A forest in a mountainous valley with a winding path through the trees.
 This is SPEC-01's home turf and the first rung of the environment ladder (README):
 valley → path → hamlets → castle. As a dogfood fixture it exercises:
 
-- `landscape` — valley landform (two ridge features + floor), `describe` sampling,
-  `flatten` pads.
-- `path` — route form (`{"turn": ±deg, "distance": cm}`), winding = alternating
-  gentle turns; `carve` grading; placement `along=`/`facing=` the path.
-- `scatter` — the forest as a population (species mix, density, seed), auto-clearing
-  the path. Directly stresses G14 (HISM instances not rendering).
-- `view(action="map")` — the only legal source of absolute `[x,y]`; plan the path on
-  the map, confirm the drawn result against the read intent.
+- `terrain` (built as `landscape`, renamed in SPEC-05) — valley landform (two ridge
+  features + floor), `describe` sampling, `flatten` pads.
+- `spline` (was `path`) — route form (`{"turn": ±deg, "distance": cm}`), winding =
+  alternating gentle turns; `terrain op=carve` grading; placement `along=`/`facing=`
+  the route.
+- `foliage` (was `scatter`) — the forest as a population (species mix, density, seed),
+  auto-clearing the trail. Directly stresses G14 (HISM instances not rendering).
+- (The `view(map)` bullet is history: the view verb was deleted with the no-LLM-vision
+  policy. Absolute `[x,y]` now comes from polar anchors and describe reads only.)
 
 Status: BUILT 2026-07-02 (live, through `dispatch`). 300 m valley (`landscape create`
 + `shape`: valley trough along X, two ridge walls E/W, noise — 108 m relief), a 278 m
@@ -52,7 +53,7 @@ soft spot:
 
 - **Canyon** — steep, near-vertical terrain. The heightmap-style landform features in
   SPEC-01 were designed for valleys and hills; a slot canyon stresses slope limits,
-  wall fidelity, and whether `landscape describe` stays honest on cliff faces.
+  wall fidelity, and whether `terrain op=describe` stays honest on cliff faces.
 - **Cave** — the big one: **a heightfield cannot make a cave.** One z per (x,y) means
   no overhangs, no interiors. This level forces the question SPEC-01 deferred: rock/
   cliff kit meshes composed into negative space, or DynamicMesh boolean carving. Either
