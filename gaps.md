@@ -16,7 +16,11 @@ Gaps are *friction / missing-capability / design*. Outright defects go in `bugs.
 ---
 
 ### G11 — the pack's "prebuilt cabins" are World assets, not spawnable Blueprints
-Status: OPEN (palette knowledge for the user; E2/E6 adapt)
+Status: OPEN (palette knowledge for the user; E2/E6 adapt. Reviewed 2026-07-03: the five
+World assets are SHOWCASE MAPS — Rural_Cabins + four *_Showcase — each a multi-item
+display scene, so level-instancing one would drop a whole showcase into the level, not
+"a cabin". No agent-side fix exists; the modular-composition route now has G10's
+`place={"grid": ...}`. Remaining path is user asset curation.)
 
 SPEC-01 expected "32 prebuilt cabin Blueprints" in Modular_Rural_Cabin. Reality (from
 `asset packs`/`find`): the 32 Blueprints are modular *pieces* (Wall_*, Roof_*, Porch_*) plus
@@ -30,7 +34,12 @@ wanted, they'd need to be authored from the World assets, or a `level-instance` 
 path added behind `add` (see SPEC-04 non-goals).
 
 ### G30 — no job/progress pattern for slow mutations: one pathological asset load can still outrun the HTTP timeout
-Status: OPEN (successor to B6, 2026-07-02 — the two concrete offenders are fixed, the general pattern isn't built)
+Status: OPEN (successor to B6, 2026-07-02 — the two concrete offenders are fixed, the
+general pattern isn't built. Reviewed 2026-07-03: deliberately deferred again — the
+remaining wedge is a SINGLE atomic game-thread asset load, which even a tick-based job
+can't chunk (the next dispatch would stall behind it on the game thread anyway); build
+the async job + progress pattern when a new concrete offender appears to shape it,
+not speculatively.)
 
 B6's fixes hold: `path carve` batches its flatten features into ONE mesh rebuild (38-disc
 carve round-trips in <0.5 s, was ~30 s dark), and `asset inventory measure=True` bounds each
@@ -41,23 +50,3 @@ cure is an async job + progress pattern (kick the work off the dispatch path, po
 `job_status`), or per-verb chunking as each new slow path appears. Until then: after any
 timeout, poll `/remote/info` and RE-READ state before re-issuing — timed-out work usually
 completed invisibly.
-
-### G36 — `new_level_from_template` (Open World) yields always-loaded actors that never load in PIE
-Status: OPEN (found 2026-07-02, chasing the L1 black-screen-on-Play)
-
-A level created with `LevelEditorSubsystem.new_level_from_template(..., "/Engine/Maps/
-Templates/OpenWorld")` LOOKS right in the editor but is broken at game time: every
-template-copied actor with `is_spatially_loaded=False` (DirectionalLight, SkyLight,
-SkyAtmosphere, VolumetricCloud, ExponentialHeightFog, PlayerStart, SM_SkySphere) is
-ABSENT from the PIE world — Play renders an unlit void ("black screen") and the pawn
-spawns at world origin, under any authored terrain. Spatially-loaded actors (proxies,
-ueb DynamicMeshes, foliage) stream fine; dirty+resave does NOT heal the stale
-descriptors; freshly spawned always-loaded actors work perfectly. Cure applied to
-UEB_L1_Valley: delete the template set, respawn sun/sky_light (real-time capture)/
-sky_atmosphere/clouds/height_fog/player_start fresh. Wants: (a) whatever verb/script
-creates a level must do the replace-env-set dance (or build from an empty WP map);
-(b) `scene op=streaming` (or a new game-truth check) should flag always-loaded actors
-whose descriptors won't resolve at runtime — the editor view and the PIE view of the
-same map disagreed completely and every editor-side read said "fine". Diagnosis
-pattern that worked: `editor_request_begin_play` + census the game world via
-`GameplayStatics.get_all_actors_of_class`, compare against the editor world.

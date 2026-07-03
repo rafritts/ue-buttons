@@ -32,8 +32,14 @@ def scene(include_all: bool = False, op: str = None) -> str:
     op="reconcile" (SPEC-03, closes G16): diff the ueb registry against the editor's own
       tally — clean / dirty (self|external attribution) / orphaned / untracked — and GC
       orphaned registry entries, so a level change can't leave a permanent phantom.
+    op="pie_census" (G36): GAME truth — the editor and PIE views of a map can disagree
+      completely (always-loaded template actors that never load at runtime = black screen
+      on Play while every editor read says fine). Two-step: first call snapshots the
+      always-loaded set and starts Play; call it AGAIN ~2 s later to census the game
+      world, end Play, and get the missing-at-runtime diff. Run it after authoring a
+      level's lights/PlayerStart, before handing the level to a human.
     """
-    if op in ("streaming", "reconcile"):
+    if op in ("streaming", "reconcile", "pie_census"):
         return render(call_ue("scene", {"op": op}))
     return render(call_ue("scene", {"include_all": include_all}))
 

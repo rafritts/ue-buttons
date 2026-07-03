@@ -142,6 +142,17 @@ Ctrl+Z. The honest flag is a feature; plan around it.
   something you didn't spawn.
 - **Long ops have long timeouts for a reason**: `landscape` calls run up to minutes
   (mesh rebuild). Don't parallel-fire terrain edits; sequence them.
+- **Creating a level from the Open World template is a trap** (G36): every
+  template-copied always-loaded actor (DirectionalLight, SkyLight, SkyAtmosphere,
+  VolumetricCloud, ExponentialHeightFog, PlayerStart, SkySphere) LOOKS fine in the
+  editor but its descriptor never resolves at game time — Play renders an unlit void
+  and the pawn spawns at the origin. If you (or raw editor Python) create a level with
+  `new_level_from_template(..., OpenWorld)`, immediately DELETE the template env set and
+  respawn each actor fresh (sky_light wants real_time_capture), place a PlayerStart via
+  `add(what="player_start", ...)`, save — then run `scene op=pie_census` (call it twice:
+  it starts Play, then censuses the GAME world and ends Play) and require
+  `missing_at_runtime` to be empty before handing the level to a human. Editor-side
+  reads can NOT see this defect; only the game-truth census can.
 
 ## HITL: the partnership split
 

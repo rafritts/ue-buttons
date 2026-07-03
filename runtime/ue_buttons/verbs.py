@@ -90,9 +90,12 @@ def handle(verb, params):
     params = _unstringify(params)
     # B8: during PIE the editor world reads as None/empty — a verb that runs then sees a
     # void level: mutations silently no-op and reconcile GC's every live registry entry.
-    # The verb surface targets the EDITOR world only; refuse until Play stops.
+    # The verb surface targets the EDITOR world only; refuse until Play stops. One exempt
+    # op: scene op=pie_census reads the GAME world by design (G36) and ends Play itself.
     if (unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor()
             or _ue.editor_world() is None):
+        if verb == "scene" and params.get("op") == "pie_census":
+            return _pie_census(params)
         return {"error": "the editor is in PIE (Play) — the verb surface reads and mutates "
                          "the EDITOR world, and during Play that world reads as empty "
                          "(mutations would no-op; reconcile would GC live registries — B8). "
@@ -294,6 +297,84 @@ def _block_lines(result, focus):
 
 
 # ── verbs ───────────────────────────────────────────────────────────────────
+def _pie_census(p):
+    """G36: game truth. The editor view and the PIE view of a map can disagree COMPLETELY —
+    template-copied always-loaded actors (lights, sky, PlayerStart) whose descriptors never
+    resolve at runtime render Play as an unlit void while every editor-side read says fine.
+    Two-step because begin_play is asynchronous:
+      call 1 (editor): snapshot the always-loaded expectation, request Play, return.
+      call 2 (in PIE — exempt from the B8 guard): census the GAME world per class, diff
+              against the snapshot, END Play, and name who is missing."""
+    les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
+    if not les.is_in_play_in_editor():
+        expect = {}
+        for a in _ue.all_actors():
+            try:
+                if a.get_editor_property("is_spatially_loaded"):
+                    continue        # streamed actors depend on pawn position — not judged
+            except Exception:
+                continue
+            cls = a.get_class().get_name()
+            # WP machinery + HLOD proxies legitimately differ between editor and PIE
+            # (HLODs swap in only when their source cells stream OUT) — not game truth.
+            if cls.startswith(("WorldPartition", "WorldDataLayers", "HLOD")) \
+                    or cls in ("WorldSettings", "Brush", "LevelBounds"):
+                continue
+            expect.setdefault(cls, []).append(a.get_actor_label())
+        _state.pie_census_expect = {"level": _ue.level_name(), "classes": expect}
+        les.editor_request_begin_play()
+        return {"pie": "starting",
+                "expected_always_loaded": {k: len(v) for k, v in expect.items()},
+                "note": "PIE spin-up is asynchronous — call scene op=pie_census again in "
+                        "~2 s; that call censuses the game world and ends Play"}
+    snap = getattr(_state, "pie_census_expect", None)
+    if snap is None:
+        les.editor_request_end_play()
+        return {"error": "no census snapshot — Play was started outside pie_census. "
+                         "Play is being stopped; re-issue scene op=pie_census."}
+    gw = None
+    for getter in ("get_game_world",):
+        try:
+            gw = getattr(unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem), getter)()
+        except Exception:
+            gw = None
+    if gw is None:
+        try:
+            gw = unreal.EditorLevelLibrary.get_game_world()
+        except Exception:
+            gw = None
+    if gw is None:
+        les.editor_request_end_play()
+        return {"error": "could not resolve the PIE game world; Play stopped"}
+    game = {}
+    for a in unreal.GameplayStatics.get_all_actors_of_class(gw, unreal.Actor):
+        game.setdefault(a.get_class().get_name(), []).append(a.get_actor_label())
+    les.editor_request_end_play()
+    _state.pie_census_expect = None
+    missing = {}
+    for cls, labels in snap["classes"].items():
+        present = game.get(cls, [])
+        gone = [l for l in labels if l not in present]
+        # fall back to count comparison when PIE renamed labels
+        if gone and len(present) >= len(labels):
+            gone = []
+        if gone:
+            missing[cls] = gone
+    out = {"level": snap["level"],
+           "expected_always_loaded": {k: len(v) for k, v in snap["classes"].items()},
+           "in_game": {k: len(v) for k, v in sorted(game.items())
+                       if k in snap["classes"]},
+           "missing_at_runtime": missing,
+           "pie": "ended"}
+    if missing:
+        out["verdict"] = ("BROKEN AT GAME TIME — these always-loaded actors never load in "
+                          "PIE (the G36 template defect): delete and respawn them fresh, "
+                          "then save")
+    else:
+        out["verdict"] = "game world agrees with the editor's always-loaded set"
+    return out
+
+
 def _v_scene(p):
     """Actor tree grouped by type, counts, level name. Scoped to ueb-spawned actors by
     default (gaps.md G7); pass include_all:true to see the whole level. Untracked count
@@ -308,6 +389,8 @@ def _v_scene(p):
         return rendermod.streaming_report()
     if op == "reconcile":
         return validatemod.reconcile(gc=p.get("gc", True))
+    if op == "pie_census":
+        return _pie_census(p)
     include_all = p.get("include_all", False)
     pool = _ue.all_actors() if include_all else _ue.ueb_actors()
     groups = {}
