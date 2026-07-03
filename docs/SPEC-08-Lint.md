@@ -39,7 +39,10 @@ instead of living scattered across verbs.
    whole asset inventory instead of one referent.
 3. **Spatial sweep** — floaters/sinkers, interpenetration pairs, terrain seam
    discontinuities: generalize `validate` from "check this placement" to "audit the level."
-4. **Findings format** — numbered, actor-labeled, severity-ranked, with provenance.
+4. **Findings format** — numbered, actor-labeled, severity-ranked, with provenance, and
+   **HATEOAS affordances (the project vision — see SPEC-05)**: every finding carries the
+   ready-to-fire MCP command that fixes or investigates it — "here's the error → here's
+   the command." The agent acts on findings without translating them into verb calls.
    Open decision: findings as a `lint` verb result only, vs. a persisted `lint.md`
    worklist under the gaps.md prune discipline.
 

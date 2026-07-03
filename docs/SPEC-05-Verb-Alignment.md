@@ -221,6 +221,25 @@ on its owning verb.
      pre-empted by documentation the model pays for on every single call. Runtime
      errors are paid once when hit; schema prose is paid every turn forever.
 
+## The vision: ground truth throws itself at the agent (HATEOAS)
+
+The user's statement of the ultimate goal (2026-07-03): get ground truth to the agent as
+easily as possible — the relevant data should practically THROW ITSELF at the agent, and
+staying in intent space should be effortlessly trivial. The mechanism, borrowed from
+REST's HATEOAS: **every finding, warning, and state read carries the next legal move as
+a ready-to-fire MCP command.** A `validate` finding doesn't just describe the defect —
+it says "here's the error → if you want to change it, here's the command:
+`material op=params target=… wind_weight=0`". The agent never translates a finding into
+a verb call by reasoning; the response already contains the affordance.
+
+This is the through-line of everything already built and everything planned: the status
+block (ground truth after every act), the forced senses (perception you can't skip),
+self-correcting errors (the valid values arrive WITH the failure), the author-time gate
+(the warning arrives WITH the two escape-hatch commands), and SPEC-08's findings format
+(every finding names its fix command). Verb alignment is this vision's precondition: an
+affordance is only effortless if the command it hands you is one you — and the human —
+already understand on sight.
+
 ## How the MCP feels to use (the target experience)
 
 A UE-fluent agent lands with zero repo priors and works from reflex:
