@@ -57,33 +57,6 @@ from modular pieces as E2 did. Flagged for the user (asset curation): if whole-c
 wanted, they'd need to be authored from the World assets, or a `level-instance` placement
 path added behind `add` (see SPEC-04 non-goals).
 
-### G21 — z-fight against the ground surface is undetectable (the spec's own "floor at exactly terrain height" case can never fire)
-Status: OPEN (found by SPEC-02 implementation review, 2026-07-02; deferred — needs placer-epsilon coordination first)
-
-Two design choices, each individually correct, compose into a blind spot. (1) Substrates
-(terrain, scatter stands, paths) are excluded from the neighbor pool because their AABBs
-are meaningless for overlap — right call. (2) z-fight detection is AABB-face coplanarity —
-right call for actor↔actor. Together: an actor coplanar with the *ground surface* — SPEC-02
-explicitly lists "floors at exact terrain height" as a target case — has no detector. The
-AABB method couldn't catch it anyway (a terrain's AABB max-z is its peak, not the local
-surface).
-
-But the ground detector already holds the number: `gap = base_z − trace_z`. Today
-`|gap| ≤ GROUND_EPS` (2 cm) all reads as "resting". The fix is a third band:
-`|gap| ≤ COPLANAR` (~2 mm) is *coplanar with ground* — an intent-free z-fight finding
-("base exactly at terrain surface → sink 1–2 cm or raise"), distinct from resting
-(COPLANAR < |gap| ≤ GROUND_EPS, fine). This is also the GUIDANCE_FOR_LLMS "exact equality
-is a bug, not a coincidence" lesson made mechanical. One nuance: ground-snapped placement
-(`place={"ground": true}`) intentionally produces base ≈ surface — the placement verb
-should seat with a deliberate epsilon (or auto-declare the intent) so the floor and the
-placer don't fight.
-
-Deferred deliberately (not shipped in the G18/G19 pass): the naive third band would fire a
-z-fight on EVERY ground-snapped actor, louder than the silence it replaces. Its prerequisite
-— a substrate-only ground trace — now exists (G18), but the safe version needs the placer to
-seat with a known epsilon (or auto-declare) FIRST, else detector and placer fight. Land the
-placer-epsilon convention, then add the band.
-
 ### G30 — no job/progress pattern for slow mutations: one pathological asset load can still outrun the HTTP timeout
 Status: OPEN (successor to B6, 2026-07-02 — the two concrete offenders are fixed, the general pattern isn't built)
 

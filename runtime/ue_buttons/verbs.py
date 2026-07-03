@@ -382,7 +382,9 @@ def _place_actor(actor, place, yaw=None, snap_ground=False, facing=None):
         gz = _ue.trace_ground(target[0], target[1], ignore=actor)
         if gz is not None:
             half_z = _ue.bounds(actor)["size"][2] / 2.0      # sit bounds-min on the ground
-            target = [target[0], target[1], gz + half_z]
+            # +GROUND_SEAT (G21): a deliberate hair above the trace — reads as resting,
+            # never as coplanar-with-ground, so the placer and the z-fight band can't fight.
+            target = [target[0], target[1], gz + half_z + validatemod.GROUND_SEAT]
     delta = _ue.pivot_to_center_delta(actor)                 # centre − location
     actor.set_actor_location(
         unreal.Vector(target[0] - delta[0], target[1] - delta[1], target[2] - delta[2]),
@@ -465,7 +467,7 @@ def _add_player_start(p, label, place, snap, yaw, facing):
             if snap:
                 gz = _ue.trace_ground(target[0], target[1], ignore=actor)
                 if gz is not None:
-                    z = gz + cap.get_scaled_capsule_half_height()
+                    z = gz + cap.get_scaled_capsule_half_height() + validatemod.GROUND_SEAT
             target = [target[0], target[1], z]
             actor.set_actor_location(unreal.Vector(*target), False, False)
         _ue.actor_subsystem().set_selected_level_actors([actor])

@@ -38,6 +38,9 @@ CONTACT = 0.1        # resting/flush face contact — below this is "touching", 
 GROUND_EPS = 2.0     # |base − ground| under this reads as resting; over it, float/bury
 PEN_FLOOR = 1.0      # interpenetration below this is contact noise, not a finding
 COPLANAR = 0.2       # ~2 mm — two parallel faces this close share a plane (z-fight)
+GROUND_SEAT = 0.5    # G21: ground-snap seats base THIS far above the trace — inside the
+                     # resting band, above the coplanar band, so the placer and the
+                     # ground-z-fight detector can never fight over the same actor
 
 # Intent-free checks — NO suppression path exists for these.
 _INTENT_FREE = ("z_fight",)
@@ -244,8 +247,11 @@ def _ground_findings(scope):
     """Trace under each touched actor's base-centre, against the SUBSTRATE only (every
     placed actor ignored — G18), and compare to its own min-z. A miss (nothing beneath, or
     collision not yet cooked — see bugs.md B3) is reported as an HONEST can't-verify, never
-    silently passed."""
-    out = []
+    silently passed. Returns (laden ground findings, intent-free ground-coplanar z-fights):
+    G21 — a base within COPLANAR of the terrain surface is the spec's own 'floor at exactly
+    terrain height' case; exact equality is a bug, not a coincidence. Safe to arm now that
+    ground-snap seats at +GROUND_SEAT (the placer can't produce it by accident)."""
+    out, coplanar = [], []
     ignore = _ground_ignore()
     for lbl, b in scope:
         a = _ue.find_by_label(lbl)
@@ -268,7 +274,13 @@ def _ground_findings(scope):
                         "message": f"{lbl} buried {round(-gap, 1)}cm "
                                    f"(base z={round(base_z, 1)}, ground z={round(gz, 1)}) "
                                    f"→ raise base to z={round(gz, 1)}"})
-    return out
+        elif abs(gap) <= COPLANAR and a is not None and render.is_renderable(a):
+            coplanar.append({"check": "z_fight", "a": lbl, "b": GROUND,
+                             "message": f"{lbl} base is COPLANAR with the ground surface "
+                                        f"(gap {round(gap, 2)}cm ≤ {COPLANAR}cm — exact "
+                                        f"equality z-fights) → sink 1–2cm or raise "
+                                        f"~{GROUND_SEAT}cm (ground-snap seats there)"})
+    return out, coplanar
 
 
 def _penetration_findings(scope, neighbors):
@@ -381,8 +393,9 @@ def run_validate(touched_labels=None, scene_wide=False, verbose=False):
                     "line": f"validate: nothing to check — {_unresolved_reason(labels)}"}
     neighbors = _neighbors()
 
-    zfight = _zfight_findings(scope, neighbors)
-    ground = _classify(GROUND, _ground_findings(scope), scope)
+    ground_raw, ground_coplanar = _ground_findings(scope)
+    zfight = _zfight_findings(scope, neighbors) + ground_coplanar
+    ground = _classify(GROUND, ground_raw, scope)
     pen = _classify("penetration", _penetration_findings(scope, neighbors), scope)
 
     # SPEC-03 handshake: the floor names the non-renderable actors it SKIPPED (its own
