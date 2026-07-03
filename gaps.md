@@ -182,3 +182,11 @@ reference the deleted pack until a `whats_new` rebaseline. Resolution: probably 
 deletion manual (destructive, rare) but make the surface honest about it — `whats_new`
 should flag vanished packs and evict their cached dims, and `asset packs` shouldn't
 serve a pack that no longer exists on disk.
+
+G29 addendum (verified live after the removal, 2026-07-02): the surface handled the
+vanished pack better than feared — `asset packs` reads the live registry (KiteDemo gone
+immediately, no stale serving) and `whats_new` reported `removed_roots: ["KiteDemo"]`
+and rebaselined cleanly. Remaining unverified: whether the persisted dims cache evicts
+the dead pack's entries. Also observed: RockEnv_Pack Texture2D count 20→12 in the same
+diff — possibly a boot-time registry-scan race (whats_new ran seconds after editor
+launch); watch whether it reverts on a later diff.
