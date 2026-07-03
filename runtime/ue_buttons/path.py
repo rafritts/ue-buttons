@@ -246,7 +246,8 @@ def _surface(p):
     elif path.get("surface", {}).get("material"):
         mat_path = path["surface"]["material"]
     width = float(p.get("width", path["width"]))
-    lift = float(p.get("lift", 3.0))
+    lift = float(p.get("lift", 5.0))    # 5 cm default: crest guards catch edge-scale bumps,
+                                        # the lift swallows the sub-edge residue (G34)
     tile = float(p.get("tile", 400.0))              # UV tiling: one texture repeat per `tile` cm
     strip_label = path.get("surface_actor", f"{label}_surface")
 
@@ -254,29 +255,71 @@ def _surface(p):
     spacing = max(width / 2.0, 150.0)
     n = max(2, int(cum[-1] / spacing))
     old = _ue.find_by_label(strip_label)
-    verts, uvs, misses = [], [], 0
+    misses = 0
     zs_by_frac = [z for _, _, z in path["points"]]
+
+    def _draped_z(frac):
+        fi = frac * (len(zs_by_frac) - 1)
+        i0 = int(fi); i1 = min(i0 + 1, len(zs_by_frac) - 1)
+        return zs_by_frac[i0] + (zs_by_frac[i1] - zs_by_frac[i0]) * (fi - i0)
+
+    # pass 1: rows of THREE columns (left edge, centreline, right edge). With only two
+    # verts across, a ground crest under the strip's middle cannot be represented at all —
+    # the quad renders its corners' bilinear while the bed crowns through it (G34's actual
+    # geometry, found by the mid-span census: every worst poke sat at lateral 0.5).
+    offs = [width / 2.0, 0.0, -width / 2.0]
+    pos, grounds = [], []                            # pos[i] = [(x,y) L, C, R]
     for i in range(n + 1):
         (x, y), (tx, ty) = _point_at_fraction(poly, cum, i / n)
         nx, ny = -ty, tx                            # planar left normal
-        along = (i / n) * cum[-1]
-        for sgn in (1.0, -1.0):
-            vx, vy = x + nx * sgn * width / 2.0, y + ny * sgn * width / 2.0
+        row_p, row_g = [], []
+        for off in offs:
+            vx, vy = x + nx * off, y + ny * off
             z = _ue.trace_ground(vx, vy, ignore=old)
             if z is None:                            # fall back to the draped waypoint z
                 misses += 1
-                fi = (i / n) * (len(zs_by_frac) - 1)
-                i0 = int(fi); i1 = min(i0 + 1, len(zs_by_frac) - 1)
-                z = zs_by_frac[i0] + (zs_by_frac[i1] - zs_by_frac[i0]) * (fi - i0)
-            verts.append(unreal.Vector(vx, vy, z + lift))
-            uvs.append(unreal.Vector2D((0.0 if sgn > 0 else width / tile), along / tile))
+                z = _draped_z(i / n)
+            row_p.append((vx, vy)); row_g.append(z)
+        pos.append(row_p); grounds.append(row_g)
+    # pass 2 (G34): the ground can also crest BETWEEN adjacent verts. Trace every mesh
+    # edge's midpoint — longitudinal per column and lateral per row — against the linear
+    # interpolation that edge will render, and raise both endpoints by the CONVEX excess
+    # only (a uniform slope has zero excess, so grades never inflate the lift; only
+    # genuine bumps push the strip up).
+    raise_by = [[0.0, 0.0, 0.0] for _ in range(n + 1)]
+    guards = [0]
+    def _guard(ia, ca, ib, cb):
+        (ax, ay), (bx, by) = pos[ia][ca], pos[ib][cb]
+        g = _ue.trace_ground((ax + bx) / 2.0, (ay + by) / 2.0, ignore=old)
+        if g is None:
+            return
+        excess = g - (grounds[ia][ca] + grounds[ib][cb]) / 2.0
+        if excess > 0.5:                             # ignore trace noise
+            raise_by[ia][ca] = max(raise_by[ia][ca], excess)
+            raise_by[ib][cb] = max(raise_by[ib][cb], excess)
+            guards[0] += 1
+    for i in range(n + 1):
+        _guard(i, 0, i, 1); _guard(i, 1, i, 2)       # lateral
+    for c in (0, 1, 2):
+        for i in range(n):
+            _guard(i, c, i + 1, c)                   # longitudinal
+    crest_guards = guards[0]
+    verts, uvs = [], []
+    for i in range(n + 1):
+        along = (i / n) * cum[-1]
+        for c in (0, 1, 2):
+            vx, vy = pos[i][c]
+            verts.append(unreal.Vector(vx, vy, grounds[i][c] + raise_by[i][c] + lift))
+            uvs.append(unreal.Vector2D((width / tile) * (c / 2.0), along / tile))
     tris = []
     for i in range(n):
-        a = 2 * i                                   # row i: (a=left, a+1=right)
-        # Both windings per quad: the strip must read from above AND below regardless of
-        # the engine's facing convention — it's a 2D ribbon, not a solid.
-        tris += [unreal.IntVector(a, a + 2, a + 1), unreal.IntVector(a + 1, a + 2, a + 3),
-                 unreal.IntVector(a, a + 1, a + 2), unreal.IntVector(a + 1, a + 3, a + 2)]
+        for c in (0, 1):
+            a = 3 * i + c                            # sub-quad (a, a+1, a+3, a+4)
+            b = a + 3
+            # Both windings per quad: the strip must read from above AND below regardless
+            # of the engine's facing convention — it's a 2D ribbon, not a solid.
+            tris += [unreal.IntVector(a, b, a + 1), unreal.IntVector(a + 1, b, b + 1),
+                     unreal.IntVector(a, a + 1, b), unreal.IntVector(a + 1, b + 1, b)]
 
     if old is not None:
         _ue.actor_subsystem().destroy_actor(old)
@@ -312,6 +355,8 @@ def _surface(p):
         out["notes"] = ["no material given — the strip renders with the engine default "
                         "(flat grey); pass material=<name|/Game path> "
                         "(asset find kind=material to browse)"]
+    if crest_guards:
+        out["crest_guards"] = crest_guards           # mid-span crests the strip was raised over (G34)
     if misses:
         out.setdefault("notes", []).append(
             f"{misses}/{len(verts)} strip vertices traced no ground — used draped path z")

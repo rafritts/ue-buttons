@@ -129,14 +129,6 @@ amplified it into a wet look until the material's Normal/Roughness Power were tu
 `landscape` wants a `uv_tile_cm=` (target texel density) applied when the mesh is built,
 so a tiling material renders at its authored scale.
 
-### G34 — path surface ribbon: terrain pokes through between samples
-Status: OPEN (found 2026-07-02, L1 replay — cosmetic, one spot in 274 m)
-
-The strip drapes vertex pairs every ~175 cm with lift=3 cm; a terrain bump cresting
-between two sample rows can pierce the ribbon (one green patch mid-trail in the L1
-shots). Cheap fixes: sample the max of several traces per across-segment, or default
-lift a bit higher (5–8 cm), or subdivide where the longitudinal slope changes fastest.
-
 ### G35 — no verb can place a PlayerStart: an authored scene always needs one
 Status: OPEN (found 2026-07-02, L1 replay — the user asked for player insertion at the trailhead)
 
