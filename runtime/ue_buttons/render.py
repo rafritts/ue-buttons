@@ -67,7 +67,13 @@ def _prop(obj, name, default=None):
 
 
 def _prim_components(actor):
-    return list(actor.get_components_by_class(unreal.PrimitiveComponent))
+    """RENDERABLE primitives only: editor-only components (a PlayerStart's sprite/arrow)
+    never draw at runtime, and shape components (its capsule) are collision wireframes —
+    judging their visibility flags nags 'component visibility off' on actors that are
+    perfectly healthy gameplay markers (G35)."""
+    return [c for c in actor.get_components_by_class(unreal.PrimitiveComponent)
+            if not bool(_prop(c, "is_editor_only", False))
+            and not isinstance(c, unreal.ShapeComponent)]
 
 
 # ── the gating chain, per primitive component ──────────────────────────────────
@@ -179,6 +185,12 @@ def walk_actor(actor):
     comps = _prim_components(actor)
     resident = _prop(actor, "is_spatially_loaded", True)
     if not comps:
+        if list(actor.get_components_by_class(unreal.PrimitiveComponent)):
+            # Only editor-only sprites / collision shapes: a gameplay MARKER (PlayerStart).
+            # Nothing is supposed to draw at runtime, so nothing is broken (G35).
+            return {"label": actor.get_actor_label(), "draws": True, "comps": 0,
+                    "resident": resident, "first_break": None, "marker": True,
+                    "components": []}
         return {"label": actor.get_actor_label(), "draws": False, "comps": 0,
                 "resident": resident, "first_break": ("bounded", "no primitive component to draw"),
                 "components": []}

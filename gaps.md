@@ -120,22 +120,6 @@ data) — three escalating user reports before the cause was found, and no mecha
 read can see WPO at all (collision never moves). A material vet should also report
 "has WPO / parented outside /Game" as a warning.
 
-### G35 — no verb can place a PlayerStart: an authored scene always needs one
-Status: OPEN (found 2026-07-02, L1 replay — the user asked for player insertion at the trailhead)
-
-Every authored scene ends at the same question: "where does the player drop in?" The
-surface has no answer — `add` spawns primitives and StaticMesh/Blueprint assets only;
-gameplay/engine actors (PlayerStart first among them) can't be placed, perceived, or
-relocated through the verbs. The L1 trailhead insertion was done with raw editor Python
-(relocate the Open World template's PlayerStart, seat at traced grade + 92 cm capsule
-half-height, yaw = trail start bearing). Wants: a first-class way to say "insert the
-player HERE facing THAT" with the usual relational/polar/path vocabulary (e.g.
-`add(what="player_start", place={"along": {"path": "trail", "fraction": 0}},
-facing=...)` or a small `scene`/`add` sibling), ground-seated by trace like any
-placement, and visible to `scene`/`feel`/`view(map)` as a marker. Note the template
-level already ships one PlayerStart — creating a second silently wins/loses by
-priority; the verb should relocate-or-create, not blindly spawn.
-
 ### G36 — `new_level_from_template` (Open World) yields always-loaded actors that never load in PIE
 Status: OPEN (found 2026-07-02, chasing the L1 black-screen-on-Play)
 

@@ -66,6 +66,20 @@ def bounds(actor):
     }
 
 
+def support_point(actor, b=None):
+    """Where the actor meets the ground: [x, y, base_z]. Normally the AABB centre/min-z;
+    for a capsule-only gameplay marker (PlayerStart) it is the CAPSULE's axis and bottom —
+    the editor sprite/arrow components inflate the AABB ~40 cm past (and off-centre of)
+    the capsule, so raw bounds read as 'buried' on a perfectly seated start and trace the
+    grade half a metre from where the pawn actually stands (G35)."""
+    cap = actor.get_component_by_class(unreal.CapsuleComponent)
+    if cap is not None and actor.get_component_by_class(unreal.StaticMeshComponent) is None:
+        loc = actor.get_actor_location()
+        return [loc.x, loc.y, loc.z - cap.get_scaled_capsule_half_height()]
+    b = b if b is not None else bounds(actor)
+    return [b["center"][0], b["center"][1], b["min"][2]]
+
+
 def load_asset(path):
     """EditorAssetLibrary.load_asset with a fallback: freshly created-and-saved assets
     (e.g. GeometryScript-baked static meshes) can sit in the registry while

@@ -248,8 +248,9 @@ def _ground_findings(scope):
     out = []
     ignore = _ground_ignore()
     for lbl, b in scope:
-        cx, cy = b["center"][0], b["center"][1]
-        base_z = b["min"][2]
+        a = _ue.find_by_label(lbl)
+        cx, cy, base_z = (_ue.support_point(a, b) if a is not None
+                          else [b["center"][0], b["center"][1], b["min"][2]])
         gz = _ue.trace_ground(cx, cy, ignore=ignore)
         if gz is None:
             out.append({"check": GROUND, "a": lbl, "b": GROUND, "kind": "unverifiable",
@@ -567,9 +568,10 @@ def feel_delta(label):
     # (thing sits on terrain), which AABB-face math can NEVER see because a terrain's AABB
     # top is its highest ridge, not the surface under the actor (gaps.md G19). Same trace
     # the floor runs, folded in as PERCEPTION (no verdict — the validate line judges).
-    gz = _ue.trace_ground(b["center"][0], b["center"][1], ignore=_ground_ignore())
+    sx, sy, base_z = _ue.support_point(a, b)
+    gz = _ue.trace_ground(sx, sy, ignore=_ground_ignore())
     if gz is not None:
-        gap = round(b["min"][2] - gz, 1)
+        gap = round(base_z - gz, 1)
         if abs(gap) <= GROUND_EPS:
             rels.append(f"rests_on ground (traced, gap {abs(gap)}cm)")
         elif gap > 0:

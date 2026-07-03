@@ -398,11 +398,19 @@ def _v_add(p):
     label = p.get("label")
     if not label:
         return {"error": "add requires a unique 'label'"}
-    if _ue.find_by_label(label) is not None:
-        return {"error": f"label '{label}' already exists (labels must be unique)"}
     place, snap = _ground_flag(p.get("place") or {})
     yaw = p.get("yaw")
     facing = p.get("facing")
+
+    if p.get("what") == "player_start":
+        # G35 — before the label-unique check: relocate-or-create means re-running against
+        # the existing start (same label) is legal, not a collision.
+        if p.get("place") is None:
+            snap = True                      # a start must stand ON the ground by default
+        return _add_player_start(p, label, place, snap, yaw, facing)
+
+    if _ue.find_by_label(label) is not None:
+        return {"error": f"label '{label}' already exists (labels must be unique)"}
 
     if p.get("asset"):
         return _add_asset(p, label, place, snap, yaw, facing)
@@ -420,6 +428,59 @@ def _v_add(p):
     op_id = _state.log_op(txn.op_id, "add", f"{shape} '{label}' {dims}cm",
                           f"ueb add {label}")
     return {"added": label, "shape": shape, "dims": dims, "op": op_id}
+
+
+def _add_player_start(p, label, place, snap, yaw, facing):
+    """G35: "where does the player drop in?" as a first-class placement. RELOCATE-or-create:
+    the template level already ships a PlayerStart, and a second one silently wins or loses
+    by priority — so an existing start is moved, never shadowed. Seated by the shared
+    placement tail (capsule bottom on the traced ground), tagged ueb so scene/feel/view(map)
+    see it, and facing/yaw give the spawn direction (bearing = UE yaw)."""
+    w = _ue.editor_world()
+    existing = list(unreal.GameplayStatics.get_all_actors_of_class(w, unreal.PlayerStart))
+    holder = _ue.find_by_label(label)
+    if holder is not None and holder not in existing:
+        return {"error": f"label '{label}' already exists (labels must be unique)"}
+    with _Txn("add") as txn:
+        if existing:
+            actor = holder if holder in existing else existing[0]
+            relocated = True
+        else:
+            actor = _ue.actor_subsystem().spawn_actor_from_class(
+                unreal.PlayerStart, unreal.Vector(0.0, 0.0, 0.0))
+            relocated = False
+        actor.set_actor_label(label)
+        tags = list(actor.tags)
+        if unreal.Name(_ue.UEB_TAG) not in tags:
+            tags.append(unreal.Name(_ue.UEB_TAG))
+            actor.tags = tags
+        target = _place_actor(actor, place, yaw=yaw, snap_ground=snap, facing=facing)
+        # The pawn spawns at the actor LOCATION, and the AABB includes editor-only sprite
+        # components (~2.6× the capsule) — so the shared bounds-centre/bounds-min seat puts
+        # the spawn point half a metre off the resolved point and floats the capsule ~40 cm.
+        # Reseat by what actually matters: capsule centred ON the point, bottom at grade.
+        cap = actor.get_component_by_class(unreal.CapsuleComponent)
+        if cap is not None:
+            z = actor.get_actor_location().z
+            if snap:
+                gz = _ue.trace_ground(target[0], target[1], ignore=actor)
+                if gz is not None:
+                    z = gz + cap.get_scaled_capsule_half_height()
+            target = [target[0], target[1], z]
+            actor.set_actor_location(unreal.Vector(*target), False, False)
+        _ue.actor_subsystem().set_selected_level_actors([actor])
+    rot = actor.get_actor_rotation()
+    op_id = _state.log_op(txn.op_id, "add",
+                          f"player_start '{label}' at {[round(v) for v in target]}",
+                          f"ueb add {label}")
+    out = {"added": label, "kind": "player_start", "relocated": relocated,
+           "at": [round(v, 1) for v in target],
+           "facing_bearing_deg": round(rot.yaw % 360.0, 1), "op": op_id}
+    if len(existing) > 1:
+        out["warning"] = (f"{len(existing)} PlayerStarts in the level — the engine picks by "
+                          f"priority; moved '{actor.get_actor_label()}', the others still "
+                          "compete. Delete the extras or relocate them too.")
+    return out
 
 
 def _add_asset(p, label, place, snap, yaw, facing=None):

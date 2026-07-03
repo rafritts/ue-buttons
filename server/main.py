@@ -45,6 +45,11 @@ def add(label: str, what: str = None, asset: str = None, dims: list = None,
 
     Two spawn modes (give exactly one of what= / asset=):
       what:  cube | sphere | cylinder | cone | plane — a primitive at EXACT cm dims.
+             ALSO: player_start — "insert the player HERE facing THAT" (G35). RELOCATES the
+             level's existing PlayerStart rather than shadowing it (a second start competes
+             by priority), seats the capsule on the traced ground, and takes the usual
+             place/yaw/facing vocabulary. dims not accepted. Re-running with the same label
+             is legal (relocate semantics).
       asset: a project StaticMesh or Blueprint by inventory name (see the `asset` verb) or
              full /Game path — e.g. "Wall_Window_4m", "Branch_Norway_Maple_Live_03", or a
              prebuilt cabin Blueprint. Ambiguous short names error with candidates. Placed
