@@ -150,7 +150,7 @@ def _measure_mesh(path, load=True):
         return hit
     if not load:
         return None
-    m = unreal.EditorAssetLibrary.load_asset(path)
+    m = _ue.load_asset(path)
     if not isinstance(m, unreal.StaticMesh):
         return None
     bb = m.get_bounding_box()

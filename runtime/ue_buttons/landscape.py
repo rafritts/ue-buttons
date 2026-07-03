@@ -95,7 +95,7 @@ def _rebuild(actor, meta):
     comp.set_collision_enabled(unreal.CollisionEnabled.QUERY_AND_PHYSICS)
     mat_path = meta.get("material")
     if mat_path:                                    # G25: an assigned material survives rebuilds
-        m = unreal.EditorAssetLibrary.load_asset(mat_path)
+        m = _ue.load_asset(mat_path)
         if m is not None:
             comp.set_material(0, m)
     return len(positions)

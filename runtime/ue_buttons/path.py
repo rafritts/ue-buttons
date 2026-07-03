@@ -300,7 +300,7 @@ def _surface(p):
     comp.set_dynamic_mesh(mesh)
     comp.set_collision_enabled(unreal.CollisionEnabled.QUERY_AND_PHYSICS)
     if mat_path:
-        m = unreal.EditorAssetLibrary.load_asset(mat_path)
+        m = _ue.load_asset(mat_path)
         if m is not None:
             comp.set_material(0, m)
     path["surface_actor"] = strip_label

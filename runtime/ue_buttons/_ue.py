@@ -66,11 +66,25 @@ def bounds(actor):
     }
 
 
+def load_asset(path):
+    """EditorAssetLibrary.load_asset with a fallback: freshly created-and-saved assets
+    (e.g. GeometryScript-baked static meshes) can sit in the registry while
+    EditorAssetLibrary still refuses them until an editor restart; unreal.load_asset
+    resolves them fine. Prefer this everywhere over the raw call."""
+    m = unreal.EditorAssetLibrary.load_asset(path)
+    if m is None:
+        try:
+            m = unreal.load_asset(path)
+        except Exception:
+            m = None
+    return m
+
+
 def spawn_basic_shape(shape, location):
     """Spawn a BasicShapes actor at a world location (cm). Returns the actor. Caller
     sets label + scale inside the surrounding transaction."""
     path = BASIC_SHAPES[shape]
-    mesh = unreal.EditorAssetLibrary.load_asset(path)
+    mesh = load_asset(path)
     loc = unreal.Vector(location[0], location[1], location[2])
     actor = actor_subsystem().spawn_actor_from_object(mesh, loc)
     actor.tags = [unreal.Name(UEB_TAG)]     # scope tag for perception (gaps.md G7)
@@ -87,7 +101,7 @@ def set_scale_for_dims(actor, dims_cm):
 def spawn_static_mesh(mesh_path, location):
     """Spawn a project StaticMesh actor at a world location (cm), tagged ueb. Placed at
     NATIVE scale — marketplace dims are placement information, not a resize invitation."""
-    mesh = unreal.EditorAssetLibrary.load_asset(mesh_path)
+    mesh = load_asset(mesh_path)
     if not isinstance(mesh, unreal.StaticMesh):
         raise ValueError(f"'{mesh_path}' is not a StaticMesh ({type(mesh).__name__})")
     actor = actor_subsystem().spawn_actor_from_object(

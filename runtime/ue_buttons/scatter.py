@@ -224,7 +224,7 @@ def _foliage_type_for(label, idx, mesh_path):
     atools = unreal.AssetToolsHelpers.get_asset_tools()
     ft = atools.create_asset(name, _FOLIAGE_DIR, unreal.FoliageType_InstancedStaticMesh,
                              unreal.FoliageType_InstancedStaticMeshFactory())
-    ft.set_editor_property("mesh", unreal.EditorAssetLibrary.load_asset(mesh_path))
+    ft.set_editor_property("mesh", _ue.load_asset(mesh_path))
     return ft, full
 
 
