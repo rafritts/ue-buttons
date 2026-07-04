@@ -626,6 +626,24 @@ def accrue_drift(verb):
     return _reground_recap()
 
 
+def spatial_roster():
+    """G43: one line of population-shaped content from the ueb registries — terrains,
+    splines (length), stands (instance count). The actor-shaped summaries (status block,
+    census, re-ground) all undercount the world without it; five numbers fix all three."""
+    parts = []
+    if _state.terrains:
+        parts.append("terrains: " + ", ".join(sorted(_state.terrains)))
+    if _state.splines:
+        parts.append("splines: " + ", ".join(
+            f"{k} {round(v.get('length_cm', 0) / 100.0)}m"
+            for k, v in sorted(_state.splines.items())))
+    if _state.foliage_stands:
+        parts.append("stands: " + ", ".join(
+            f"{k} {v.get('count', '?')}"
+            for k, v in sorted(_state.foliage_stands.items())))
+    return " · ".join(parts)
+
+
 def _reground_recap():
     actors = [a.get_actor_label() for a in _ue.ueb_actors()]
     subs = _substrates()
@@ -634,6 +652,7 @@ def _reground_recap():
     holding = [f"{e['a']}↔{e['b']}" for e in _state.intents if e.get("status") == "holding"]
     vanished = [f"{e['a']}↔{e['b']}" for e in _state.intents if e.get("status") == "vanished"]
     return {"actor_count": len(placed), "actors": listed,
+            "spatial": spatial_roster(),
             "declared_holding": holding, "declared_vanished": vanished}
 
 

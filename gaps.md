@@ -66,67 +66,6 @@ validator-subsystem APIs (never console MAP CHECK through RC), and expect our ow
 (registered via `add_validator` as Python `EditorValidatorBase` subclasses) to carry the
 real weight.
 
-### G42 — `facing=<spline>` is degenerate for an actor standing ON that spline
-Status: OPEN (found 2026-07-03, post-SPEC-05 L1 rebuild — placing the player_start
-`along=` the trail with `facing="trail"`.)
-
-`facing=<spline label>` means "turn to face the route" — perpendicular, toward the
-nearest point. That's right for a cabin *beside* the trail, but for an actor placed ON
-the spline it yields a sideways bearing (got 295.3° where the tangent was 25.3°) with no
-warning, and nothing about the result says "you are ON the thing you're facing". The
-recovery was a `spline op=describe at_fraction=` read + explicit `yaw=` — fine, but two
-extra round trips for the single most natural trailhead intent ("start here, looking
-down the path").
-
-Fix shape: when the actor's position lies within the spline's width (it was just placed
-`along=` it), `facing=<that spline>` should mean the TANGENT bearing at that fraction —
-or at minimum warn and hand back the tangent as the ready-to-fire alternative
-(HATEOAS: the finding carries the next legal move).
-
-### G43 — spatial content is invisible to the actor-shaped perception surfaces (status block, outliner census, re-ground)
-Status: OPEN (found 2026-07-03, post-SPEC-05 L1 retrospective — one root cause, three
-symptoms.)
-
-The level's content is population-shaped (a terrain, a spline, 17k foliage instances)
-but every summary surface counts placed ACTORS:
-- `outliner op=census` after the full L1 build: `count: 3` (PlayerStart + 2
-  DynamicMeshActors). The 17,075-instance forest — the largest thing in the level by
-  three orders of magnitude — doesn't appear (instances live in the untracked
-  InstancedFoliageActor).
-- The re-ground block fired mid-build saying `scene: 0 placed actor(s)` while a terrain,
-  a 287 m trail, and two stands existed. An undercount that severe trains the agent to
-  ignore re-ground blocks.
-- The status block has no spatial roster at all — after the forest lands, nothing on any
-  subsequent block says it exists.
-
-Fix shape: one roster line sourced from the ueb registries, on the status block and in
-the census, e.g. `terrains: valley · splines: trail 287m · stands: pine_forest 1916,
-understory 15159`. Five numbers close all three symptoms at once. Re-ground should count
-registries too, not just placed actors.
-
-### G44 — the repeated `validate: OFF for this edit` paragraph is pure token weight
-Status: OPEN (found 2026-07-03, post-SPEC-05 L1 retrospective.)
-
-Every spatial-verb result carries the same three-line boilerplate ("the actor floor
-checks placed actors (add/transform), not the terrain/population itself; `validate
-op=run` to sweep…"), verbatim — six times in a nine-call build. The first occurrence
-teaches; the rest are noise in exactly the surface (the forced senses) whose value is
-signal density. Fix shape: compress to `validate: n/a (spatial)` after the first
-occurrence per session, or always — the long form belongs in the verb description, which
-already carries it.
-
-### G45 — no grade/steepness instrument along a spline
-Status: OPEN (found 2026-07-03, post-SPEC-05 L1 build.)
-
-The trail drops 1885→1153 cm between waypoints and shipped with no read for whether
-that's walkably steep — the agent can get z at waypoints (`spline op=describe`) and do
-provenance-clean arithmetic, but grade-along-route is exactly the kind of derived number
-the substrate should hand over (THE ONE RULE: the substrate does the arithmetic).
-Playtest FEEL stays the human's; slope percent is a number and numbers are the agent's.
-Fix shape: `spline op=describe` grows a grade profile — per-segment grade %, max grade +
-where, e.g. `grade: avg 4.2%, max 14.8% at fraction 0.63` — and maybe a warning
-threshold (hiking-trail reality: >15–20% reads as scrambling, not walking).
-
 ### G30 — no job/progress pattern for slow mutations: one pathological asset load can still outrun the HTTP timeout
 Status: OPEN (successor to B6, 2026-07-02 — the two concrete offenders are fixed, the
 general pattern isn't built. Reviewed 2026-07-03: deliberately deferred again — the

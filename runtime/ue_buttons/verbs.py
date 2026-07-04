@@ -183,6 +183,17 @@ def _warnings(result):
 
 def _status_block(verb, params, result):
     focus = _focus_label(verb, params, result)
+    # B10: `last_action` must describe the last ueb dispatch that CHANGED the world, not
+    # the last history transaction — spatial verbs never mint one, so the history entry
+    # went stale (a prior session's op) across an entire terrain/spline/foliage build.
+    # Set lazily on _state (never-reloaded module: a new name needs hasattr, not a
+    # module-level default). Read ops (op=describe) change nothing and are skipped.
+    if (verb in MUTATING or verb in SPATIAL) and params.get("op") != "describe":
+        hist = _state.last_op()
+        _state.last_dispatch = {
+            "verb": verb, "op": params.get("op"), "subject": focus,
+            "id": hist["id"] if (verb in MUTATING and hist) else None,
+            "undoable": verb in MUTATING}
     lines = []
 
     # 1. warnings channel — ahead of everything, ⚠-marked, never lost.
@@ -209,9 +220,9 @@ def _status_block(verb, params, result):
         fd = result.get("feel") or validatemod.feel_delta(focus)
         if fd:
             lines.append(fd)
-        lines.append("validate: OFF for this edit — the actor floor checks placed actors "
-                     "(add/transform), not the terrain/population itself; `validate op=run` "
-                     "to sweep placed actors against it")
+        # G44: one short line — the long explanation lives in the validate verb's own
+        # description; repeating it verbatim on every spatial call was pure token weight.
+        lines.append("validate: n/a (spatial edit) — op=run sweeps placed actors")
         # Sense 3 for populations — the motivating case (a stand correct in every data
         # probe that draws nothing). Terrain/spline render-walk is the next increment.
         if verb == "foliage" and focus:
@@ -227,6 +238,8 @@ def _status_block(verb, params, result):
         if rg:
             lines.append("── re-ground (significant changes since the last checkpoint) ──")
             lines.append(f"  scene: {rg['actor_count']} placed actor(s): {rg['actors']}")
+            if rg.get("spatial"):
+                lines.append(f"  spatial: {rg['spatial']}")
             if rg["declared_holding"]:
                 lines.append(f"  intended contacts holding: {', '.join(rg['declared_holding'])}")
             if rg["declared_vanished"]:
@@ -283,9 +296,22 @@ def _block_lines(result, focus):
     acted = _ue.find_by_label(focus) if focus else None
     vp_active = sel[-1] if sel else None
     show = acted or vp_active
+    # SPEC-04 rider: the dirty flag on every block makes "the build is stranded unsaved"
+    # ambient instead of tribal knowledge — save itself still awaits the lifecycle verbs.
+    dirty = ""
+    try:
+        if unreal.EditorLoadingAndSavingUtils.get_dirty_map_packages():
+            dirty = "  (UNSAVED — no save verb yet, the human saves; SPEC-04)"
+    except Exception:
+        pass
     lines = ["── ue status ───────────────────────────────",
-             f"  level:      {_ue.level_name()}",
+             f"  level:      {_ue.level_name()}{dirty}",
              f"  selected:   {sel_labels}"]
+    # G43: the population-shaped content, from the ueb registries — without this line the
+    # largest things in the level (a 17k-instance forest) are invisible to every summary.
+    roster = validatemod.spatial_roster()
+    if roster:
+        lines.append(f"  spatial:    {roster}")
     if acted is not None and vp_active is not None and \
             acted.get_actor_label() != vp_active.get_actor_label():
         lines.append(f"  acted_on:   {acted.get_actor_label()}  ⟵ bounds below are THIS actor")
@@ -302,7 +328,10 @@ def _block_lines(result, focus):
         lines.append(f"              bounds: x={bx} y={by} z={bz}")
     else:
         lines.append("  active:     (none)")
-    lines.append(f"  last_action: {_state.last_op()}")
+    # B10: the last world-changing ueb dispatch (any verb kind), never a stale history
+    # entry from before the current call chain.
+    ld = getattr(_state, "last_dispatch", None)
+    lines.append(f"  last_action: {ld if ld else '(none this session)'}")
     lines.append("────────────────────────────────────────────")
     return lines
 
@@ -414,6 +443,23 @@ def _v_outliner(p):
            "count": sum(len(v) for v in groups.values()),
            "untracked": untracked,
            "actors": {k: sorted(v) for k, v in groups.items()}}
+    # G43: the census is actor-shaped but the content is population-shaped — a
+    # 17k-instance forest lives in the untracked InstancedFoliageActor and would
+    # otherwise not appear at all. Report the registries alongside the actor tree.
+    spatial = {}
+    if _state.terrains:
+        spatial["terrains"] = sorted(_state.terrains)
+    if _state.splines:
+        spatial["splines"] = {k: f"{round(v.get('length_cm', 0) / 100.0)} m"
+                              for k, v in sorted(_state.splines.items())}
+    if _state.foliage_stands:
+        spatial["foliage_stands"] = {k: f"{v.get('count', '?')} instances"
+                                     for k, v in sorted(_state.foliage_stands.items())}
+    if spatial:
+        spatial["note"] = ("foliage instances live in the level's InstancedFoliageActor "
+                           "(untracked above); outliner op=reconcile checks these "
+                           "registries against the editor's own tally")
+        out["spatial"] = spatial
     # G22: the template's stowaway ground plane is acknowledged, not hidden — an agent
     # reading `scene` learns which ground its traces will answer to.
     proxies = _ue.engine_landscape_actors()
@@ -479,12 +525,18 @@ def _ground_flag(place):
 def _facing_yaw(place, facing):
     """Compass yaw (deg) that points the actor's +X toward a spline. `facing` is a spline
     label; the object faces the spline point at the along-fraction it was placed at (or the
-    midpoint), from its offset side — "cabin_2 facing the trail" reads as looking at the road."""
+    midpoint), from its offset side — "cabin_2 facing the trail" reads as looking at the road.
+    G42: an actor standing ON the spline it faces (placed along= it, offset inside the
+    half-width) gets the TANGENT bearing instead — "facing the trail" from on the trail
+    means looking down it, not sideways at your own feet."""
     import math
     spec = place.get("along") or {}
     frac = spec.get("fraction", 0.5)
     pt, tan = splinemod.point_and_tangent(facing, frac)
     off = spec.get("offset", spec.get("offset_cm", 0.0))
+    if spec.get("spline") == facing and \
+            abs(off) <= (_state.splines.get(facing) or {}).get("width", 0.0) / 2.0:
+        return math.degrees(math.atan2(tan[1], tan[0])) % 360.0
     side = spec.get("side", "left")
     perp = (-tan[1], tan[0]) if side == "left" else (tan[1], -tan[0])
     # object sits at pt + perp*off; direction back to the path centre is -perp

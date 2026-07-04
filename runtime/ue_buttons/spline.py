@@ -169,6 +169,14 @@ def _describe(p):
     out = {"label": label, "waypoint_count": len(path["points"]),
            "length_cm": round(cum[-1], 1), "width_cm": path["width"],
            "waypoints": [[round(v, 1) for v in pt] for pt in path["points"]]}
+    grade = _grade_profile(path["points"])
+    if grade:
+        out["grade"] = grade
+        if grade["max_pct"] > 20.0:
+            out.setdefault("notes", []).append(
+                f"max grade {grade['max_pct']}% at fraction {grade['max_at_fraction']} — "
+                f"steeper than a walkable trail (~15–20% is scrambling territory); "
+                f"terrain op=carve re-grades the bed, or reroute the steep segment")
     if "at_fraction" in p:
         (x, y), (tx, ty) = _point_at_fraction(poly, cum, p["at_fraction"])
         z = _ue.trace_ground(x, y)
@@ -177,6 +185,33 @@ def _describe(p):
                      round(z, 1) if z is not None else None],
                      "tangent": [round(tx, 3), round(ty, 3)], "bearing_deg": round(bearing, 1)}
     return out
+
+
+def _grade_profile(points):
+    """G45: slope-along-route as numbers — per-segment grade % from LIVE ground traces at
+    the waypoints (post-carve reality, not the creation-time z), plus avg/max and where the
+    max sits. Playtest FEEL stays the human's; steepness is an instrument. Segments whose
+    trace misses are skipped (a 0.0 placeholder would fabricate a cliff, B3's lesson)."""
+    traced = []
+    for x, y, _ in points:
+        z = _ue.trace_ground(x, y)
+        traced.append([x, y, z])
+    grades = []
+    for i in range(1, len(traced)):
+        if traced[i][2] is None or traced[i - 1][2] is None:
+            continue
+        run = math.hypot(traced[i][0] - traced[i - 1][0], traced[i][1] - traced[i - 1][1])
+        if run < 1.0:
+            continue
+        grades.append((abs(traced[i][2] - traced[i - 1][2]) / run * 100.0, i))
+    if not grades:
+        return None
+    mx, mi = max(grades)
+    return {"avg_pct": round(sum(g for g, _ in grades) / len(grades), 1),
+            "max_pct": round(mx, 1),
+            "max_at_fraction": round((mi - 0.5) / (len(traced) - 1), 2),
+            "per_segment_pct": [round(g, 1) for g, _ in grades],
+            "source": "live ground traces at the waypoints"}
 
 
 def _surface(p):

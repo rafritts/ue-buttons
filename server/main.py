@@ -43,6 +43,8 @@ def add(label: str, what: str = None, asset: str = None, dims: list = None,
     dims:  [x, y, z] size in cm — required for primitives, optional override for assets
     yaw:   spawn rotation in degrees (compass/UE yaw: north=+X, clockwise)
     facing: a spline label — turn the actor to face the route it was placed along
+            (perpendicular, toward the route; from ON the route itself — placed along= it,
+            within its width — it means the tangent: looking down the path, G42)
     place: relational placement spec (omit → rest on the floor at origin). Forms:
       {"ground": true}  or  {"on": "ground"}    drop onto the terrain by a downward trace
                                                  (combine with other keys: they set x/y,
@@ -310,13 +312,16 @@ def spline(op: Literal["create", "surface", "describe", "remove"] = "create",
         (asset op=find kind=material); lift = cm above ground (default 5); tile = cm per
         texture repeat (default 400). Idempotent: re-running replaces the strip.
         Typical order: create → terrain op=carve → surface.
-    op=describe (at_fraction): length, waypoints, and (at_fraction) the world point +
-        tangent + bearing there — the skeleton for `along=`/`facing=` placement.
+    op=describe (at_fraction): length, waypoints, a GRADE profile (per-segment slope %
+        from live ground traces, avg/max + where — walkability as a number, >20% warns),
+        and (at_fraction) the world point + tangent + bearing there — the skeleton for
+        `along=`/`facing=` placement.
     op=remove: forget the spline (and delete its surface strip).
 
     Placement (on add/foliage): place={"along":{"spline":label,"fraction":f,"side":
     "left|right","offset":cm}} puts a thing beside the route; add(facing=label) turns it
-    to face the route.
+    to face the route — perpendicular from beside it, down the TANGENT when the actor
+    stands ON the route itself (placed along= it, within its width).
     """
     p = {"op": op, "label": label, "terrain": terrain}
     for k, v in (("points", points), ("route", route), ("width", width),

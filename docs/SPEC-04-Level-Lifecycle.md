@@ -48,7 +48,8 @@ The same dirty signal belongs on the **status block's `level:` line** — `level
 Untitled_1 (UNSAVED)` — on every call, not just at transition time. Every dogfood build
 to date has ended stranded in an unsaved `Untitled_1` with the save left as tribal
 knowledge for the human; the block flagging it makes the hazard ambient. (Added
-2026-07-03 from the post-SPEC-05 L1 retrospective.)
+2026-07-03 from the post-SPEC-05 L1 retrospective; **LANDED same day** — the flag rides
+`_block_lines` via `get_dirty_map_packages`, ahead of the rest of this spec.)
 
 ## Reconcile is not optional — it rides every transition
 
