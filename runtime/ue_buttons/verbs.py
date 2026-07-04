@@ -426,7 +426,15 @@ def _pie_census(p):
     # LandscapeStreamingProxy children (the actual ground) stream by pawn position —
     # every level cloned from the Open World template shows this. Only the parent
     # missing + proxies present = not a defect; anything else missing still is.
-    if set(missing) == {"Landscape"} and any(
+    # A ueb terrain makes the question moot outright (G37): the template Landscape is
+    # hidden and untraced in the editor, so its absence at game time is immaterial —
+    # without this, every level with a ueb terrain cries BROKEN on a ground it doesn't use.
+    if set(missing) == {"Landscape"} and getattr(_state, "terrains", None):
+        out["missing_at_runtime"] = {}
+        out["verdict"] = ("game world agrees with the editor's always-loaded set "
+                          "(the hidden template Landscape skips PIE, but the ueb terrain "
+                          "is the ground — G37 — so nothing the game needs is missing)")
+    elif set(missing) == {"Landscape"} and any(
             a.get_class().get_name() == "LandscapeStreamingProxy"
             for a in _ue.all_actors()):
         out["missing_at_runtime"] = {}

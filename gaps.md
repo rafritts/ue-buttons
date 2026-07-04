@@ -32,3 +32,62 @@ cure is an async job + progress pattern (kick the work off the dispatch path, po
 `job_status`), or per-verb chunking as each new slow path appears. Until then: after any
 timeout, poll `/remote/info` and RE-READ state before re-issuing — timed-out work usually
 completed invisibly.
+
+### G48 — placement inside covered space: ground-snap seats actors on the covering geometry
+Status: OPEN (found 2026-07-04, L2 dogfood — the exact soft spot the level brief predicted)
+
+Placing the cabin walls at 2D map points *inside the grotto* seated all four on top of the
+cave roof slabs: `_place_actor`'s ground snap traces downward from high above, and the first
+hit under open sky is the lid, not the floor beneath it. Meanwhile the validator's own
+ground check happily reported "floats above ground z=-61.8" for the same actors — the two
+traces disagree about what "ground" means under cover. Worked around with explicit
+`transform op=move` deltas derived from measured bases. Candidate cure: multi-hit down-trace
+that seats on the LOWEST surface that can host the actor's height (or a
+`place={"under_cover": true}` opt-in); at minimum the placer and the validator must agree on
+which surface is "the ground" so a fresh add can't be born 18 m in the air.
+
+### G49 — no interior/enclosure perception: composing negative space is done blind
+Status: OPEN (found 2026-07-04, L2 dogfood)
+
+A cave is negative space, and nothing in `feel` can sense it: hollowness of a kit piece
+(is `SM_Tunnel_Cave_9` open-topped? where's its opening?), enclosure of an assembled
+chamber (does the lid leak sky?), interior clearance (how much room for a cabin?). All
+three had to be answered with hand-written line-trace probes over the bridge — twice.
+The probes worked (found the open top, found the skylight holes in `SM_Tunnel_Cave_4`,
+verified the sealed lid numerically), which proves the sense is buildable. Candidate:
+`feel op=clearance at=[x,y,z]` — a ray fan reporting floor/ceiling/wall distances per
+bearing plus sky leaks. Numbers only; fits the vision policy exactly.
+
+### G50 — no lighting surface: a cave interior is pitch black and the agent can't even say so
+Status: OPEN (found 2026-07-04, L2 dogfood — predicted verbatim by the level brief)
+
+The L2 cabin sits inside a sealed rock chamber lit only by what bounces through a 5 m
+mouth. The verb surface has no way to author a light (the template sun/skylight are the
+only sources, and they're outside), and no way to *perceive* darkness (perception is all
+geometry — nothing reads luminance at a point). Two gaps in one: an authoring verb
+(`add what=point_light` family or a `light` verb — SPEC-worthy, UE owns the word Light)
+and a numeric light-level sense to make "it's too dark in here" a measurable finding
+instead of a human complaint. PIE-tier check candidate for SPEC-09.
+
+### G51 — terrain feature vocabulary cannot say "steep": no wall-steepness control on valley/ridge
+Status: OPEN (found 2026-07-04, L2 dogfood)
+
+The natural encoding of a slot canyon — `{"kind":"valley","floor_width":600,
+"wall_height":3500}` — produced a 19°-max broad wash: the valley feature spreads its wall
+over the entire remaining half-width. There is no parameter that narrows the wall run.
+Workaround that shipped L2: two flanking `ridge` features (radius 2200, height 3800) gave
+honest 61–69° walls, but the composition is a trick you have to know, and the result is
+"two long mounds on a plain" rather than "a slit cut into a plateau". Candidate:
+`wall_width` (or `steepness`) on the valley feature, and document the ridge-pair recipe
+until then.
+
+### G52 — the tag-blessing affordance is unfireable: no verb writes actor tags
+Status: OPEN (found 2026-07-04, L2 dogfood)
+
+When a placement produces N same-class contacts, the status block advises: "tag the
+instances and `validate op=expect a=<tag> b=…` to declare the whole class at once."
+No verb can apply that tag — the only tags actors carry are the runtime's own. The
+affordance violates the house HATEOAS rule (every suggested next move must be fireable);
+L2 fell back to the built-in `ueb` tag (too broad) and pairwise declarations (6 calls
+where 1 was advertised). Either add `tags=` to `add`/`select op=set`, or reword the
+affordance to advertise only what exists.

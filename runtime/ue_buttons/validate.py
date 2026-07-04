@@ -358,6 +358,14 @@ def _zfight_findings(scope, neighbors):
                             "message": f"{la} is a DUPLICATE transform of {lb} "
                                        f"(fully coincident) → delete one"})
             else:
+                # a pair whose PENETRATION is declared intended has already asserted the
+                # seam is deliberate — the coplanar-face echo of that same contact is the
+                # AABB's shadow, not new information (L2 dogfood: every blessed interlock
+                # re-surfaced as an unquietable z-fight, so no built level could lint
+                # clean). Full coincidence above stays unconditional: a duplicate
+                # transform is never sanctified by a contact blessing.
+                if _intent_for("penetration", la, lb) is not None:
+                    continue
                 out.append({"check": "z_fight", "a": la, "b": lb,
                             "message": f"{la}↔{lb} coplanar on {'/'.join(planes)} "
                                        f"(overlapping faces in one plane — z-fight)"})

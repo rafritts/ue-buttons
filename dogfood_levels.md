@@ -66,6 +66,30 @@ soft spot:
 
 Expected yield: a fistful of gaps before anything looks like a cave. That's success.
 
+Status: BUILT 2026-07-04 (live, through the MCP verbs — the first level built through the
+post-SPEC-08 surface). SAVED at `/Game/Maps/UEB_L2_Canyon`. 300 m map: slot canyon along X
+(two flanking ridge features — the valley feature can't do steep, G51 — honest 61–69°
+walls, 38 m crests, 6 m floor), a 232 m winding sand-surfaced trail (±8° swings, carved),
+91 scattered rocks + 14 wind-blown shrubs, and at the north end a mesh-composed grotto:
+seven Rock_Cave monoliths in a ring (5 m south mouth) under two layered Tunnel_Cave lids,
+with a 4×4 m kit cabin (door, window, gable roof) assembled inside on a flattened pad.
+Enclosure verified numerically (ray fan: all 9 ceiling points hit lid after the second
+slab closed SM_Tunnel_Cave_4's skylight holes; every bearing walls out except the mouth).
+17 declared intents; `validate op=run scope=all` lints CLEAN at 17/17 subjects, 35/35
+engine assets; play census agrees editor↔game.
+
+What it taught (the point): **G48** ground-snap seated the cabin walls on the cave ROOF
+(interior placement is broken under cover), **G49** negative space is composed blind
+(hand raycasts stood in for a missing `feel op=clearance`), **G50** no lights and no way
+to measure darkness — the cave interior is black, exactly as the brief predicted, **G51**
+the valley feature can't say steep, **G52** the tag-blessing affordance can't be fired.
+Plus three server defects fixed+verified inline: 2D `place.at` crashed `add` (and the
+failed spawn survived as an orphan — transactions don't roll back spawns), the z-fight
+detector re-fired every BLESSED interlock as an unquietable finding (no built level could
+lint clean), and `play op=census` cried BROKEN over the hidden template Landscape on any
+level with a ueb terrain. Known cosmetic debt, logged not agonized: the cave reads as a
+rock pile on a plain rather than a mountain (no massif), and the interior is unlit (G50).
+
 ## Level 3 — Cabin on a lake
 
 A calm mountain lake with a cabin on the shore. A wooden dock reaches out over the
