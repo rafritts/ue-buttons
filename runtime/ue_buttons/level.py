@@ -254,17 +254,22 @@ def _clear(p):
     strips, placed actors) and every ueb_scatter-tagged foliage population — engine
     scaffolding untouched, the G37 template ground restored. The transition-scale state
     reset (op log, intents) that _level_guard does on a level CHANGE happens inline
-    here, because the level name doesn't change under a clear."""
+    here, because the level name doesn't change under a clear.
+
+    THE INVARIANT (learned live, first MCP clear): an UNSAVED clear must be fully
+    undone by reopening the level from disk. So clear touches ONLY level-scoped state —
+    never terrain disk meta (pruning it orphaned the reopened valley's heightfield) and
+    never content assets (deleting FoliageTypes would leave a reopened forest's
+    instances pointing at nothing; asset deletion doesn't reopen-undo). Stale meta is
+    harmless (_hydrate adopts only labels whose actor exists); orphaned FT assets are
+    recreated fresh by the next paint of the same label."""
     eas = _ue.actor_subsystem()
 
-    # foliage first, via the verb's own remove (clears instances + deletes the per-stand
-    # FoliageType assets), then a tag sweep for unregistered debris — the tag lives on
-    # the component, so populations no registry remembers still die here.
-    stands = {}
-    for label in sorted(_state.foliage_stands):
-        n = _state.foliage_stands[label].get("count", "?")
-        foliagemod.handle({"op": "remove", "label": label})
-        stands[label] = n
+    # foliage: clear instances by component tag only — registered stands and
+    # unregistered debris die the same way (the tag lives on the component).
+    stands = {label: meta.get("count", "?")
+              for label, meta in sorted(_state.foliage_stands.items())}
+    _state.foliage_stands.clear()
     swept = 0
     for c in foliagemod._ifa_fismcs():
         tags = [str(t) for t in c.get_editor_property("component_tags")]
@@ -280,13 +285,12 @@ def _clear(p):
         actors[cls] = actors.get(cls, 0) + 1
         eas.destroy_actor(a)
 
-    # registries + persistence + the G37 template ground.
+    # registries + the G37 template ground (disk meta deliberately untouched — see
+    # the invariant above).
     n_splines = len(_state.splines)
     _state.splines.clear()
-    cleared_terrains = list(_state.terrains)
-    n_terrains = len(cleared_terrains)
+    n_terrains = len(_state.terrains)
     _state.terrains.clear()
-    terrainmod._save_meta(prune=cleared_terrains)
     shown = terrainmod.set_template_hidden(False)
 
     # op log / intents: they describe the arrangement that just ceased to exist.
