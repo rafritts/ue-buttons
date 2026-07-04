@@ -73,8 +73,12 @@ def render(result):
     if not isinstance(result, dict):
         return str(result)
     if "error" in result:
-        return f"⚠ {result['error']}" + (f"\n{result.get('traceback','')}"
-                                          if result.get("traceback") else "")
+        # Errors carry affordances (next moves, offenders, candidates — the HATEOAS
+        # rule): render the whole payload, not just the message.
+        err = result.pop("error")
+        tb = result.pop("traceback", None)
+        rest = f"\n{json.dumps(result, indent=2)}" if result else ""
+        return f"⚠ {err}" + rest + (f"\n{tb}" if tb else "")
     status = result.pop("status", None)
     head = json.dumps(result, indent=2)
     return head + (f"\n{status}" if status else "")
