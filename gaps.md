@@ -91,3 +91,16 @@ affordance violates the house HATEOAS rule (every suggested next move must be fi
 L2 fell back to the built-in `ueb` tag (too broad) and pairwise declarations (6 calls
 where 1 was advertised). Either add `tags=` to `add`/`select op=set`, or reword the
 affordance to advertise only what exists.
+
+### G53 — nothing tells the agent a surface is wearing the engine-default material
+Status: OPEN (found 2026-07-04, L2 dogfood — caught by the USER, which is the failure)
+
+L2 shipped with the canyon terrain wearing the default grid: `terrain op=create` was
+called without `material=` and nothing ever surfaced that. The user had to SEE it —
+precisely what the numbers-only perception contract exists to prevent. The tell is fully
+mechanical: a ueb-authored surface (terrain, spline strip) whose slot-0 material is the
+engine default (WorldGridMaterial / DefaultMaterial) or empty. Candidates, cheapest
+first: a `render:`-line style note on terrain/spline results ("wearing the engine
+default — pass material="), and a `degrades` row in the SPEC-08 lint sweep so
+`scope=all` catches it at handoff. Fix applied to L2 itself (MI_Rock_1, uv 600) —
+the gap is that no sense ever said so.
