@@ -263,7 +263,18 @@ def _create(p):
                                   "restored when the last ueb terrain is removed")
     if meta.get("material"):
         out["material"] = meta["material"]
+    else:
+        out.setdefault("notes", []).append(_default_material_note(label))
     return out
+
+
+def _default_material_note(label):
+    """G53: the mechanical tell that a ueb surface is wearing the engine default. Perception
+    is numbers-only, so 'it's the untextured grid' must be SAID, never left for the human to
+    see. Fired whenever terrain create/shape ran without material=."""
+    return (f"{label} is wearing the engine default material (WorldGridMaterial grid) — "
+            f"nothing else will tell you it's untextured (G53). Pass material=<name|/Game "
+            f"path> on terrain create/shape (asset op=find kind=material to browse).")
 
 
 def _remove(p):
@@ -295,7 +306,10 @@ def _remove(p):
 
 def _shape(p):
     """Apply declarative landform features onto the terrain, composed in order. Features:
-      {"kind":"valley","axis":"x|y","floor_width":cm,"wall_height":cm,"roughness":0..1}
+      {"kind":"valley","axis":"x|y","floor_width":cm,"wall_height":cm,"wall_width":cm,"roughness":0..1}
+        wall_width (G51) narrows the wall run — a small value cuts a steep slot canyon
+        rather than the default broad wash (wall climbs to wall_height over wall_width,
+        then plateaus); omit for a gentle valley spread over the whole half-width.
       {"kind":"hill"|"ridge","at":[x,y],"radius":cm,"height":cm,"length":cm,"axis":"x|y"}
       {"kind":"noise","amplitude":cm,"scale":cm,"octaves":n,"seed":n}
       {"kind":"plateau","at":[x,y],"radius":cm,"height":cm,"blend_margin":cm}
@@ -319,9 +333,12 @@ def _shape(p):
     _save_meta()
     hi, lo = _height_range(meta)
     zb = _eff_origin(label, meta)[2] + meta.get("base_height", 0.0)
-    return {"shaped": label, "feature_count": len(meta["features"]),
-            "height_range_cm": [round(zb + lo, 1), round(zb + hi, 1)], "vertices": verts,
-            "undoable": False}
+    out = {"shaped": label, "feature_count": len(meta["features"]),
+           "height_range_cm": [round(zb + lo, 1), round(zb + hi, 1)], "vertices": verts,
+           "undoable": False}
+    if not meta.get("material"):
+        out["notes"] = [_default_material_note(label)]
+    return out
 
 
 def _flatten(p):

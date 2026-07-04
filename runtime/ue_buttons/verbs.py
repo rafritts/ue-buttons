@@ -557,17 +557,22 @@ def _v_play(p):
 
 
 def _ground_flag(place):
-    """Pull a ground-snap directive out of the placement spec, returning (clean_place,
-    snap?). Accepts {"ground": true} or the natural {"on": "ground"} phrasing — either
-    way "ground" is a z-datum handled by a trace, not a label resolve_placement can look
-    up, so it must be stripped before placement math runs."""
+    """Pull the ground-snap directives out of the placement spec, returning (clean_place,
+    snap?, under_cover?). Accepts {"ground": true} or the natural {"on": "ground"}
+    phrasing — either way "ground" is a z-datum handled by a trace, not a label
+    resolve_placement can look up, so it must be stripped before placement math runs.
+    {"under_cover": true} (G48) is a trace MODIFIER: when placing inside covered space (a
+    cave, under a roof), seat on the substrate BENEATH the lid, not on the lid — implies a
+    ground snap and is likewise stripped."""
     if not place:
-        return place, False
-    snap = bool(place.get("ground")) or place.get("on") == "ground"
+        return place, False, False
+    under_cover = bool(place.get("under_cover"))
+    snap = bool(place.get("ground")) or place.get("on") == "ground" or under_cover
     if snap:
         place = {k: v for k, v in place.items()
-                 if not (k == "ground" or (k == "on" and v == "ground"))}
-    return place, snap
+                 if not (k in ("ground", "under_cover")
+                         or (k == "on" and v == "ground"))}
+    return place, snap, under_cover
 
 
 def _facing_yaw(place, facing):
@@ -592,14 +597,25 @@ def _facing_yaw(place, facing):
     return math.degrees(math.atan2(dy, dx))          # bearing: atan2(east, north), N=+X
 
 
-def _place_actor(actor, place, yaw=None, snap_ground=False, facing=None):
+def _cover_ignore(actor):
+    """G48: the actors a `under_cover` ground trace excludes — every placed (non-substrate)
+    ueb actor, exactly the set the validator's ground check ignores. So the placer traces
+    through a cave roof / covering slab to the SUBSTRATE beneath, and lands on the same
+    surface the validator will measure the seated actor against (no more born-on-the-lid)."""
+    ignore = list(validatemod._ground_ignore())
+    if actor not in ignore:
+        ignore.append(actor)
+    return ignore
+
+
+def _place_actor(actor, place, yaw=None, snap_ground=False, facing=None, under_cover=False):
     """Shared placement tail for every spawn (primitive or project asset).
 
     Order matters: rotate first so the world AABB (and the pivot→centre offset) reflect the
     final footprint, resolve the relational spec to a desired bounds *centre*, correct for a
     non-centred pivot (G4), then optionally drop the actor onto the ground by a downward
     trace. Centred-pivot BasicShapes have a zero delta, so this is behaviour-preserving for
-    the M1 primitive path."""
+    the M1 primitive path. under_cover (G48): trace past covering geometry to the substrate."""
     if facing is not None:
         yaw = _facing_yaw(place, facing)
     if yaw is not None:
@@ -611,7 +627,8 @@ def _place_actor(actor, place, yaw=None, snap_ground=False, facing=None):
         snap_ground = True
         target = [target[0], target[1], 0.0]
     if snap_ground:
-        gz = _ue.trace_ground(target[0], target[1], ignore=actor)
+        ignore = _cover_ignore(actor) if under_cover else actor
+        gz = _ue.trace_ground(target[0], target[1], ignore=ignore)
         if gz is not None:
             half_z = _ue.bounds(actor)["size"][2] / 2.0      # sit bounds-min on the ground
             # +GROUND_SEAT (G21): a deliberate hair above the trace — reads as resting,
@@ -638,30 +655,51 @@ def _place_or_destroy(actor, place, **kw):
                          "anchors": "outliner op=census lists the labels place= can reference"}}
 
 
+def _apply_tags(actor, tags):
+    """G48/G52: apply extra actor tags — the fireable half of the tag-blessing affordance
+    (validate op=expect a=<tag> matches by tag membership). Appends only names not already
+    present (the reserved ueb tag stays); returns the tags actually added. Tags live on the
+    actor, so they survive restart and are the durable class handle the class-declaration
+    hint asks for."""
+    if not tags:
+        return []
+    have = {str(t) for t in actor.tags}
+    cur, added = list(actor.tags), []
+    for t in tags:
+        s = str(t).strip()
+        if s and s not in have:
+            cur.append(unreal.Name(s)); have.add(s); added.append(s)
+    if added:
+        actor.tags = cur
+    return added
+
+
 def _v_add(p):
     """Spawn a primitive OR a project asset with relational placement.
     Primitive: what, dims:[x,y,z]. Project asset: asset (inventory name or /Game path),
-    optional dims override, yaw. Common: label, place:{...}, place may carry {"ground":true}
-    (or {"on":"ground"}) to drop onto the terrain by a trace."""
+    optional dims override, yaw. Common: label, tags:[...], place:{...}, place may carry
+    {"ground":true} (or {"on":"ground"}) to drop onto the terrain by a trace, or
+    {"under_cover":true} to seat on the substrate beneath a roof/cave (G48)."""
     label = p.get("label")
     if not label:
         return {"error": "add requires a unique 'label'"}
-    place, snap = _ground_flag(p.get("place") or {})
+    place, snap, under_cover = _ground_flag(p.get("place") or {})
     yaw = p.get("yaw")
     facing = p.get("facing")
+    tags = p.get("tags")
 
     if p.get("what") == "player_start":
         # G35 — before the label-unique check: relocate-or-create means re-running against
         # the existing start (same label) is legal, not a collision.
         if p.get("place") is None:
             snap = True                      # a start must stand ON the ground by default
-        return _add_player_start(p, label, place, snap, yaw, facing)
+        return _add_player_start(p, label, place, snap, yaw, facing, under_cover, tags)
 
     if _ue.find_by_label(label) is not None:
         return {"error": f"label '{label}' already exists (labels must be unique)"}
 
     if p.get("asset"):
-        return _add_asset(p, label, place, snap, yaw, facing)
+        return _add_asset(p, label, place, snap, yaw, facing, under_cover, tags)
 
     shape = p.get("what", "cube")
     if shape not in _ue.BASIC_SHAPES:
@@ -671,16 +709,21 @@ def _v_add(p):
         actor = _ue.spawn_basic_shape(shape, [0, 0, 0])
         actor.set_actor_label(label)
         _ue.set_scale_for_dims(actor, dims)
-        err = _place_or_destroy(actor, place, yaw=yaw, snap_ground=snap, facing=facing)
+        err = _place_or_destroy(actor, place, yaw=yaw, snap_ground=snap, facing=facing,
+                                under_cover=under_cover)
         if err:
             return err
+        applied_tags = _apply_tags(actor, tags)
         _ue.actor_subsystem().set_selected_level_actors([actor])
     op_id = _state.log_op(txn.op_id, "add", f"{shape} '{label}' {dims}cm",
                           f"ueb add {label}")
-    return {"added": label, "shape": shape, "dims": dims, "op": op_id}
+    out = {"added": label, "shape": shape, "dims": dims, "op": op_id}
+    if applied_tags:
+        out["tags"] = applied_tags
+    return out
 
 
-def _add_player_start(p, label, place, snap, yaw, facing):
+def _add_player_start(p, label, place, snap, yaw, facing, under_cover=False, tags=None):
     """G35: "where does the player drop in?" as a first-class placement. RELOCATE-or-create:
     the template level already ships a PlayerStart, and a second one silently wins or loses
     by priority — so an existing start is moved, never shadowed. Seated by the shared
@@ -700,11 +743,12 @@ def _add_player_start(p, label, place, snap, yaw, facing):
                 unreal.PlayerStart, unreal.Vector(0.0, 0.0, 0.0))
             relocated = False
         actor.set_actor_label(label)
-        tags = list(actor.tags)
-        if unreal.Name(_ue.UEB_TAG) not in tags:
-            tags.append(unreal.Name(_ue.UEB_TAG))
-            actor.tags = tags
-        target = _place_actor(actor, place, yaw=yaw, snap_ground=snap, facing=facing)
+        cur_tags = list(actor.tags)          # existing tags (a relocated start keeps its own)
+        if unreal.Name(_ue.UEB_TAG) not in cur_tags:
+            cur_tags.append(unreal.Name(_ue.UEB_TAG))
+            actor.tags = cur_tags
+        target = _place_actor(actor, place, yaw=yaw, snap_ground=snap, facing=facing,
+                              under_cover=under_cover)
         # The pawn spawns at the actor LOCATION, and the AABB includes editor-only sprite
         # components (~2.6× the capsule) — so the shared bounds-centre/bounds-min seat puts
         # the spawn point half a metre off the resolved point and floats the capsule ~40 cm.
@@ -713,11 +757,13 @@ def _add_player_start(p, label, place, snap, yaw, facing):
         if cap is not None:
             z = actor.get_actor_location().z
             if snap:
-                gz = _ue.trace_ground(target[0], target[1], ignore=actor)
+                ig = _cover_ignore(actor) if under_cover else actor
+                gz = _ue.trace_ground(target[0], target[1], ignore=ig)
                 if gz is not None:
                     z = gz + cap.get_scaled_capsule_half_height() + validatemod.GROUND_SEAT
             target = [target[0], target[1], z]
             actor.set_actor_location(unreal.Vector(*target), False, False)
+        _apply_tags(actor, tags)
         _ue.actor_subsystem().set_selected_level_actors([actor])
     rot = actor.get_actor_rotation()
     op_id = _state.log_op(txn.op_id, "add",
@@ -733,7 +779,7 @@ def _add_player_start(p, label, place, snap, yaw, facing):
     return out
 
 
-def _add_asset(p, label, place, snap, yaw, facing=None):
+def _add_asset(p, label, place, snap, yaw, facing=None, under_cover=False, tags=None):
     """Spawn a project StaticMesh or Blueprint by inventory name / full path (SPEC-01 E2).
     Native scale by default (marketplace dims are placement info, not a resize invite); an
     explicit dims override scales and warns."""
@@ -773,9 +819,11 @@ def _add_asset(p, label, place, snap, yaw, facing=None):
                                                   cur.z * scale[2]))
             warn = (f"dims override → scaled {[round(s, 3) for s in scale]}× off native "
                     "size; marketplace meshes are usually best left native")
-        err = _place_or_destroy(actor, place, yaw=yaw, snap_ground=snap, facing=facing)
+        err = _place_or_destroy(actor, place, yaw=yaw, snap_ground=snap, facing=facing,
+                                under_cover=under_cover)
         if err:
             return err
+        applied_tags = _apply_tags(actor, tags)
         _ue.actor_subsystem().set_selected_level_actors([actor])
     b = _ue.bounds(actor)
     op_id = _state.log_op(txn.op_id, "add",
@@ -783,6 +831,8 @@ def _add_asset(p, label, place, snap, yaw, facing=None):
                           f"ueb add {label}")
     out = {"added": label, "asset": path, "kind": "blueprint" if is_bp else "static_mesh",
            "dims_cm": [round(v, 1) for v in b["size"]], "op": op_id}
+    if applied_tags:
+        out["tags"] = applied_tags
     if warn:
         out["warning"] = warn
     if not is_bp:
@@ -838,7 +888,23 @@ def _v_select(p):
     labels = p.get("labels", [])
     actors = [a for a in (_ue.find_by_label(l) for l in labels) if a]
     eas.set_selected_level_actors(actors)
-    return {"selected": [a.get_actor_label() for a in actors]}
+    out = {"selected": [a.get_actor_label() for a in actors]}
+    # G52: tags= applies actor tags to the selected actors — the fireable half of the
+    # class-declaration affordance (tag the instances, then validate op=expect a=<tag>).
+    tags = p.get("tags")
+    if tags and actors:
+        added = {}
+        for a in actors:
+            ad = _apply_tags(a, tags)
+            if ad:
+                added[a.get_actor_label()] = ad
+        if added:
+            out["tagged"] = added
+            allt = sorted({t for v in added.values() for t in v})
+            out["next"] = (f"validate op=expect a={allt[0]} b=<counterpart> "
+                           f"check=penetration|ground reason=… — declares the whole "
+                           f"tagged class at once")
+    return out
 
 
 def _v_feel(p):
@@ -847,6 +913,10 @@ def _v_feel(p):
     summary — walks the full gating chain for one actor/population + the fix. Delegates to
     relational.py (spatial math) / render.py (render chain)."""
     op = p.get("op")
+    if op == "clearance":
+        # G49: interior/enclosure sense — a ray fan reporting floor/ceiling/wall distances
+        # per bearing plus sky leaks. Numbers only (vision policy).
+        return relational.clearance(p)
     if op == "render_state":
         return rendermod.render_state(p.get("target"))
     # SPEC-03 computed visibility (link 8): framing/occlusion as NUMBERS off the editor

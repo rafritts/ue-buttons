@@ -115,14 +115,20 @@ def _dist_point_segment(px, py, a, b):
 # ── landform features ────────────────────────────────────────────────────────────
 def _valley(lx, ly, f, extent):
     """A valley whose floor runs along `axis`; height rises quadratically off the centreline
-    beyond floor_width/2, reaching wall_height at the terrain edge. extent = half-size (cm)
-    on the perpendicular axis."""
+    beyond floor_width/2, reaching wall_height over the wall run, then holds flat (a plateau
+    top). extent = half-size (cm) on the perpendicular axis.
+
+    G51: the wall run defaults to the whole remaining half-width — a broad wash. Pass
+    `wall_width` (cm) to narrow it: the wall climbs from floor edge to wall_height over
+    wall_width, then plateaus. A small wall_width is how you author a slot canyon (a steep
+    slit) instead of a gentle valley — narrower run over the same rise = steeper wall."""
     axis = f.get("axis", "x").lower()
     perp = ly if axis == "x" else lx
     fw = f.get("floor_width", 8000.0)
     wall = f.get("wall_height", 6000.0)
-    half = extent
-    span = max(1.0, half - fw / 2.0)
+    remaining = max(1.0, extent - fw / 2.0)
+    ww = f.get("wall_width")
+    span = max(1.0, min(float(ww), remaining)) if ww else remaining
     d = abs(perp) - fw / 2.0
     if d <= 0:
         base = 0.0

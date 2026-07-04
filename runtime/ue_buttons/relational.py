@@ -160,6 +160,70 @@ def resolve_placement(actor, place):
     return [cx, cy, cz]
 
 
+# ── interior / enclosure sense (G49) ────────────────────────────────────────────
+_BEARINGS = [("N", 0.0), ("NE", 45.0), ("E", 90.0), ("SE", 135.0),
+             ("S", 180.0), ("SW", 225.0), ("W", 270.0), ("NW", 315.0)]
+
+
+def clearance(p):
+    """G49 — sense the negative space around a point: a ray fan from `at=[x,y,z]` reporting
+    the distance to the floor (down), the ceiling (up), and a wall on each of eight compass
+    bearings (horizontal), plus which rays escape to open sky. Numbers only — the way to
+    'see' a cave's hollowness, whether an assembled chamber's lid leaks sky, and how much
+    room a build has, without a screenshot (vision policy). range_cm caps each ray (default
+    10000 = 100 m); a ray that hits nothing inside range is 'open' (sky leak / no wall)."""
+    at = p.get("at")
+    if not at or len(at) < 3:
+        return {"error": "clearance needs at=[x,y,z] — a world point to probe from"}
+    x, y, z = float(at[0]), float(at[1]), float(at[2])
+    rng = float(p.get("range_cm") or 10000.0)
+    origin = [x, y, z]
+
+    def ray(dx, dy, dz):
+        end = [x + dx * rng, y + dy * rng, z + dz * rng]
+        hit = _ue.trace_hit(origin, end)
+        if hit is None:
+            return None
+        return round(math.dist([hit.x, hit.y, hit.z], origin), 1)
+
+    floor = ray(0.0, 0.0, -1.0)
+    ceiling = ray(0.0, 0.0, 1.0)
+    walls, open_bearings = {}, []
+    for name, bearing in _BEARINGS:
+        a = math.radians(bearing)               # compass: N=+X, clockwise, E=+Y
+        d = ray(math.cos(a), math.sin(a), 0.0)
+        walls[name] = d
+        if d is None:
+            open_bearings.append(name)
+    hit_walls = {k: v for k, v in walls.items() if v is not None}
+    nearest = min(hit_walls.items(), key=lambda kv: kv[1]) if hit_walls else None
+
+    leaks = []
+    if ceiling is None:
+        leaks.append("overhead (no ceiling within range — open to sky)")
+    if open_bearings:
+        leaks.append(f"horizontally: {', '.join(open_bearings)} (no wall within range)")
+
+    enclosed = ceiling is not None and not open_bearings and floor is not None
+    if enclosed:
+        verdict = "ENCLOSED — floor, ceiling, and a wall on every bearing within range"
+    elif floor is None:
+        verdict = "NO FLOOR beneath this point within range — is the point above the ground?"
+    else:
+        verdict = "OPEN — " + "; ".join(leaks)
+
+    out = {"at": [round(x, 1), round(y, 1), round(z, 1)], "range_cm": rng,
+           "floor_cm": floor, "ceiling_cm": ceiling, "walls_cm": walls,
+           "open_bearings": open_bearings, "enclosed": enclosed, "verdict": verdict}
+    if nearest:
+        out["nearest_wall"] = {"bearing": nearest[0], "cm": nearest[1]}
+    if floor is not None and ceiling is not None:
+        out["headroom_cm"] = round(floor + ceiling, 1)   # floor-to-ceiling at this column
+    if leaks:
+        out["sky_leaks"] = leaks
+    return out
+
+
 # ── perception ────────────────────────────────────────────────────────────────
 def feel(p):
     op = p.get("op", "describe")

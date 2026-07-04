@@ -22,7 +22,7 @@ from server._core import mcp, call_ue, render
 @mcp.tool()
 def add(label: str, what: str = None, asset: str = None, dims: list = None,
         place: dict = None, yaw: float = None, facing: str = None,
-        force: bool = False) -> str:
+        tags: list = None, force: bool = False) -> str:
     """Spawn a primitive OR a project asset with relational placement — the Place Actors
     panel / "+ Add" button. (EditorActorSubsystem.spawn_actor_from_*)
 
@@ -41,6 +41,8 @@ def add(label: str, what: str = None, asset: str = None, dims: list = None,
              grounded correctly — placement targets its bounds, not its origin.
 
     label: unique human handle (errors on collision)
+    tags:  extra actor tags to stamp on the spawn (G52) — the class handle validate
+           op=expect a=<tag> matches by; survives restart (ueb is always added too)
     dims:  [x, y, z] size in cm — required for primitives, optional override for assets
     yaw:   spawn rotation in degrees (compass/UE yaw: north=+X, clockwise)
     facing: a spline label — turn the actor to face the route it was placed along
@@ -73,6 +75,11 @@ def add(label: str, what: str = None, asset: str = None, dims: list = None,
                                                  instead of abutting face-to-face
       {"along": {"spline": "<label>", "fraction": f, "side": "left|right", "offset": <cm>}}
                                                  beside a spline at a fraction of its length
+      {"under_cover": true}                      inside covered space (a cave, under a roof):
+                                                 ground-snap through the covering geometry to
+                                                 the substrate BENEATH, not onto the lid — and
+                                                 land on the surface the validator measures
+                                                 against (G48). Implies a ground snap.
       {"at": [x, y, z]}                          raw coords (documented ripcord only)
     """
     p = {"label": label, "place": place or {}}
@@ -81,6 +88,7 @@ def add(label: str, what: str = None, asset: str = None, dims: list = None,
     if dims is not None: p["dims"] = dims
     if yaw is not None: p["yaw"] = yaw
     if facing is not None: p["facing"] = facing
+    if tags is not None: p["tags"] = tags
     if force: p["force"] = True
     return render(call_ue("add", p))
 
@@ -102,9 +110,15 @@ def transform(op: Literal["move", "resize", "rotate"], target: str, by: list = N
 
 
 @mcp.tool()
-def select(op: Literal["set", "clear", "user"] = "set", labels: list = None) -> str:
+def select(op: Literal["set", "clear", "user"] = "set", labels: list = None,
+           tags: list = None) -> str:
     """Editor selection by label. op=set (labels=[...]) | clear — feeds the
     active/selected fields of the status block. (EditorActorSubsystem selection)
+
+    op=set tags=[...] (G52): ALSO stamp these actor tags on the labels selected — the
+    fireable half of the class-declaration affordance (tag the same-class instances, then
+    validate op=expect a=<tag> b=<counterpart> blesses the whole class in one call). Tags
+    live on the actor and survive restart.
 
     op=user (SPEC-06 deixis): read the USER's live selection — when they say "this one",
     ask them to click it and run this. Each selected thing comes back as a full entry
@@ -112,7 +126,9 @@ def select(op: Literal["set", "clear", "user"] = "set", labels: list = None) -> 
     whole InstancedFoliageActor and is resolved down to its populated components
     (mesh, instance count, owning stand, motion) — enough to diagnose "these trees bob".
     """
-    return render(call_ue("select", {"op": op, "labels": labels or []}))
+    p = {"op": op, "labels": labels or []}
+    if tags is not None: p["tags"] = tags
+    return render(call_ue("select", p))
 
 
 @mcp.tool()
@@ -185,9 +201,10 @@ def play(op: Literal["census", "start", "stop", "where"] = "census") -> str:
 
 @mcp.tool()
 def feel(op: Literal["describe", "distance_between", "gap_between", "is_aligned",
-                     "render_state", "framing", "visible", "looking_at"],
+                     "clearance", "render_state", "framing", "visible", "looking_at"],
          target: str = None, a: str = None, b: str = None,
-         axis: str = "ANY", side: str = "CENTER_Z", fov: float = 90.0) -> str:
+         axis: str = "ANY", side: str = "CENTER_Z", fov: float = 90.0,
+         at: list = None, range_cm: float = None) -> str:
     """SENSE (agent-only) — relational perception: measure, don't guess. Numbers, never a
     picture: this is the whole perception surface (there is NO screenshot/render verb —
     see the vision policy in the instructions).
@@ -199,6 +216,13 @@ def feel(op: Literal["describe", "distance_between", "gap_between", "is_aligned"
     op=gap_between (a,b):        per-axis empty space (negative = overlap) + touching axes.
     op=is_aligned (a,b,side):    side ∈ TOP|BOTTOM|FRONT|BACK|LEFT|RIGHT|CENTER_X|
                                  CENTER_Y|CENTER_Z (front/back = ±X, left/right = ±Y).
+    op=clearance (at, range_cm): interior/enclosure sense (G49) — a ray fan from at=[x,y,z]
+                                 reporting floor/ceiling distance and a wall distance on each
+                                 of eight compass bearings, plus which rays escape to open
+                                 sky (sky leaks) and an ENCLOSED/OPEN verdict. The way to
+                                 sense a cave's hollowness, whether a chamber's lid leaks,
+                                 and how much room a build has — NUMBERS, never a picture.
+                                 range_cm caps each ray (default 10000 = 100 m).
     op=render_state (target):    walk the render gating chain for one actor or foliage
                                  stand: per-link verdict + the fix, and a DRAWS /
                                  WILL-NOT-DRAW verdict — the deep-dive behind the status
@@ -217,6 +241,8 @@ def feel(op: Literal["describe", "distance_between", "gap_between", "is_aligned"
                                  "that thing over there" after the user aims at it.
     """
     p = {"op": op, "target": target, "a": a, "b": b, "axis": axis, "side": side, "fov": fov}
+    if at is not None: p["at"] = at
+    if range_cm is not None: p["range_cm"] = range_cm
     return render(call_ue("feel", p))
 
 

@@ -531,10 +531,12 @@ def _class_hint(check, new):
     if c < 6:
         return None
     if check == GROUND:
-        return (f"{c} actors float above ground — if it's an intended set, tag them and "
-                f"declare validate op=expect check=ground a=<tag> once")
-    return (f"{c} of these involve '{common}' — if it's a settled group, tag the instances "
-            f"and validate op=expect a=<tag> b={common} to declare the whole class at once")
+        return (f"{c} actors float above ground — if it's an intended set, select op=set "
+                f"labels=[…] tags=[<tag>] to tag them, then validate op=expect check=ground "
+                f"a=<tag> once (G52)")
+    return (f"{c} of these involve '{common}' — if it's a settled group, select op=set "
+            f"labels=[…] tags=[<tag>] to tag the instances, then validate op=expect "
+            f"a=<tag> b={common} to declare the whole class at once (G52)")
 
 
 # ── report-by-exception rendering ──────────────────────────────────────────────
@@ -809,6 +811,43 @@ def _floor_findings(fl):
     return out
 
 
+# G53: the engine-default materials a ueb surface must never silently ship wearing.
+_DEFAULT_MATERIALS = ("WorldGridMaterial", "DefaultMaterial")
+
+
+def _default_material_findings(actor_labels=None):
+    """G53 as a lint row: every ueb-authored surface (terrain, spline strip — the runtime's
+    DynamicMeshActors) whose slot-0 material is the engine default (WorldGridMaterial grid)
+    or an empty slot. Mechanical, durable across sessions (reads the live component, not the
+    registry), and severity 'degrades' — untextured is ugly, not broken. actor_labels=None
+    sweeps the level; a set scopes it. The tell the numbers-only contract owes the agent so
+    'it's the grey grid' is never something only the human can see."""
+    out = []
+    for a in _ue.ueb_actors():
+        if not isinstance(a, unreal.DynamicMeshActor):
+            continue
+        lbl = a.get_actor_label()
+        if actor_labels is not None and lbl not in actor_labels:
+            continue
+        comp = a.get_dynamic_mesh_component()
+        m = None
+        if comp is not None:
+            try:
+                m = comp.get_material(0)
+            except Exception:
+                m = None
+        name = m.get_name() if m is not None else None
+        if name is None or name in _DEFAULT_MATERIALS:
+            worn = name or "empty slot"
+            out.append({"severity": "degrades", "source": "material:default",
+                        "subject": lbl,
+                        "message": f"{lbl} wears the engine default material ({worn}) — a "
+                                   f"ueb surface with no material reads as flat grey/grid",
+                        "next": "terrain material=<name|/Game path> (or spline op=surface "
+                                "material=…); asset op=find kind=material to browse"})
+    return out
+
+
 def _engine_findings(asset_paths, deadline):
     """Layer 3: EditorValidatorSubsystem over the scope's asset set, in chunks so the
     seconds budget is checked between assets. Returns (findings, notes, checked, total).
@@ -941,9 +980,15 @@ def lint(p):
     eng_f, eng_notes, checked, total_assets = _engine_findings(asset_paths, deadline)
     notes += eng_notes
 
+    # G53 — the engine-default-material tell, scoped to the same actors the sweep covers
+    # (level-wide when actor_labels is None; a foliage-stand scope has none, so [] out).
+    mat_scope = None if actor_labels is None else set(actor_labels)
+    mat_f = [] if (actor_labels is not None and not actor_labels) \
+        else _default_material_findings(mat_scope)
+
     findings = ([f for f in rule_f if f["severity"] == "breaks"]
                 + [f for f in rule_f if f["severity"] == "degrades"]
-                + floor + eng_f)
+                + mat_f + floor + eng_f)
     for i, f in enumerate(findings, 1):
         f["n"] = f"F{i}"
     n_breaks = sum(1 for f in findings if f["severity"] == "breaks")
