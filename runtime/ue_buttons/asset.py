@@ -16,6 +16,7 @@ import unreal
 
 from . import _state
 from . import _ue
+from . import rules
 
 STATIC_MESH = "StaticMesh"
 SKELETAL_MESH = "SkeletalMesh"
@@ -497,29 +498,9 @@ _OBJECT_SPACE_TOKENS = ("ObjectPosition", "ObjectRadius", "ObjectBounds",
 
 def _wpo_object_space_refs(base, wpo):
     """Walk the WPO subgraph from its input node; return the object-space expression
-    names found (the G40 pivot-anchoring tell), [] when the WPO is purely world-space."""
-    mel = unreal.MaterialEditingLibrary
-    seen, stack, refs = set(), [wpo], set()
-    while stack:
-        e = stack.pop()
-        if e is None or e.get_name() in seen:
-            continue
-        seen.add(e.get_name())
-        cn = type(e).__name__
-        if any(t in cn for t in _OBJECT_SPACE_TOKENS):
-            refs.add(cn.replace("MaterialExpression", ""))
-        elif "TransformPosition" in cn:
-            try:
-                src = e.get_editor_property("transform_source_type")
-                if src == unreal.MaterialPositionTransformSource.TRANSFORMPOSSOURCE_LOCAL:
-                    refs.add("TransformPosition(local→world)")
-            except Exception:
-                pass
-        try:
-            stack.extend(mel.get_inputs_for_material_expression(base, e))
-        except Exception:
-            pass
-    return sorted(refs)
+    names found (the G40 pivot-anchoring tell), [] when the WPO is purely world-space.
+    The walk itself is SPEC-07's generic graph walker."""
+    return rules.graph_refs(base, [wpo], _OBJECT_SPACE_TOKENS, local_transform_tell=True)
 
 
 def material_motion(base):

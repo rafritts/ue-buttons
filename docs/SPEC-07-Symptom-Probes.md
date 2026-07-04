@@ -1,8 +1,8 @@
 # SPEC-07 — Symptom probes: the context-mismatch rule engine
 
-Status: **DESIGN — fleshed out 2026-07-03, ready for sign-off. Not implemented.**
-Supersedes the earlier stub; every live-verified fact from the G40/G41 sessions is
-retained below. Implement only after sign-off.
+Status: **IMPLEMENTED + live-verified 2026-07-04** (`runtime/ue_buttons/rules.py`; user
+signed off on the R1 warn→refuse behavior change and on living without Map Check).
+Verification trace at the bottom.
 
 ## Problem
 
@@ -124,8 +124,10 @@ class count is bounded — a ratchet with a ceiling, not a cathedral.
      override; an inventory call filtered to motion-safe palettes as the alternative).
    - `severity="degrades"` → **warn and proceed** (today's "MOVES WRONG when instanced"
      note behavior).
-   - Migration note: R1 currently warns; under this spec it becomes `breaks` and starts
-     refusing. That changes paint's behavior on bad palettes — flagged for sign-off.
+   - Migration note: R1 previously warned; it is now `breaks` and refuses (signed off).
+     `op=reseed` gates BEFORE removing the old stand — a palette that now refuses must
+     not silently delete the stand it fails to replace; a stand painted with force
+     stores the force and reseeds without re-asking.
 2. **Status-block census** (safety net for defects introduced outside the verb surface —
    a human dragging assets in the editor): the generalized census line on every
    mutating/spatial op, exactly where `⚠ motion: 1916/17075 …` rides today.
@@ -143,21 +145,33 @@ dogfooded defect, and when one lands it becomes a row, not an op. Targeted probi
 `validate op=run targets=<referent>` (SPEC-06 deixis supplies the referent) plus the
 complaint-vocabulary routing table in SPEC-06, which stays the symptom→probe index.
 
-## Verification plan
+## Verification trace (2026-07-04, all over the bridge)
 
-1. **Port proof:** after moving R1 into the table, the existing G40 behaviors reproduce
-   byte-for-byte — paint gate fires on MM_Tree_Trunk palettes, census line unchanged on
-   L1 (⚠ 1916/17075), Bush_1 negative control stays quiet.
-2. **Generalization proof (R2):** author a scratch material with `PerInstanceRandom`,
-   place it standalone via `add` → gate fires with the converse verdict; scatter the
-   same mesh via `foliage op=paint` → silent.
-3. **Refusal UX:** paint with a `breaks` palette refuses with both escape hatches
-   present and fireable; `force=true` plants with the warning.
-4. **Cache:** second census on L1 is ~0 s (certificate cache hit), matching today's
-   motion-census behavior.
+1. **Port proof:** census line on L1 byte-identical (`⚠ motion: 1916/17075 foliage
+   instances FLOAT rigidly … SM_Pine_Tree_01, _02, _03, _05`); R2 census correctly
+   silent on L1; understory (masked_wind) never fires.
+2. **Refusal UX (R1):** `foliage op=paint` of SM_Pine_Tree_01 on the scratch level →
+   `refused (R1/G40): … will float rigidly as instances — pivot-anchored WPO
+   (ObjectRadius, TransformPosition(local→world) in the WPO graph)` with both escape
+   hatches; `force=true` planted 24 instances carrying THREE block warnings (MOVES
+   WRONG note, `forced past R1/G40`, the 24/24 census line); `op=reseed` inherited the
+   force (23 planted, no re-ask).
+3. **Generalization proof (R2):** authored `M_PerInst` (PerInstanceRandom → BaseColor)
+   on a duplicated rock mesh. `add` → `refused (R2/G40-converse): … render as
+   constants`; `force=true` spawned with the forced-past note; census flagged the
+   standalone actor; `foliage op=paint` of the SAME mesh → planted silently (correct —
+   instancing supplies the data).
+4. **Cache:** L1 census 0.002 s first call, 0.000 s second (verdicts cache per material).
+5. **Casualty → G47:** cleaning the scratch material with `delete_directory` while it
+   was natively referenced wedged the editor (handled ensure + hung RC thread; taskkill
+   + relaunch). Recorded as gap G47 — polite deletes only, referencers first, unsaved
+   assets evaporate on restart.
+
+The `force=` parameter on `add`/`foliage` needs an MCP client reconnect before it is
+callable through the tools; verified over the raw bridge meanwhile.
 
 ## Sequencing
 
 After SPEC-06 (needs its referents — DONE). Before SPEC-08 (the sweep is this engine at
-firing point 3). The R1 port should land first as a pure refactor, then R2 as the
-generalization proof.
+firing point 3 — `rules.RULES` + the census loop are what SPEC-08's `validate` scope
+sweep will consume).

@@ -26,6 +26,7 @@ sys.dont_write_bytecode = True
 from . import _state          # NEVER reloaded — holds history + label state (Q2/G-reload)
 from . import _ue
 from . import relational
+from . import rules
 from . import asset
 from . import material
 from . import heightfield
@@ -41,8 +42,9 @@ from . import verbs
 
 # Reload order matters: dependencies before dependents, and _state is absent by design.
 # render before validate/verbs — both consume its source-filter predicate (SPEC-03).
-_RELOADABLE = [_ue, relational, asset, material, heightfield, terrain, map_ref, spline,
-               foliage, render, validate, level, deixis, verbs]
+# rules before asset/foliage — the SPEC-07 engine feeds the classifier and the gates.
+_RELOADABLE = [_ue, relational, rules, asset, material, heightfield, terrain, map_ref,
+               spline, foliage, render, validate, level, deixis, verbs]
 
 SENTINEL = "UEB>>>"
 

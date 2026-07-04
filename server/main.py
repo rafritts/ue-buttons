@@ -21,7 +21,8 @@ from server._core import mcp, call_ue, render
 
 @mcp.tool()
 def add(label: str, what: str = None, asset: str = None, dims: list = None,
-        place: dict = None, yaw: float = None, facing: str = None) -> str:
+        place: dict = None, yaw: float = None, facing: str = None,
+        force: bool = False) -> str:
     """Spawn a primitive OR a project asset with relational placement — the Place Actors
     panel / "+ Add" button. (EditorActorSubsystem.spawn_actor_from_*)
 
@@ -45,6 +46,9 @@ def add(label: str, what: str = None, asset: str = None, dims: list = None,
     facing: a spline label — turn the actor to face the route it was placed along
             (perpendicular, toward the route; from ON the route itself — placed along= it,
             within its width — it means the tangent: looking down the path, G42)
+    force: override a SPEC-07 gate refusal (e.g. R2: the mesh's materials carry
+           per-instance nodes that render as constants on a standalone actor) — spawns
+           anyway with a warning note, and the census keeps flagging it
     place: relational placement spec (omit → rest on the floor at origin). Forms:
       {"ground": true}  or  {"on": "ground"}    drop onto the terrain by a downward trace
                                                  (combine with other keys: they set x/y,
@@ -77,6 +81,7 @@ def add(label: str, what: str = None, asset: str = None, dims: list = None,
     if dims is not None: p["dims"] = dims
     if yaw is not None: p["yaw"] = yaw
     if facing is not None: p["facing"] = facing
+    if force: p["force"] = True
     return render(call_ue("add", p))
 
 
@@ -286,7 +291,7 @@ def material(op: Literal["instance"] = "instance", parent: str = None, name: str
 def foliage(op: Literal["paint", "describe", "reseed", "remove"] = "paint",
             label: str = "foliage", meshes: list = None, region: dict = None,
             density_per_100m2: float = None, seed: int = 1337, rules: dict = None,
-            terrain: str = "terrain", pack: str = None) -> str:
+            terrain: str = "terrain", pack: str = None, force: bool = False) -> str:
     """The Foliage editor mode — populations, not actors: declare rules, get a
     reproducible, spline-respecting stand. One labelled stand holds the whole population
     (instanced foliage components in the level's InstancedFoliageActor), never thousands
@@ -315,6 +320,10 @@ def foliage(op: Literal["paint", "describe", "reseed", "remove"] = "paint",
                THROUGH the trees. Spacing below the measured canopy width warns (G28);
                derive min_spacing_cm from the widest family's footprint, never intuition.
                Meshes whose materials MOVE them are announced at author time (G39/G40).
+      force:   painting IS instancing — a palette whose WPO is pivot-anchored (R1/G40)
+               is REFUSED before planting, with alternatives (standalone placement, or
+               motion-safe meshes from inventory). force=true plants anyway; the
+               level-wide census keeps flagging the stand, and reseed inherits the force.
     op=describe: counts per family, region, seed, rules — enough to reason/rebuild.
     op=reseed (seed): same rules, new dice — the "reroll that stand" button (ours; UE has
       no reroll concept).
@@ -325,6 +334,7 @@ def foliage(op: Literal["paint", "describe", "reseed", "remove"] = "paint",
                  ("density_per_100m2", density_per_100m2), ("rules", rules)):
         if v is not None:
             p[k] = v
+    if force: p["force"] = True
     return render(call_ue("foliage", p, timeout=240))
 
 

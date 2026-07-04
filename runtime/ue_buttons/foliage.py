@@ -35,6 +35,7 @@ from . import _state
 from . import _ue
 from . import heightfield
 from . import asset
+from . import rules as rulesmod
 
 _FOLIAGE_DIR = "/Game/UEB_Foliage"     # where per-stand FoliageType assets live
 # Component-tag prefix identifying a stand's foliage components. The STRING predates the
@@ -420,7 +421,18 @@ def _paint(p):
     if rules.get("collision", "auto") not in ("auto", "block", "none"):
         return {"error": f"unknown rules.collision '{rules['collision']}'. "
                          "known: auto|block|none"}
+    # SPEC-07 firing point 1 — painting IS instancing: a breaks-severity pairing
+    # (R1: pivot-anchored WPO) refuses BEFORE planting; force=true overrides and the
+    # census keeps flagging the stand.
+    refusal, gate_notes = rulesmod.gate(
+        [v for m in meshes for v in m["variants"]], "instanced",
+        force=bool(p.get("force")),
+        reissue=f"foliage op=paint label={label} (same args)")
+    if refusal:
+        return refusal
     result = _generate(label, region, meshes, seed, rules, p)
+    if gate_notes:
+        result["notes"] = result.get("notes", []) + gate_notes
     return result
 
 
@@ -519,6 +531,7 @@ def _generate(label, region, meshes, seed, rules, p):
         "terrain": p.get("terrain", "terrain"),
         "meshes_spec": p.get("meshes", []),
         "foliage_types": ft_paths,
+        "force": bool(p.get("force")),   # SPEC-07: a forced stand must survive reseed
     }
     out = {"painted": label, "instances": placed, "species": len(meshes),
            "per_family": _state.foliage_stands[label]["per_family"],
@@ -570,10 +583,24 @@ def _reseed(p):
     s = _state.foliage_stands.get(label)
     if s is None:
         return {"error": f"no foliage stand labelled '{label}'"}
+    # SPEC-07: gate BEFORE the remove — a palette that now refuses (R1) must not
+    # silently delete the stand it fails to replace.
+    try:
+        gm = _resolve_meshes(s["meshes_spec"], None)
+    except ValueError:
+        gm = None
+    if gm:
+        refusal, _gn = rulesmod.gate([v for m in gm for v in m["variants"]],
+                                     "instanced", force=s.get("force", False),
+                                     reissue=f"foliage op=reseed label={label}")
+        if refusal:
+            refusal["note"] = "stand left untouched — the reseed was refused before removal"
+            return refusal
     _remove({"label": label})
     newp = {"label": label, "region": s["region"], "meshes": s["meshes_spec"],
             "density_per_100m2": s["density_per_100m2"], "rules": s["rules"],
-            "terrain": s["terrain"], "seed": p.get("seed", s["seed"] + 1)}
+            "terrain": s["terrain"], "seed": p.get("seed", s["seed"] + 1),
+            "force": s.get("force", False)}
     return _paint(newp)
 
 

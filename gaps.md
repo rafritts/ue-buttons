@@ -35,6 +35,20 @@ validator-subsystem APIs (never console MAP CHECK through RC), and expect our ow
 (registered via `add_validator` as Python `EditorValidatorBase` subclasses) to carry the
 real weight.
 
+### G47 — force-deleting an in-use, never-saved asset over RC wedges the editor
+Status: OPEN (recorded 2026-07-04 while live-verifying SPEC-07's R2 rule; hazard record —
+informs any future asset-authoring/cleanup verb.)
+
+`EditorAssetLibrary.delete_directory` on a folder holding a Material created moments
+earlier in the same session (still natively referenced — GCObjectReferencer) triggers
+ForceDeleteObjects → "is in use" modal (auto-closed) → handled ensure ("packages are
+likely corrupt") → the editor WEDGES with the game thread inside the ensure's stack walk
+on the RC dispatch: log frozen, bridge dead, process alive at 5 GB. Recovery was
+taskkill + relaunch. Rules for scratch assets authored over the bridge: delete
+REFERENCERS first (actors, then meshes, then materials), never delete_directory over
+live objects, tolerate a failed polite delete — an unsaved asset evaporates on editor
+restart anyway; NEVER force-delete.
+
 ### G30 — no job/progress pattern for slow mutations: one pathological asset load can still outrun the HTTP timeout
 Status: OPEN (successor to B6, 2026-07-02 — the two concrete offenders are fixed, the
 general pattern isn't built. Reviewed 2026-07-03: deliberately deferred again — the

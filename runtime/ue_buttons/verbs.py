@@ -18,6 +18,7 @@ from . import terrain as terrainmod
 from . import map_ref
 from . import spline as splinemod
 from . import foliage as foliagemod
+from . import rules as rulesmod
 from . import render as rendermod
 from . import validate as validatemod
 from . import level as levelmod
@@ -205,12 +206,13 @@ def _status_block(verb, params, result):
     for w in _warnings(result):
         lines.append("⚠ " + w)
 
-    # 1b. G40 motion census — a forced warning whenever instanced meshes carry motion
-    # that breaks under instancing; silent when the forest is clean.
+    # 1b. SPEC-07 firing point 2 — the rule-table census (R1 motion under instancing,
+    # R2 per-instance nodes standalone, …): a forced warning whenever the level carries
+    # a context-mismatch pairing; silent when clean. The safety net for defects
+    # introduced outside the verb surface.
     if verb in MUTATING or verb in SPATIAL:
-        mc = foliagemod.motion_census()
-        if mc:
-            lines.append("⚠ " + mc)
+        for cl in rulesmod.census_lines():
+            lines.append("⚠ " + cl)
 
     # 2 & 3. the two forced senses. They run on GEOMETRY/PLACEMENT ops — a `select`
     # rearranges nothing to validate, and a spatial (terrain/population) edit isn't an
@@ -714,6 +716,16 @@ def _add_asset(p, label, place, snap, yaw, facing=None):
                 "candidate_count": len(candidates)}
 
     is_bp = unreal.EditorAssetLibrary.load_blueprint_class(path) is not None
+    if not is_bp:
+        # SPEC-07 firing point 1 — placing standalone IS the usage: a breaks-severity
+        # pairing (R2: per-instance nodes with no instance data) refuses before spawning.
+        refusal, gate_notes = rulesmod.gate(
+            [path], "standalone", force=bool(p.get("force")),
+            reissue=f"add label={label} asset={query} (same args)")
+        if refusal:
+            return refusal
+    else:
+        gate_notes = []
     warn = None
     with _Txn("add") as txn:
         if is_bp:
@@ -744,8 +756,8 @@ def _add_asset(p, label, place, snap, yaw, facing=None):
         # G39: surface WPO/animation at author time — a mesh whose material moves it
         # (wind, plugin displacement) must say so in the same round-trip that placed it.
         motion = asset.motion_notes([path])
-        if motion:
-            out["notes"] = motion
+        if motion or gate_notes:
+            out["notes"] = motion + gate_notes
     return out
 
 
