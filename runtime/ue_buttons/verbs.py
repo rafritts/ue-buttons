@@ -145,6 +145,8 @@ class _Txn:
         return self
 
     def __exit__(self, exc_type, exc, tb):
+        # always end (cancel_transaction does NOT roll back a spawn — live-tested);
+        # verbs that can die half-done clean up their own actors explicitly
         unreal.SystemLibrary.end_transaction()
         return False
 
@@ -595,6 +597,11 @@ def _place_actor(actor, place, yaw=None, snap_ground=False, facing=None):
     if yaw is not None:
         actor.set_actor_rotation(unreal.Rotator(yaw=yaw, pitch=0.0, roll=0.0), False)
     target = relational.resolve_placement(actor, place)      # desired world bounds centre
+    if len(target) == 2:
+        # at=[x,y] is the 2D map-point vocabulary (spline points, foliage regions) —
+        # z is the ground's to answer, exactly as if {"ground": true} were passed
+        snap_ground = True
+        target = [target[0], target[1], 0.0]
     if snap_ground:
         gz = _ue.trace_ground(target[0], target[1], ignore=actor)
         if gz is not None:
@@ -607,6 +614,20 @@ def _place_actor(actor, place, yaw=None, snap_ground=False, facing=None):
         unreal.Vector(target[0] - delta[0], target[1] - delta[1], target[2] - delta[2]),
         False, False)
     return target
+
+
+def _place_or_destroy(actor, place, **kw):
+    """Placement can raise (unknown anchor label, malformed spec); a spawned-but-unplaced
+    actor must not survive the failure (editor transactions do not roll back a spawn on
+    cancel — live-tested). Destroys the actor and returns a legible error instead."""
+    try:
+        _place_actor(actor, place, **kw)
+        return None
+    except Exception as e:
+        _ue.actor_subsystem().destroy_actor(actor)
+        return {"error": f"placement failed — {e}; nothing was added",
+                "next": {"reissue": "same add with a fixed place= spec",
+                         "anchors": "outliner op=census lists the labels place= can reference"}}
 
 
 def _v_add(p):
@@ -642,7 +663,9 @@ def _v_add(p):
         actor = _ue.spawn_basic_shape(shape, [0, 0, 0])
         actor.set_actor_label(label)
         _ue.set_scale_for_dims(actor, dims)
-        _place_actor(actor, place, yaw=yaw, snap_ground=snap, facing=facing)
+        err = _place_or_destroy(actor, place, yaw=yaw, snap_ground=snap, facing=facing)
+        if err:
+            return err
         _ue.actor_subsystem().set_selected_level_actors([actor])
     op_id = _state.log_op(txn.op_id, "add", f"{shape} '{label}' {dims}cm",
                           f"ueb add {label}")
@@ -742,7 +765,9 @@ def _add_asset(p, label, place, snap, yaw, facing=None):
                                                   cur.z * scale[2]))
             warn = (f"dims override → scaled {[round(s, 3) for s in scale]}× off native "
                     "size; marketplace meshes are usually best left native")
-        _place_actor(actor, place, yaw=yaw, snap_ground=snap, facing=facing)
+        err = _place_or_destroy(actor, place, yaw=yaw, snap_ground=snap, facing=facing)
+        if err:
+            return err
         _ue.actor_subsystem().set_selected_level_actors([actor])
     b = _ue.bounds(actor)
     op_id = _state.log_op(txn.op_id, "add",
