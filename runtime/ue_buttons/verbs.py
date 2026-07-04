@@ -860,6 +860,9 @@ def _v_validate(p):
     perception, so it carries no status block of its own.
       op="run" (targets, verbose): sweep the whole scene (or targets) — the on-demand,
         uncapped tier of the always-on floor. Verdict + one finding per line, each w/ its fix.
+      op="run" scope=all|selection|<label> (seconds=20): the SPEC-08 lint sweep — the
+        spatial floor + the SPEC-07 rule table + the engine's own validators, one
+        severity-ranked findings list, each finding carrying provenance + a fireable next.
       op="expect" (a, b, reason, check=penetration|ground, max_depth): declare a contact
         INTENDED — the only way to quiet a laden finding. z_fight is intent-free (rejected).
       op="forget" (a, b, check): retire a declaration (re-arms the finding).

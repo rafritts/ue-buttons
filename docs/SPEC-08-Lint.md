@@ -1,8 +1,9 @@
 # SPEC-08 — Lint: whole-level sweeps
 
-Status: **DESIGN — fleshed out 2026-07-03, ready for sign-off. Not implemented.**
-Depends on SPEC-07's rule engine landing first. The G41 hazard facts below are
-live-verified and non-negotiable.
+Status: **IMPLEMENTED + live-verified 2026-07-04** (`validate.lint` + `rules.sweep`;
+verification trace at the bottom). The G41 hazard facts below are live-verified and
+non-negotiable. One design item deferred with cause: registering rules as editor
+validators (see that section).
 
 ## Problem
 
@@ -74,6 +75,12 @@ Register the rule table's `static`-tier rows as Python `EditorValidatorBase` sub
 via `add_validator`, so the SAME rules fire for a human on save/submit inside the
 editor, with zero extra rule code (the subclass is a thin adapter over the table).
 
+**DEFERRED at implementation time (2026-07-04), by the ratchet:** the table holds zero
+`static`-tier rows — R1 and R2 are both `census`-tier (the defect lives in the
+asset×usage pairing, which an asset-scoped validator can't see). There is nothing to
+register and therefore no experiment to run. Build the adapter when dogfooding produces
+the first genuinely asset-only row; the open question below is answered then.
+
 Open question, to be answered by the first experiment (not on paper): do Python
 validator registrations survive the runtime sync/hot-reload cycle, and does a stale
 registration double-fire after re-sync? Test: register, sync-runtime, save an asset,
@@ -99,19 +106,36 @@ Sister-repo ground truth: blender-buttons `extension/lint.py` / `validation.py` 
 doctrine source (compiler-style verdicts, scene-wide audits, findings-with-fixes);
 translate conventions, don't re-derive.
 
-## Verification plan
+## Verification trace (2026-07-04, all over the bridge)
 
-1. **Seeded-defect scratch level:** plant N known defects (a pivot-WPO palette painted
-   with `force=true`, a standalone actor with a PerInstanceRandom material, a floater,
-   a z-fight pair) → `validate op=run scope=all` finds N/N, each with a fireable `next`.
-2. **Known-positive fixture:** L1 as it stands today MUST report exactly the known set
-   (R1 on the pine stands, the 22% trail grade if a grade rule exists by then) and
-   nothing else.
-3. **Scope resolution:** select only the understory stand → `scope=selection` reports
-   zero rule findings (Bush_1 is masked_wind, safe) while `scope=all` still reports the
-   pines.
-4. **Budget honesty:** set `seconds=1` on a cold cache → partial-coverage note appears
-   with the swept/total count.
+1. **Seeded-defect scratch level:** planted four defect classes on UEB_Scratch (a
+   pivot-WPO pine painted `force=true`, a standalone actor wearing a PerInstanceRandom
+   material, a ground-defective rock, a fully-coincident duplicate pair) →
+   `scope=all` found ALL FOUR: F1 R1/breaks, F2 R2/breaks, duplicate-transform
+   z-fight, ground findings — 8 findings total (the extras are real consequences of
+   the seeds: the dup pair also penetrates), every one carrying a `next`. Cleanup
+   followed the G47 rule (referencers first, polite deletes, the in-use unsaved
+   material left to evaporate).
+2. **Known-positive fixture:** L1 reports EXACTLY `F1 [breaks] pine_forest (1916
+   instances, SM_Pine_Tree_01..05): … (R1/G40)` and nothing else — after fixing a real
+   pre-existing bug this fixture caught: `substrate_labels()` derived only from the
+   session registries, so a level REOPENED after an editor restart validated its own
+   terrain and spline strip as floating actors (6 false findings). Cure: a ueb
+   DynamicMeshActor is always a substrate (the runtime spawns that class only for
+   terrains and strips) — class is the durable tell, registry or no registry.
+3. **Scope resolution:** `scope=understory` → clean (1/1 subjects, floor honestly
+   n/a for a substrate); `scope=pine_forest` → the R1 finding; `scope=selection`
+   (selection set to an actor) resolves and lints it; a bogus scope errors with the
+   known stand labels (editor-derived, restart-proof) and a next.
+4. **Budget honesty:** an already-expired deadline → `subjects 0/3` plus "rule sweep
+   stopped at 0/3 subjects (seconds budget) — re-run to continue; the certificate
+   cache makes the second pass fast". (A warm L1 lint completes in <0.1 s, so a
+   realistic budget never trips there — the mechanism is exercised, the scale isn't.)
+
+Engine-validator layer: 13/13 L1 assets checked, all valid — consistent with G41's
+finding that stock validation is a floor, not a roof (it still says VALID on the G40
+material). The `scope=`/`seconds=` params on the `validate` MCP tool need a client
+reconnect; verified over the raw bridge meanwhile.
 
 ## Sequencing
 

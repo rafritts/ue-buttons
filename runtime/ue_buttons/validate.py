@@ -27,6 +27,9 @@ State (the intent registry + the drift accumulator) lives in `_state`, the one m
 hot-reload never touches — so a runtime edit can't wipe declarations mid-build.
 """
 import math
+import time
+
+import unreal
 
 from . import _ue
 from . import _state
@@ -754,11 +757,207 @@ def reconcile(gc=True):
     return report
 
 
+# ── SPEC-08: the lint sweep (validate op=run scope=…) ──────────────────────────
+# Three layers, cheapest first, one severity-ranked findings list out:
+#   1. the spatial floor, widened (run_validate — nothing new to build)
+#   2. the SPEC-07 rule table at firing point 3 (rules.sweep — one walk, N rules)
+#   3. the engine's own validators, wrapped (a floor, not a roof — and NEVER console
+#      MAP CHECK over RC: it crashes the editor (G41) and found nothing anyway)
+# No persisted lint.md — findings are perishable ground truth; re-running is cheap.
+
+def _floor_findings(fl):
+    """Convert a run_validate result into lint findings. The floor's messages already
+    carry their fix (SPEC-02); laden ones additionally offer the declare path."""
+    out = []
+    for f in fl["intent_free"]:
+        out.append({"severity": "degrades", "source": "floor:z_fight", "subject": f["a"],
+                    "message": f["message"],
+                    "next": "z_fight is intent-free — apply the fix in the message; "
+                            "there is no declare path"})
+    for check in ("ground", "penetration"):
+        grp = fl[check]
+        for f in grp["new"]:
+            msg = f["message"]
+            nxt = {"declare": f"validate op=expect a={f['a']} b={f['b']} check={check} "
+                              f"reason=<why this contact is intended>"}
+            if "→" in msg:
+                nxt["fix"] = msg.split("→", 1)[1].strip()
+            out.append({"severity": "degrades", "source": f"floor:{check}",
+                        "subject": f["a"], "message": msg, "next": nxt})
+        for v in grp["vanished"]:
+            out.append({"severity": "degrades", "source": f"floor:{check}",
+                        "subject": v["a"],
+                        "message": f"declared {check} {v['a']}↔{v['b']} VANISHED "
+                                   f"(was: {v['reason']})",
+                        "next": f"confirm the change is intended, or validate op=forget "
+                                f"a={v['a']} b={v['b']} check={check}"})
+        for d in grp.get("deeper", []):
+            out.append({"severity": "degrades", "source": f"floor:{check}",
+                        "subject": d["a"],
+                        "message": f"{d['a']}↔{d['b']} {d['now']}cm now vs {d['then']}cm "
+                                   f"at declaration (2× deeper than blessed)",
+                        "next": f"re-confirm: validate op=expect a={d['a']} b={d['b']} "
+                                f"check={check} reason=<updated reason> — or fix the sink"})
+    return out
+
+
+def _engine_findings(asset_paths, deadline):
+    """Layer 3: EditorValidatorSubsystem over the scope's asset set, in chunks so the
+    seconds budget is checked between assets. Returns (findings, notes, checked, total).
+    Per-asset details are extracted defensively — when a failure's details are
+    unreadable, the finding says so and points at the editor's Message Log instead of
+    pretending the asset passed."""
+    findings, notes = [], []
+    evs = unreal.get_editor_subsystem(unreal.EditorValidatorSubsystem)
+    ar = unreal.AssetRegistryHelpers.get_asset_registry()
+    datas = []
+    for pth in asset_paths:
+        try:
+            ad = ar.get_asset_by_object_path(pth)
+        except Exception:
+            ad = None
+        if ad is not None and ad.is_valid():
+            datas.append(ad)
+    settings = unreal.ValidateAssetsSettings()
+    settings.set_editor_property("collect_per_asset_details", True)
+    settings.set_editor_property("show_if_no_failures", False)
+    checked, chunk = 0, 25
+    for i in range(0, len(datas), chunk):
+        if time.monotonic() > deadline:
+            notes.append(f"engine validators stopped at {checked}/{len(datas)} assets "
+                         f"(seconds budget) — re-run to continue")
+            break
+        batch = datas[i:i + chunk]
+        n_bad, res = evs.validate_assets_with_settings(batch, settings)
+        checked += int(res.get_editor_property("num_checked"))
+        if not n_bad:
+            continue
+        extracted = 0
+        try:
+            details = res.get_editor_property("assets_details")
+            items = details.items() if hasattr(details, "items") else []
+        except Exception:
+            items = []
+        for key, d in items:
+            msgs, verdict = [], None
+            for prop in ("validation_errors", "validation_warnings"):
+                try:
+                    msgs += [str(t) for t in d.get_editor_property(prop)]
+                except Exception:
+                    pass
+            try:
+                verdict = str(d.get_editor_property("result"))
+            except Exception:
+                pass
+            if msgs or (verdict and "INVALID" in verdict.upper()):
+                extracted += 1
+                findings.append({
+                    "severity": "engine", "source": "engine-validator",
+                    "subject": str(key),
+                    "message": f"{key}: {verdict or 'flagged'} — "
+                               f"{'; '.join(msgs) or 'no message text exposed'}",
+                    "next": "open the editor's Message Log › Asset Check for the "
+                            "clickable detail"})
+        if extracted < n_bad:
+            findings.append({
+                "severity": "engine", "source": "engine-validator", "subject": "(batch)",
+                "message": f"{n_bad - extracted} asset(s) in this batch failed engine "
+                           f"validation but exposed no readable details",
+                "next": "open the editor's Message Log › Asset Check"})
+    return findings, notes, checked, len(datas)
+
+
+def lint(p):
+    """The SPEC-08 sweep. scope: "all" (whole level) | "selection" (SPEC-06 deixis —
+    what the user has selected) | a label (foliage stand or actor). Findings are
+    numbered, severity-ranked (breaks > degrades > engine notes), each with provenance
+    and a ready-to-fire next. seconds= (default 20) is the wall-clock budget."""
+    from . import rules as rulesmod
+    t0 = time.monotonic()
+    deadline = t0 + float(p.get("seconds") or 20.0)
+    scope = p.get("scope")
+    stand_labels = actor_labels = None    # None = level-wide
+    floor_targets = None                  # None = scene-wide floor
+    notes = []
+    if scope == "selection":
+        from . import deixis
+        sel = deixis.selection()
+        if not sel.get("selected"):
+            return {"error": "scope=selection but nothing is selected in the editor",
+                    "next": "ask the user to click the thing ('select it for me'), "
+                            "then re-issue validate op=run scope=selection"}
+        stand_labels, actor_labels = set(), set()
+        for e in sel.get("entries", []):
+            if e.get("class") == "InstancedFoliageActor":
+                stand_labels.update(e.get("stands") or [])
+            else:
+                actor_labels.add(e["label"])
+        floor_targets = sorted(actor_labels)
+        notes.append(f"scope resolved from selection: "
+                     f"{len(stand_labels)} stand(s), {len(actor_labels)} actor(s)")
+    elif scope != "all":
+        label = scope
+        if label in _state.foliage_stands or label in _editor_stand_labels():
+            stand_labels, actor_labels = {label}, set()
+            floor_targets = []
+        elif _ue.find_by_label(label) is not None:
+            stand_labels, actor_labels = set(), {label}
+            floor_targets = [label]
+        else:
+            return {"error": f"scope '{label}' is neither a foliage stand nor an actor "
+                             f"label in this level",
+                    "known_stands": sorted(set(_state.foliage_stands)
+                                           | _editor_stand_labels()),
+                    "next": "validate op=run scope=all — or outliner op=list to find "
+                            "the label"}
+
+    # layer 1 — the spatial floor (actors only; a stand is a substrate, not an actor)
+    if floor_targets is None:
+        fl = run_validate(scene_wide=True, verbose=True)
+    elif floor_targets:
+        fl = run_validate(floor_targets, verbose=True)
+    else:
+        fl = None
+        notes.append("spatial floor: n/a — scope is a foliage stand (substrate; "
+                     "ground/penetration/z-fight don't apply)")
+    floor = _floor_findings(fl) if fl else []
+    if fl:
+        notes.append(fl["line"])
+
+    # layer 2 — the SPEC-07 rule table at firing point 3
+    rule_f, rule_notes, asset_paths, (swept, total_subj) = rulesmod.sweep(
+        stand_labels, actor_labels, deadline)
+    notes += rule_notes
+
+    # layer 3 — the engine's own validators (G41: never console MAP CHECK)
+    eng_f, eng_notes, checked, total_assets = _engine_findings(asset_paths, deadline)
+    notes += eng_notes
+
+    findings = ([f for f in rule_f if f["severity"] == "breaks"]
+                + [f for f in rule_f if f["severity"] == "degrades"]
+                + floor + eng_f)
+    for i, f in enumerate(findings, 1):
+        f["n"] = f"F{i}"
+    n_breaks = sum(1 for f in findings if f["severity"] == "breaks")
+    n_eng = sum(1 for f in findings if f["severity"] == "engine")
+    n_degr = len(findings) - n_breaks - n_eng
+    summary = ("clean" if not findings else
+               f"{len(findings)} finding(s) — {n_breaks} breaks, {n_degr} degrades, "
+               f"{n_eng} engine")
+    return {"lint": {
+        "scope": scope, "summary": summary, "findings": findings, "notes": notes,
+        "coverage": {"subjects": f"{swept}/{total_subj}",
+                     "engine_assets": f"{checked}/{total_assets}",
+                     "seconds": round(time.monotonic() - t0, 1)}}}
+
+
 # ── the agent verb (routed from verbs._v_validate) ─────────────────────────────
 
 def handle(p):
     op = p.get("op", "run")
     if op == "run":
+        if p.get("scope"):
+            return lint(p)       # SPEC-08: the three-layer sweep
         targets = p.get("targets")
         if isinstance(targets, str):
             targets = [s.strip() for s in targets.split(",") if s.strip()] or None

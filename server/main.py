@@ -451,7 +451,8 @@ def history(op: Literal["list", "undo", "undo_to"] = "list", id: str = None,
 
 @mcp.tool()
 def validate(op: Literal["run", "expect", "forget", "intended"] = "run",
-             targets: str = None, a: str = None, b: str = None, reason: str = None,
+             targets: str = None, scope: str = None, seconds: float = None,
+             a: str = None, b: str = None, reason: str = None,
              check: str = "penetration", max_depth: float = None,
              verbose: bool = False) -> str:
     """SENSE (agent-only) — the always-on correctness floor (SPEC-02). A spatial-lint
@@ -462,6 +463,12 @@ def validate(op: Literal["run", "expect", "forget", "intended"] = "run",
 
     op=run (targets, verbose):  sweep the whole scene, or a comma-separated `targets`
         list. verbose lists every finding uncapped. Run at milestones / before handoff.
+    op=run scope=all|selection|<label> (seconds=20):  the SPEC-08 LINT sweep — three
+        layers (spatial floor + the SPEC-07 rule table across every asset×usage pairing
+        + the engine's own validators), one severity-ranked findings list (breaks >
+        degrades > engine), every finding carrying provenance and a ready-to-fire next.
+        scope=selection lints what the user has selected; scope=<label> a stand/actor.
+        seconds is a wall-clock budget — a cut-short sweep says what it skipped.
     op=expect (a, b, reason, check, max_depth):  declare a contact INTENDED — the only
         way to quiet a laden finding (there is no "ignore"). reason is required — a
         falsifiable design claim. check=penetration (a↔b) | ground (a↔"ground"). max_depth
@@ -471,11 +478,14 @@ def validate(op: Literal["run", "expect", "forget", "intended"] = "run",
     op=intended:  list the live declared-intent registry.
     """
     p = {"op": op, "check": check, "verbose": verbose}
-    for k, v in (("targets", targets), ("a", a), ("b", b), ("reason", reason),
-                 ("max_depth", max_depth)):
+    for k, v in (("targets", targets), ("scope", scope), ("seconds", seconds),
+                 ("a", a), ("b", b), ("reason", reason), ("max_depth", max_depth)):
         if v is not None:
             p[k] = v
-    return render(call_ue("validate", p))
+    # a lint sweep loads assets and runs three layers — give it headroom past its
+    # own seconds budget (default 20) so the HTTP timeout never wins the race
+    timeout = max(60, int((seconds or 20) + 45)) if scope else 60
+    return render(call_ue("validate", p, timeout=timeout))
 
 
 @mcp.resource("guidance://llms")

@@ -25,6 +25,8 @@ G40 pine ships in a folder literally named Foliage/). Verdicts are computed per
 (asset, rule) and cached for the session — R1 rides asset._motion_cache, R2 rides
 _cert_cache below.
 """
+import time
+
 import unreal
 
 from . import _ue
@@ -203,6 +205,112 @@ def census_lines():
     if sc:
         lines.append(sc)
     return lines
+
+
+# ── firing point 3: the on-demand sweep (SPEC-08) ───────────────────────────────────
+def _instanced_pairings(stand_labels=None):
+    """The level's instanced usage, grouped per stand: {stand: {mesh_name: {mesh,
+    instances}}}. stand_labels of None = every stand; components without a ueb_scatter
+    tag group under '(untagged foliage)' so non-ueb foliage is counted, never skipped."""
+    from . import foliage
+    subjects = {}
+    for c in foliage._ifa_fismcs():
+        n = c.get_instance_count()
+        if n == 0:
+            continue
+        stand = None
+        try:
+            for t in c.get_editor_property("component_tags"):
+                s = str(t)
+                if s.startswith(foliage._FOLIAGE_TAG):
+                    stand = s[len(foliage._FOLIAGE_TAG):]
+                    break
+        except Exception:
+            pass
+        stand = stand or "(untagged foliage)"
+        if stand_labels is not None and stand not in stand_labels:
+            continue
+        mesh = c.get_editor_property("static_mesh")
+        if mesh is None:
+            continue
+        e = subjects.setdefault(stand, {})
+        me = e.setdefault(mesh.get_name(), {"mesh": mesh, "instances": 0})
+        me["instances"] += n
+    return subjects
+
+
+def _standalone_pairings(actor_labels=None):
+    """The level's standalone usage: {actor_label: mesh} for placed StaticMeshActors."""
+    out = {}
+    for a in _ue.all_actors():
+        if not isinstance(a, unreal.StaticMeshActor):
+            continue
+        lbl = a.get_actor_label()
+        if actor_labels is not None and lbl not in actor_labels:
+            continue
+        c = a.static_mesh_component
+        mesh = c.get_editor_property("static_mesh") if c is not None else None
+        if mesh is None:
+            continue
+        out[lbl] = mesh
+    return out
+
+
+def sweep(stand_labels=None, actor_labels=None, deadline=None):
+    """SPEC-08 — the rule table at firing point 3: every static/census-tier rule
+    evaluated across the scope's asset×usage pairings. stand_labels/actor_labels of
+    None = level-wide; an empty set takes that usage out of scope. Returns (findings,
+    notes, asset_object_paths, (swept, total_subjects)); asset paths cover every mesh
+    + material the scope wears (the engine-validator layer's input). Budget: `deadline`
+    (time.monotonic) is checked between subjects and the cut is reported, never silent
+    (certificate cache makes the re-run cheap)."""
+    findings, notes, assets = [], [], set()
+    for rule in RULES:
+        if rule["tier"] == "pie":
+            notes.append(f"{rule['id']}/{rule['gap']} ({rule['title']}) is pie-tier — "
+                         f"not checkable statically; see SPEC-09")
+    subjects = []
+    for stand, meshes in sorted(_instanced_pairings(stand_labels).items()):
+        subjects.append(("instanced", stand,
+                         [(k, v["mesh"], v["instances"]) for k, v in sorted(meshes.items())]))
+    for lbl, mesh in sorted(_standalone_pairings(actor_labels).items()):
+        subjects.append(("standalone", lbl, [(mesh.get_name(), mesh, None)]))
+    swept = 0
+    for usage, subject, mlist in subjects:
+        if deadline is not None and time.monotonic() > deadline:
+            notes.append(f"rule sweep stopped at {swept}/{len(subjects)} subjects "
+                         f"(seconds budget) — re-run to continue; the certificate cache "
+                         f"makes the second pass fast")
+            break
+        swept += 1
+        for _name, mesh, _cnt in mlist:
+            assets.add(mesh.get_path_name())
+            for sm in mesh.static_materials:
+                mi = sm.material_interface
+                if mi is not None:
+                    assets.add(mi.get_path_name())
+        for rule in RULES:
+            if rule["usage"] != usage or rule["tier"] == "pie":
+                continue
+            offenders, evidence, inst_n = [], set(), 0
+            for name, mesh, cnt in mlist:
+                ev = rule["evidence"](mesh)
+                if ev:
+                    offenders.append(name)
+                    evidence.add(ev)
+                    inst_n += cnt or 0
+            if not offenders:
+                continue
+            shown = ", ".join(offenders[:5]) + (", …" if len(offenders) > 5 else "")
+            verdict = rule["verdict"].format(evidence="; ".join(sorted(evidence)))
+            head = (f"{subject} ({inst_n} instances, {shown})" if usage == "instanced"
+                    else f"{subject} ({shown})")
+            findings.append({
+                "severity": rule["severity"], "rule": rule["id"], "gap": rule["gap"],
+                "subject": subject, "usage": usage, "offenders": offenders,
+                "message": f"{head}: {verdict} ({rule['id']}/{rule['gap']})",
+                "next": rule["alternative"]})
+    return findings, notes, sorted(assets), (swept, len(subjects))
 
 
 def _standalone_census():

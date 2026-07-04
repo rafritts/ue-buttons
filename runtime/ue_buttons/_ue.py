@@ -236,6 +236,13 @@ def substrate_labels():
         sa = pd.get("surface_actor")
         if sa:
             subs.add(sa)
+    # The registries die with the session but the LEVEL outlives it (the G47 relaunch
+    # taught this): a reopened level's terrain read as a floating actor. Class is the
+    # durable tell — the runtime spawns ueb DynamicMeshActors ONLY as terrains and
+    # spline surface strips, so every one of them is a substrate.
+    for a in ueb_actors():
+        if isinstance(a, unreal.DynamicMeshActor):
+            subs.add(a.get_actor_label())
     return subs
 
 
