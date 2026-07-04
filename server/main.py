@@ -121,14 +121,37 @@ def outliner(op: Literal["census", "reconcile"] = "census",
 
 
 @mcp.tool()
-def level(op: Literal["streaming"] = "streaming") -> str:
-    """Level / World Settings / World Partition. (SPEC-04's new/save/load/list land here.)
+def level(op: Literal["streaming", "save", "new", "open", "clear"] = "streaming",
+          path: str = None, template: str = None, save: bool = False,
+          save_path: str = None, force: bool = False) -> str:
+    """Level / World Settings / World Partition — lifecycle included (SPEC-04).
 
     op=streaming: the WorldPartition residency picture — is the world partitioned, its
       data layers + effective runtime state, per-actor is_spatially_loaded/runtime_grid.
       Says so plainly when the map isn't partitioned. (WorldPartitionBlueprintLibrary)
+    op=save: save the level + external actors + authored content. An unsaved Untitled
+      needs path='/Game/Maps/<Name>' (save-as).
+    op=new (path=): fresh level saved at path, cloned from the World-Partition Open World
+      template (template= to override), with the G36 cure baked in: the template's copied
+      env actors (broken at PIE time) are replaced by a fresh sun / sky_light /
+      sky_atmosphere / clouds / height_fog / player_start set.
+    op=open (path=): load a level by asset path.
+    op=clear: wipe the ueb arrangement, keep the map — every ueb-tagged actor and foliage
+      population dies (counts reported by kind), engine scaffolding survives, the
+      template ground returns (G37), op log + intents reset.
+
+    Guards: new/open REFUSE if the current level has unsaved changes — save=true saves
+    first (save_path= if it's Untitled), force=true discards explicitly. new/open/clear
+    all run outliner-reconcile as part of the transition, so the registries can never
+    describe a level that is no longer loaded.
     """
-    return render(call_ue("level", {"op": op}))
+    p = {"op": op}
+    if path is not None: p["path"] = path
+    if template is not None: p["template"] = template
+    if save: p["save"] = True
+    if save_path is not None: p["save_path"] = save_path
+    if force: p["force"] = True
+    return render(call_ue("level", p, timeout=120))
 
 
 @mcp.tool()

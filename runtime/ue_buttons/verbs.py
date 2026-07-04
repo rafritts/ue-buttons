@@ -20,6 +20,7 @@ from . import spline as splinemod
 from . import foliage as foliagemod
 from . import render as rendermod
 from . import validate as validatemod
+from . import level as levelmod
 
 # R4 (SPEC-05): the runtime is verified against this engine version; a session on a
 # different build gets one warning on its first dispatch — trained reflexes may misfire.
@@ -50,9 +51,11 @@ if not hasattr(_state, "follow"):
 def _level_guard():
     """G23: the op log + declared intents describe ONE level's arrangement. On the first
     dispatch after a level change, clear both — op001 from a dead level must never stamp a
-    fresh level's status blocks, and undo_to can never cross a level boundary. (A save-as
-    rename counts as a change — conservative and documented.) Actor/foliage registries have
-    their own lifecycle (`outliner op=reconcile`, G16)."""
+    fresh level's status blocks, and undo_to can never cross a level boundary. SPEC-04's
+    lifecycle ops re-stamp inside the transition (level._restamp) so a save-as rename no
+    longer costs the log and new/open report the reset on their OWN result; this guard is
+    the backstop for level changes made by the HUMAN through the editor menu.
+    Actor/foliage registries have their own lifecycle (`outliner op=reconcile`, G16)."""
     if not hasattr(_state, "level_stamp"):
         _state.level_stamp = [None]
     lvl = _ue.level_name()
@@ -66,6 +69,7 @@ def _level_guard():
     _state.intents.clear()
     _state.drift[0] = 0.0
     _state.engine_grounds_memo = None
+    _state.last_dispatch = None    # B10's field describes the dead level's arrangement
     if n_ops or n_int:
         return (f"level changed ({prev} → {lvl}) — cleared {n_ops} logged op(s) and "
                 f"{n_int} declared intent(s) from the old level (G23); "
@@ -296,12 +300,12 @@ def _block_lines(result, focus):
     acted = _ue.find_by_label(focus) if focus else None
     vp_active = sel[-1] if sel else None
     show = acted or vp_active
-    # SPEC-04 rider: the dirty flag on every block makes "the build is stranded unsaved"
-    # ambient instead of tribal knowledge — save itself still awaits the lifecycle verbs.
+    # SPEC-04: the dirty flag on every block makes "the build is stranded unsaved"
+    # ambient instead of tribal knowledge — and carries the move that clears it.
     dirty = ""
     try:
         if unreal.EditorLoadingAndSavingUtils.get_dirty_map_packages():
-            dirty = "  (UNSAVED — no save verb yet, the human saves; SPEC-04)"
+            dirty = "  (UNSAVED — level op=save; path= if Untitled)"
     except Exception:
         pass
     lines = ["── ue status ───────────────────────────────",
@@ -406,7 +410,18 @@ def _pie_census(p):
                        if k in snap["classes"]},
            "missing_at_runtime": missing,
            "pie": "ended"}
-    if missing:
+    # Known-benign: the template Landscape PARENT never loads in PIE, but its
+    # LandscapeStreamingProxy children (the actual ground) stream by pawn position —
+    # every level cloned from the Open World template shows this. Only the parent
+    # missing + proxies present = not a defect; anything else missing still is.
+    if set(missing) == {"Landscape"} and any(
+            a.get_class().get_name() == "LandscapeStreamingProxy"
+            for a in _ue.all_actors()):
+        out["missing_at_runtime"] = {}
+        out["verdict"] = ("game world agrees with the editor's always-loaded set "
+                          "(the template Landscape parent skips PIE by design — its "
+                          "streaming proxies are the ground and load by position)")
+    elif missing:
         out["verdict"] = ("BROKEN AT GAME TIME — these always-loaded actors never load in "
                           "PIE (the G36 template defect): delete and respawn them fresh, "
                           "then save")
@@ -474,14 +489,22 @@ def _v_outliner(p):
 
 
 def _v_level(p):
-    """Level / World Settings / World Partition (SPEC-05; SPEC-04 lifecycle lands here).
+    """Level / World Settings / World Partition (SPEC-05; SPEC-04 lifecycle lives here).
     op="streaming" (SPEC-03 link 1): the WorldPartition residency picture — partition
-      status, data layers + effective runtime state, per-actor is_spatially_loaded/grid."""
+      status, data layers + effective runtime state, per-actor is_spatially_loaded/grid.
+    op="save"|"new"|"open"|"clear" (SPEC-04): lifecycle — see level.py (dirty guard,
+      reconcile-on-transition, G36 env cure on new, G37 template restore on clear)."""
     op = p.get("op", "streaming")
     if op == "streaming":
         return rendermod.streaming_report()
-    return {"error": f"unknown level op '{op}'. known: streaming "
-                     "(new/save/load/list land with SPEC-04)"}
+    result = levelmod.handle(p)
+    # Lifecycle ops that change the world get the status block by hand (they are not
+    # MUTATING — no transaction, no history — but a transition must never end silent):
+    # the block's level/selection/roster lines are the proof of what the op left behind.
+    if op in ("new", "open", "clear") and isinstance(result, dict) \
+            and "error" not in result:
+        result["status"] = "\n".join(_block_lines(result, None))
+    return result
 
 
 def _v_play(p):

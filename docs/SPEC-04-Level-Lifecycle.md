@@ -1,6 +1,26 @@
 # SPEC-04 — Level lifecycle (new / open / save / clear)
 
-Status: proposal, 2026-07-02. Promoted from gaps.md G16, whose want (2) — reconcile
+Status: **IMPLEMENTED + live-verified 2026-07-03** (`runtime/ue_buttons/level.py`; ops on
+the `level` verb). Every op exercised over the bridge in one round trip: save-as of the
+unsaved L1 (`/Game/Maps/UEB_L1_Valley2`), dirty-guard refusal, `new` →
+`/Game/Maps/UEB_Scratch` with the env cure PIE-census-proven, a scratch build cleared
+(counts by kind, template ground restored, op log reset), `open` back to L1 with the
+`valley` terrain rehydrated from disk meta. Implementation notes beyond the text below:
+
+- `op=new` bakes the **G36 cure**: `new_level_from_template` copies always-loaded env
+  actors whose descriptors never load in PIE, so the copies are deleted and a fresh
+  sun / sky_light (real-time capture) / sky_atmosphere / clouds / height_fog /
+  player_start set is respawned, untagged (scaffolding — `clear` keeps it). The PIE
+  census also learned the one benign miss: the template Landscape *parent* skips PIE by
+  design while its streaming proxies carry the ground.
+- terrain disk meta became **merge-on-save** (`terrain._save_meta(prune=…)`) — the flat
+  dump meant building on level B destroyed level A's persisted heightfields the moment
+  lifecycle verbs made cross-level work real.
+- lifecycle ops re-stamp `_level_guard`'s level stamp themselves (`level._restamp`):
+  a save-as rename no longer costs the op log; `new`/`open`/`clear` report the
+  op-log/intent reset on their own result instead of one dispatch later.
+
+Original proposal (2026-07-02) follows. Promoted from gaps.md G16, whose want (2) — reconcile
 `_state` against the actual level — already landed in SPEC-03 (now `outliner op=reconcile`). This
 spec is want (1): the surface has **no level lifecycle at all**, and that is the missing
 control the moment an agent builds across more than one session or map.

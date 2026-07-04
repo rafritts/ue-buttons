@@ -169,7 +169,7 @@ roster — 14 verbs, `op=` the one discriminator everywhere:
 | `foliage` | Foliage mode (was `scatter`) | `op=paint/describe/reseed/remove` |
 | `terrain` | MACRO ≈ Landscape (was `landscape`) | + `op=carve along=<spline>` (from path) |
 | `spline` | SplineComponent (was `path`) | curve + surface strip; carve moved out |
-| `outliner` `level` `play` | the three surfaces `scene` conflated | census/reconcile · streaming · census/start/stop |
+| `outliner` `level` `play` | the three surfaces `scene` conflated | census/reconcile · streaming + lifecycle `save/new/open/clear` (SPEC-04) · census/start/stop |
 | `feel` `validate` | agent-only senses | unchanged |
 
 ## Next design step

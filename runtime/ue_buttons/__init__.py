@@ -35,12 +35,13 @@ from . import spline
 from . import foliage
 from . import render
 from . import validate
+from . import level
 from . import verbs
 
 # Reload order matters: dependencies before dependents, and _state is absent by design.
 # render before validate/verbs — both consume its source-filter predicate (SPEC-03).
 _RELOADABLE = [_ue, relational, asset, material, heightfield, terrain, map_ref, spline,
-               foliage, render, validate, verbs]
+               foliage, render, validate, level, verbs]
 
 SENTINEL = "UEB>>>"
 

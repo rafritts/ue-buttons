@@ -36,10 +36,25 @@ def _meta_path():
     return os.path.normpath(os.path.join(saved, _META_NAME))
 
 
-def _save_meta():
+def _save_meta(prune=None):
+    """MERGE _state.terrains into the on-disk meta — the file is shared across levels,
+    and with SPEC-04's new/open/clear in play a flat dump from level B would silently
+    destroy level A's persisted heightfields. prune=[labels] deletes entries (terrain
+    removed / level cleared); stale disk entries are otherwise harmless — _hydrate only
+    adopts a label whose actor exists in the loaded level."""
+    try:
+        disk = {}
+        if os.path.exists(_meta_path()):
+            with open(_meta_path()) as f:
+                disk = json.load(f)
+    except Exception:
+        disk = {}
+    disk.update(_state.terrains)
+    for label in (prune or []):
+        disk.pop(label, None)
     try:
         with open(_meta_path(), "w") as f:
-            json.dump(_state.terrains, f)
+            json.dump(disk, f)
     except Exception:
         pass
 
@@ -262,7 +277,7 @@ def _remove(p):
     if actor is not None:
         _ue.actor_subsystem().destroy_actor(actor)
     _state.terrains.pop(label, None)
-    _save_meta()
+    _save_meta(prune=[label])
     _state.engine_grounds_memo = None    # ground attribution changed (B3/G22)
     dependents = [sl for sl, sd in _state.splines.items()
                   if sd.get("terrain", "terrain") == label]
