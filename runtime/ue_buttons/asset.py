@@ -459,9 +459,9 @@ def _describe_material(path, out):
     kind, note = material_motion(base)
     if kind is not None:
         out["motion"] = kind
-    if kind in ("wpo", "masked_wind"):
+    if kind in ("wpo", "pivot_wpo", "masked_wind"):
         out["has_world_position_offset"] = True
-    if kind in ("wpo", "wpo_suspect"):
+    if kind in ("wpo", "wpo_suspect", "pivot_wpo"):
         warnings.append(note)
     elif kind in ("masked_wind", "unreadable"):
         out["motion_note"] = note
@@ -488,11 +488,44 @@ def _describe_material(path, out):
 # separate base-anchored masked wind (fine) from whole-mesh displacement (bobs).
 _DISPLACE_TOKENS = ("displace", "sway", "bend", "bob")
 
+# G40: object-space expressions inside a WPO subgraph anchor the motion to the OBJECT
+# pivot/bounds — legitimate per-actor, but on an instanced component (ISM/foliage) they
+# resolve to the WHOLE component, so every instance translates rigidly instead of bending.
+_OBJECT_SPACE_TOKENS = ("ObjectPosition", "ObjectRadius", "ObjectBounds",
+                        "ObjectLocalBounds", "ActorPosition")
+
+
+def _wpo_object_space_refs(base, wpo):
+    """Walk the WPO subgraph from its input node; return the object-space expression
+    names found (the G40 pivot-anchoring tell), [] when the WPO is purely world-space."""
+    mel = unreal.MaterialEditingLibrary
+    seen, stack, refs = set(), [wpo], set()
+    while stack:
+        e = stack.pop()
+        if e is None or e.get_name() in seen:
+            continue
+        seen.add(e.get_name())
+        cn = type(e).__name__
+        if any(t in cn for t in _OBJECT_SPACE_TOKENS):
+            refs.add(cn.replace("MaterialExpression", ""))
+        elif "TransformPosition" in cn:
+            try:
+                src = e.get_editor_property("transform_source_type")
+                if src == unreal.MaterialPositionTransformSource.TRANSFORMPOSSOURCE_LOCAL:
+                    refs.add("TransformPosition(local→world)")
+            except Exception:
+                pass
+        try:
+            stack.extend(mel.get_inputs_for_material_expression(base, e))
+        except Exception:
+            pass
+    return sorted(refs)
+
 
 def material_motion(base):
     """Classify whether a master material MOVES the meshes wearing it. Returns
-    (kind, note): kind is None (still) | "masked_wind" | "wpo" | "wpo_suspect" |
-    "unreadable"."""
+    (kind, note): kind is None (still) | "masked_wind" | "pivot_wpo" | "wpo" |
+    "wpo_suspect" | "unreadable"."""
     mel = unreal.MaterialEditingLibrary
     scalars = [str(n).lower() for n in mel.get_scalar_parameter_names(base)]
     wind_masked = any("wind" in s and "weight" in s for s in scalars)
@@ -505,6 +538,13 @@ def material_motion(base):
                 "vertex-masked wind WPO (Wind Weight): base stays anchored, leaves sway "
                 "— the safe foliage animation")
     if wpo is not None:
+        refs = _wpo_object_space_refs(base, wpo)
+        if refs:
+            return ("pivot_wpo",
+                    f"pivot-anchored WPO ({', '.join(refs)} in the WPO graph): a "
+                    "legitimate base-anchored bend on a lone actor, but on an instanced "
+                    "component (ISM/foliage) object-space resolves to the WHOLE component "
+                    "— every instance translates rigidly instead of bending (G40)")
         return ("wpo", "has WORLD-POSITION-OFFSET: every mesh wearing it MOVES (wind/"
                        "bob/deform) — no mechanical read can see this, and a master "
                        "built for another system (foliage plugin, diorama) deforms "
@@ -522,7 +562,8 @@ def material_motion(base):
     return (None, None)
 
 
-_MOTION_RANK = {None: 0, "unreadable": 1, "masked_wind": 2, "wpo_suspect": 3, "wpo": 4}
+_MOTION_RANK = {None: 0, "unreadable": 1, "masked_wind": 2, "wpo_suspect": 3, "wpo": 4,
+                "pivot_wpo": 5}
 _motion_cache = {}      # material path → (kind, note); session-lifetime
 
 
@@ -554,12 +595,14 @@ def motion_notes(mesh_paths):
         if not isinstance(m, unreal.StaticMesh):
             continue
         kind, note = _mesh_motion(m)
-        if kind in ("wpo", "wpo_suspect"):
-            moving.setdefault(note, []).append(pp.rsplit("/", 1)[-1])
+        if kind in ("wpo", "wpo_suspect", "pivot_wpo"):
+            moving.setdefault((kind, note), []).append(pp.rsplit("/", 1)[-1])
         elif kind == "masked_wind":
             masked += 1
-    notes = [f"ANIMATES ({', '.join(names[:4])}{', …' if len(names) > 4 else ''}): {note}"
-             for note, names in moving.items()]
+    # G40: painting IS instancing — a pivot-anchored WPO doesn't just move, it moves WRONG.
+    notes = [("MOVES WRONG when instanced" if kind == "pivot_wpo" else "ANIMATES")
+             + f" ({', '.join(names[:4])}{', …' if len(names) > 4 else ''}): {note}"
+             for (kind, note), names in moving.items()]
     if masked:
         notes.append(f"{masked} mesh(es) carry vertex-masked wind (Wind Weight) — base "
                      "anchored, leaves sway; the safe kind")

@@ -31,14 +31,17 @@ Every answer carries `next` — ready-to-fire follow-up calls (the HATEOAS rule)
 
 ## Implementation notes (what the editor actually taught)
 
-- **Foliage carries NO collision** (G46): painted components report `NoCollision` /
-  `ECR_IGNORE` on visibility, so no line trace can ever hit an instance. `looking_at`
-  resolves "which tree" by a ray-vs-instance-AABB **math pass** instead
-  (`_foliage_along_ray`): instance transforms + mesh bounds are ground truth (derived,
-  not divined), components are pruned by bounding sphere before instances are walked
-  (17k instances → ~0.2 s round trip), and the math pass wins whenever an instance sits
-  nearer than the traced world hit. The gameplay half (pawn walks through trunks) stays
-  open as G46.
+- **Foliage ignores visibility traces** (G46): `FoliageInstancedStaticMeshComponent`
+  forces `ECR_IGNORE` on the visibility channel by engine design, so no line trace can
+  ever hit an instance — and that is load-bearing (ground traces during paint/drape must
+  never land instances on treetops). `looking_at` resolves "which tree" by a
+  ray-vs-instance-AABB **math pass** instead (`_foliage_along_ray`): instance transforms
+  + mesh bounds are ground truth (derived, not divined), components are pruned by
+  bounding sphere before instances are walked (17k instances → ~0.2 s round trip), and
+  the math pass wins whenever an instance sits nearer than the traced world hit. The
+  gameplay half of G46 (pawn walked through trunks) was fixed the same day:
+  `foliage op=paint` `rules.collision` (auto|block|none, default auto) gives tree-scale
+  variants BlockAll bodies — the pawn stops at trunks; understory stays body-free.
 - The HitResult `component` + `item` fields DO resolve an instance index when a trace
   hits a collidable ISM — that path is kept for projects whose foliage has collision.
 - Registry attribution degrades honestly: a terrain/spline whose registry entry is gone
@@ -64,7 +67,7 @@ one-shot symptom probes; until then this is the routing table.
 | "the trees bob / float / jelly" | `select op=user` on a clicked instance → motion verdict (G39; pivot-anchored-WPO-under-instancing is G40) |
 | "black screen when I press Play" | `play op=census` (G36) |
 | "I fell through the ground" | `feel op=describe target=<terrain>` + a `terrain op=describe` sample at the spot — collision (complex-as-simple) check |
-| "I walk through the trees" | known: G46 (foliage has no collision) |
+| "I walk through the trees" | stand painted with `rules.collision='none'` (or pre-G46-fix) — `foliage op=reseed` with default rules gives tree-scale variants BlockAll bodies |
 | "it's floating / buried" | `feel op=describe` (rests_on / on_floor), `validate op=run` |
 | "it flickers" | `validate op=run` — z-fight band |
 | "the path is too steep here" | `play op=where` (where is "here"), then `spline op=describe` grade profile (G45) |

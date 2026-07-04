@@ -235,6 +235,42 @@ def _ifa_fismcs():
     return out
 
 
+def motion_census():
+    """G40: the level-wide motion census — aggregate foliage instances by motion verdict
+    and call out meshes whose WPO breaks under instancing. Returns one warning line for
+    the status block, or None when the forest is motion-clean (silence, not a report:
+    this is the warning channel). Cheap after first classification — verdicts cache per
+    material and the meshes are already loaded by the level."""
+    total, bad = 0, {}
+    for c in _ifa_fismcs():
+        n = c.get_instance_count()
+        if n == 0:
+            continue
+        total += n
+        mesh = c.get_editor_property("static_mesh")
+        if mesh is None:
+            continue
+        kind, _note = asset._mesh_motion(mesh)
+        if kind in ("pivot_wpo", "wpo", "wpo_suspect"):
+            agg = bad.setdefault(kind, [0, set()])
+            agg[0] += n
+            agg[1].add(mesh.get_name())
+    if not bad:
+        return None
+    verdict = {
+        "pivot_wpo": "FLOAT rigidly — pivot-anchored WPO breaks under instancing (G40)",
+        "wpo": "MOVE (unmasked WPO)",
+        "wpo_suspect": "likely move (displacement wired, WPO pin unreadable)"}
+    parts = []
+    for kind in ("pivot_wpo", "wpo", "wpo_suspect"):
+        if kind in bad:
+            n, names = bad[kind]
+            shown = sorted(names)
+            parts.append(f"{n}/{total} foliage instances {verdict[kind]}: "
+                         + ", ".join(shown[:4]) + (", …" if len(shown) > 4 else ""))
+    return "motion: " + "; ".join(parts)
+
+
 def _clear_tagged(tag):
     """Empty every foliage component carrying `tag` (Python can't destroy the component, but a
     cleared FISMC has zero instances → nothing drawn). Returns how many were cleared."""
@@ -246,7 +282,33 @@ def _clear_tagged(tag):
     return cleared
 
 
-def _foliage_type_for(label, idx, mesh_path):
+# G46: the FoliageType default is NoCollision — the PIE pawn walks through trunks.
+# rules.collision governs it per paint:
+#   "auto" (default)  tree-scale variants (mesh taller than the threshold) get BlockAll
+#                     bodies; understory stays collision-free (17k grass bodies aren't free)
+#   "block" / "none"  force it for the whole stand
+# Scope of the fix: instance BODIES block physics/objects (the pawn stops at trunks).
+# The VISIBILITY channel stays ECR_IGNORE — FoliageInstancedStaticMeshComponent forces it
+# by engine design, and that is load-bearing here: ground traces during paint/drape must
+# never land instances on treetops. "Which tree am I looking at" is deixis' ray-vs-bounds
+# math pass, not a trace, so nothing is lost.
+_COLLIDE_MIN_HEIGHT_CM = 250.0   # pawn-scale: shorter than this reads as walk-over/through
+
+
+def _wants_collision(mode, mesh_path):
+    if mode == "block":
+        return True
+    if mode == "none":
+        return False
+    m = _ue.load_asset(mesh_path)   # auto: height from the mesh's own bounds (ground truth)
+    try:
+        h = m.get_bounds().box_extent.z * 2.0
+    except Exception:
+        return False
+    return h >= _COLLIDE_MIN_HEIGHT_CM
+
+
+def _foliage_type_for(label, idx, mesh_path, collide=False):
     """A per-stand FoliageType_InstancedStaticMesh asset (namespaced by label+variant) with
     its mesh set. Recreated fresh each build so it never carries stale settings/instances."""
     name = f"FT_{_sanitize(label)}__{idx}"
@@ -257,6 +319,14 @@ def _foliage_type_for(label, idx, mesh_path):
     ft = atools.create_asset(name, _FOLIAGE_DIR, unreal.FoliageType_InstancedStaticMesh,
                              unreal.FoliageType_InstancedStaticMeshFactory())
     ft.set_editor_property("mesh", _ue.load_asset(mesh_path))
+    if collide:
+        # Writing the raw struct sets the NAME components will copy, but never runs the
+        # profile-application path (collision_enabled stays NO_COLLISION) — the created
+        # components get set_collision_profile_name() after the add, which does.
+        bi = ft.get_editor_property("body_instance")
+        bi.set_editor_property("collision_profile_name", "BlockAll")
+        bi.set_editor_property("collision_enabled", unreal.CollisionEnabled.QUERY_AND_PHYSICS)
+        ft.set_editor_property("body_instance", bi)
     return ft, full
 
 
@@ -347,6 +417,9 @@ def _paint(p):
 
     seed = int(p.get("seed", 1337))
     rules = p.get("rules") or {}
+    if rules.get("collision", "auto") not in ("auto", "block", "none"):
+        return {"error": f"unknown rules.collision '{rules['collision']}'. "
+                         "known: auto|block|none"}
     result = _generate(label, region, meshes, seed, rules, p)
     return result
 
@@ -412,14 +485,30 @@ def _generate(label, region, meshes, seed, rules, p):
     world = _ue.editor_world()
     tag = _FOLIAGE_TAG + label
     _clear_tagged(tag)                                   # drop any orphaned empties for this label
+    collision_mode = rules.get("collision", "auto")
+    blocking, walk_through, blocked_paths = [], [], set()
     ft_paths = []
     for idx, vp in enumerate(variant_paths):
         tlist = variant_transforms.get(vp)
         if not tlist:
             continue
-        ft, full = _foliage_type_for(label, idx, vp)
+        collide = _wants_collision(collision_mode, vp)
+        (blocking if collide else walk_through).append(vp.rsplit("/", 1)[-1])
+        if collide:
+            blocked_paths.add(vp)
+        ft, full = _foliage_type_for(label, idx, vp, collide)
         ft_paths.append(full)
         _add_tagged(world, ft, tlist, tag)
+    # G46: apply the profile ON the created components — the PrimitiveComponent call is
+    # what actually flips collision_enabled + channel responses (the FT struct write
+    # alone leaves every instance body inert).
+    if blocked_paths:
+        for c in _ifa_fismcs():
+            if tag not in [str(t) for t in c.get_editor_property("component_tags")]:
+                continue
+            mesh = c.get_editor_property("static_mesh")
+            if mesh and mesh.get_path_name().split(".")[0] in blocked_paths:
+                c.set_collision_profile_name("BlockAll")
 
     _state.foliage_stands[label] = {
         "region": region,
@@ -435,10 +524,19 @@ def _generate(label, region, meshes, seed, rules, p):
            "per_family": _state.foliage_stands[label]["per_family"],
            "seed": seed, "rejected": rejected, "foliage_types": len(ft_paths),
            "undoable": False,
+           "collision": {"mode": collision_mode, "blocking": blocking,
+                         "walk_through": walk_through},
            "note": "instanced foliage (registered) — renders in the viewport"}
     # G39: a population that will MOVE (WPO wind/displacement) is announced at author
     # time — a whole-mesh-bobbing understory must never paint silently again.
     notes = _canopy_notes(meshes, spacing, jit) + asset.motion_notes(variant_paths)
+    # G46: a tree-scale stand painted collision-free is a playtest trap — say so with
+    # the ready fix, at author time.
+    if collision_mode == "none" and \
+            any(_wants_collision("auto", vp) for vp in variant_paths):
+        notes.append("collision=none on tree-scale meshes — the PIE pawn walks through "
+                     "trunks; repaint with rules.collision='auto' to give them BlockAll "
+                     "bodies (G46)")
     if notes:
         out["notes"] = notes
     return out

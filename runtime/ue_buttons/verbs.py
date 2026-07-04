@@ -205,6 +205,13 @@ def _status_block(verb, params, result):
     for w in _warnings(result):
         lines.append("⚠ " + w)
 
+    # 1b. G40 motion census — a forced warning whenever instanced meshes carry motion
+    # that breaks under instancing; silent when the forest is clean.
+    if verb in MUTATING or verb in SPATIAL:
+        mc = foliagemod.motion_census()
+        if mc:
+            lines.append("⚠ " + mc)
+
     # 2 & 3. the two forced senses. They run on GEOMETRY/PLACEMENT ops — a `select`
     # rearranges nothing to validate, and a spatial (terrain/population) edit isn't an
     # actor the per-actor floor can check, so it says so rather than faking a clean pass.

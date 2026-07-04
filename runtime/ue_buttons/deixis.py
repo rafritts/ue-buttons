@@ -208,8 +208,10 @@ def _foliage_ifas(world=None):
 
 
 def _foliage_along_ray(start, direction, max_t, world=None):
-    """Nearest ueb foliage instance the ray passes through, or None. Foliage instances
-    carry NoCollision (G46) so no trace can ever hit one — 'which tree' is answered by
+    """Nearest ueb foliage instance the ray passes through, or None. Foliage is
+    invisible to visibility traces — the foliage component forces ECR_IGNORE on that
+    channel by engine design (G46's BlockAll bodies stop the pawn, not rays) — so
+    'which tree' is answered by
     ray-vs-instance-AABB MATH over the stands' components instead (instance transforms +
     mesh bounds are ground truth; rotation is ignored, fine at deixis precision).
     Components are pruned by their bounding sphere before instances are walked."""
@@ -277,8 +279,9 @@ def _ray_answer(world, start, direction, game_world=None):
     hit = _trace_full(world, start, direction)
     max_t = (math.dist(start, (hit["location"].x, hit["location"].y, hit["location"].z))
              if hit is not None and hit["location"] is not None else _RAY_CM)
-    # G46: foliage has no collision — a tree between the camera and the traced hit is
-    # invisible to the trace. The math pass wins whenever an instance sits NEARER.
+    # Foliage ignores the visibility channel by engine design (G46 bodies block the
+    # pawn, not rays) — a tree between the camera and the traced hit is skipped by the
+    # trace. The math pass wins whenever an instance sits NEARER.
     fol = _foliage_along_ray(start, direction, max_t, world=game_world)
     if fol is not None:
         t, stand, mesh, idx, iloc = fol
@@ -289,8 +292,9 @@ def _ray_answer(world, start, direction, game_world=None):
                                "next": [f"feel op=render_state target={stand}",
                                         f"foliage op=describe label={stand}"]},
                 "distance_m": dist_m,
-                "resolved_by": "ray-vs-instance-bounds math (foliage carries no "
-                               "collision — G46 — so no trace can hit it)",
+                "resolved_by": "ray-vs-instance-bounds math (foliage ignores visibility "
+                               "traces by engine design; G46 bodies block the pawn, "
+                               "not rays)",
                 "verdict": f"looking at a '{mesh}' of stand '{stand}' "
                            f"(instance {idx}), {dist_m} m away"}
     if hit is None or hit["location"] is None:

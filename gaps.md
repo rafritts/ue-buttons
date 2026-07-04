@@ -15,51 +15,6 @@ Gaps are *friction / missing-capability / design*. Outright defects go in `bugs.
 
 ---
 
-### G46 — foliage instances carry NO collision: traces can't hit them, and the PIE pawn walks through trunks
-Status: OPEN (found 2026-07-03 implementing SPEC-06 — the deixis half is worked around;
-the gameplay half is the open gap.)
-
-Live fact: every painted foliage component reports `collision_profile: NoCollision`,
-`ECC_VISIBILITY: ECR_IGNORE` (the FoliageType default our paint path never overrides). Two
-consequences: (1) no line trace can ever hit a tree — `feel op=looking_at` works around it
-with a ray-vs-instance-AABB math pass (deixis.py `_foliage_along_ray`), so deixis is
-covered; (2) the PIE pawn walks straight THROUGH 1,900 pine trunks — a playtest-feel
-defect no mechanical read flags today. Candidate fix: paint sets the FoliageType's
-`body_instance` to BlockAll (trunk collision), maybe gated by a `collision=` param —
-but measure the cost first (17k understory instances with collision bodies is not free).
-Decide when the user's playtest actually trips on it.
-
-### G40 — motion verdicts ignore INSTANCING, and the status block has no level-wide motion census
-Status: OPEN (found 2026-07-03 in the first SPEC-06 deixis experiment — the user selected
-the forest and reported "whole trees float/rock, no bending"; design agreed, implementation
-deliberately deferred until the spec-shaping session ends.)
-
-The live case: `MM_Tree_Trunk` (Modular_Rural_Cabin pack) drives WPO with
-`RotateAboutAxis` around the OBJECT PIVOT, angle scaled by `Distance(vertex, pivot) /
-ObjectRadius`. Per-actor that's a legitimate base-anchored trunk bend. But 549 pines in the
-level are FOLIAGE INSTANCES, and on an instanced component `ObjectPosition`/`ObjectRadius`/
-local-origin resolve to the WHOLE COMPONENT's bounds — one pivot for the entire forest, a
-radius spanning the valley — so every tree translates rigidly in sine arcs instead of
-bending. G39's classifier calls this master `wpo` (correct but under-specific): the
-verdict depends on material × USAGE, not the material alone.
-
-The tell is fully mechanical, two static reads: (a) the WPO subgraph references
-object-space expressions (`ObjectRadius`, `ObjectPosition`, `ObjectBounds`,
-`TransformPosition` local→world) — walkable via `get_inputs_for_material_expression`;
-(b) the mesh wearing it sits in an ISM/foliage component (even statically:
-`used_with_instanced_static_meshes=True` on the master is the smoking gun without touching
-the level).
-
-Tool to build (the "would have highlighted it immediately" answer):
-1. Upgrade the G39 classifier with a `pivot_wpo` kind (object-space WPO refs found) —
-   fine as an actor, SEVERE when instanced.
-2. A level-wide MOTION CENSUS on the status block: aggregate instanced meshes by motion
-   kind, surface the bad combo as a forced warning, e.g.
-   `⚠ motion: 549/4794 foliage instances FLOAT rigidly — MM_Tree_Trunk WPO is
-   pivot-anchored and breaks under instancing (G40)`.
-3. Same check fired at author time by `foliage op=paint`/`add` (extends the G39
-   author-time announcement, which today would only say "MOVES", not "moves WRONG").
-
 ### G41 — native-linter wrapping hazards: `MAP CHECK` over RC crashes the editor; Data Validation is silent on real defects
 Status: OPEN (recorded 2026-07-03 while testing whether stock UE tooling catches G40's
 case; informs SPEC-08 before it's fleshed out.)

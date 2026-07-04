@@ -305,7 +305,12 @@ def foliage(op: Literal["paint", "describe", "reseed", "remove"] = "paint",
       seed:    determinism — same seed + rules ⇒ same stand.
       rules:   {min_spacing_cm, max_slope_deg, align_to_slope (rocks yes / trees no),
                scale_jitter:[lo,hi], yaw_random, clear_margin, clear_of:[spline/actor
-               labels, regions]}. DEFAULT: every paint auto-clears existing splines
+               labels, regions], collision: "auto"|"block"|"none" (G46 — auto gives
+               tree-scale variants BlockAll bodies so the PIE pawn stops at trunks;
+               understory stays collision-free. Visibility traces still pass through
+               foliage by engine design — "which tree" is feel op=looking_at's math
+               pass, not a trace)}.
+               DEFAULT: every paint auto-clears existing splines
                (width/2+margin) and buildings (footprint+margin) — the trail stays open
                THROUGH the trees. Spacing below the measured canopy width warns (G28);
                derive min_spacing_cm from the widest family's footprint, never intuition.
