@@ -164,13 +164,13 @@ roster — 14 verbs, `op=` the one discriminator everywhere:
 
 | verb | drives | note |
 |---|---|---|
-| `add` `select` `transform` `asset` `history` | Place Actors / selection / gizmos / Content Browser / Undo History | `transform op=move` (was nudge) |
+| `add` `select` `transform` `asset` `history` | Place Actors / selection / gizmos / Content Browser / Undo History | `transform op=move` (was nudge) · `select op=user` (deixis, SPEC-06) |
 | `material` | Material Instance editor | `op=instance` (from asset) |
 | `foliage` | Foliage mode (was `scatter`) | `op=paint/describe/reseed/remove` |
 | `terrain` | MACRO ≈ Landscape (was `landscape`) | + `op=carve along=<spline>` (from path) |
 | `spline` | SplineComponent (was `path`) | curve + surface strip; carve moved out |
 | `outliner` `level` `play` | the three surfaces `scene` conflated | census/reconcile · streaming + lifecycle `save/new/open/clear` (SPEC-04) · census/start/stop |
-| `feel` `validate` | agent-only senses | unchanged |
+| `feel` `validate` | agent-only senses | + `feel op=looking_at` / `play op=where` (deixis, SPEC-06) |
 
 ## Next design step
 

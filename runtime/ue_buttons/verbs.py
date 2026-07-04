@@ -21,6 +21,7 @@ from . import foliage as foliagemod
 from . import render as rendermod
 from . import validate as validatemod
 from . import level as levelmod
+from . import deixis
 
 # R4 (SPEC-05): the runtime is verified against this engine version; a session on a
 # different build gets one warning on its first dispatch — trained reflexes may misfire.
@@ -511,11 +512,16 @@ def _v_play(p):
     """Play In Editor (SPEC-05). Owns PIE — exempt from the B8 guard.
     op="census" (default; was scene pie_census, G36): two-step GAME-truth census — first
       call snapshots + starts Play; call again ~2 s later to census the game world, end
-      Play, and diff. op="start" / op="stop": plain PIE control (B8 doctrine lives here)."""
+      Play, and diff. op="start" / op="stop": plain PIE control (B8 doctrine lives here).
+    op="where" (SPEC-06): the PIE pawn — where the player stands + what the player
+      camera looks at, read from the game world mid-Play."""
     op = p.get("op", "census")
     les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
     if op == "census":
         return _pie_census(p)
+    # SPEC-06: "where am I standing / what am I looking at" for the live PIE pawn.
+    if op == "where":
+        return deixis.pie_where()
     if op == "start":
         if les.is_in_play_in_editor():
             return {"error": "already in Play (play op=stop to end it)"}
@@ -528,7 +534,7 @@ def _v_play(p):
         les.editor_request_end_play()
         _state.pie_census_expect = None
         return {"pie": "stopping"}
-    return {"error": f"unknown play op '{op}'. known: census|start|stop"}
+    return {"error": f"unknown play op '{op}'. known: census|start|stop|where"}
 
 
 def _ground_flag(place):
@@ -765,15 +771,18 @@ def _v_transform(p):
 
 
 def _v_select(p):
-    """op=set (labels:[...]) | clear. (op=user — read the USER's live selection — lands
-    with SPEC-06 deixis.)"""
+    """op=set (labels:[...]) | clear | user. op=user is SPEC-06 selection-as-deixis: read
+    the USER's live selection — "this one" resolved to full entries, a foliage click
+    resolved down to the IFA's populated components (mesh/count/stand/motion)."""
     eas = _ue.actor_subsystem()
     op = p.get("op", "set")
+    if op == "user":
+        return deixis.selection()
     if op == "clear":
         eas.set_selected_level_actors([])
         return {"selected": []}
     if op != "set":
-        return {"error": f"unknown select op '{op}'. known: set|clear"}
+        return {"error": f"unknown select op '{op}'. known: set|clear|user"}
     labels = p.get("labels", [])
     actors = [a for a in (_ue.find_by_label(l) for l in labels) if a]
     eas.set_selected_level_actors(actors)
@@ -794,6 +803,9 @@ def _v_feel(p):
         return rendermod.framing(p.get("target"), p.get("fov", rendermod.EDITOR_FOV_DEG))
     if op == "visible":
         return rendermod.visible(p.get("target"), p.get("fov", rendermod.EDITOR_FOV_DEG))
+    # SPEC-06 camera-as-deixis: what the USER's viewport points at, as a traced answer.
+    if op == "looking_at":
+        return deixis.looking_at()
     return relational.feel(p)
 
 

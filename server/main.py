@@ -97,9 +97,16 @@ def transform(op: Literal["move", "resize", "rotate"], target: str, by: list = N
 
 
 @mcp.tool()
-def select(op: Literal["set", "clear"] = "set", labels: list = None) -> str:
+def select(op: Literal["set", "clear", "user"] = "set", labels: list = None) -> str:
     """Editor selection by label. op=set (labels=[...]) | clear — feeds the
-    active/selected fields of the status block. (EditorActorSubsystem selection)"""
+    active/selected fields of the status block. (EditorActorSubsystem selection)
+
+    op=user (SPEC-06 deixis): read the USER's live selection — when they say "this one",
+    ask them to click it and run this. Each selected thing comes back as a full entry
+    (label/class/dims/meshes/motion verdict + next moves); a foliage click lands on the
+    whole InstancedFoliageActor and is resolved down to its populated components
+    (mesh, instance count, owning stand, motion) — enough to diagnose "these trees bob".
+    """
     return render(call_ue("select", {"op": op, "labels": labels or []}))
 
 
@@ -155,7 +162,7 @@ def level(op: Literal["streaming", "save", "new", "open", "clear"] = "streaming"
 
 
 @mcp.tool()
-def play(op: Literal["census", "start", "stop"] = "census") -> str:
+def play(op: Literal["census", "start", "stop", "where"] = "census") -> str:
     """Play In Editor. Editor verbs refuse during Play (B8) — this verb owns PIE.
 
     op=census (G36): GAME truth — editor and PIE views of a map can disagree completely
@@ -164,13 +171,16 @@ def play(op: Literal["census", "start", "stop"] = "census") -> str:
       set and starts Play; call AGAIN ~2 s later to census the game world, END Play, and
       get the missing-at-runtime diff. Run it before handing a level to a human.
     op=start | stop: plain PIE control. (LevelEditorSubsystem.editor_request_begin/end_play)
+    op=where (SPEC-06 deixis): mid-Play — where the PIE pawn stands and what the player
+      camera looks at ("I'm here and I see X"), read from the game world without ending
+      Play. The user's "right here, where I'm standing" made resolvable.
     """
     return render(call_ue("play", {"op": op}))
 
 
 @mcp.tool()
 def feel(op: Literal["describe", "distance_between", "gap_between", "is_aligned",
-                     "render_state", "framing", "visible"],
+                     "render_state", "framing", "visible", "looking_at"],
          target: str = None, a: str = None, b: str = None,
          axis: str = "ANY", side: str = "CENTER_Z", fov: float = 90.0) -> str:
     """SENSE (agent-only) — relational perception: measure, don't guess. Numbers, never a
@@ -196,6 +206,10 @@ def feel(op: Literal["describe", "distance_between", "gap_between", "is_aligned"
                                  camera (occluded_fraction + verdict), not a screenshot.
                                  With framing this tells sub-pixel vs off-frustum vs
                                  occluded vs absent apart.
+    op=looking_at:               SPEC-06 deixis — trace the USER's viewport forward ray:
+                                 "you're looking at X, N m away", with a foliage hit
+                                 resolved to (stand, instance_index). The answer to
+                                 "that thing over there" after the user aims at it.
     """
     p = {"op": op, "target": target, "a": a, "b": b, "axis": axis, "side": side, "fov": fov}
     return render(call_ue("feel", p))
