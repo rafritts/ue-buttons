@@ -15,40 +15,6 @@ Gaps are *friction / missing-capability / design*. Outright defects go in `bugs.
 
 ---
 
-### G41 — native-linter wrapping hazards: `MAP CHECK` over RC crashes the editor; Data Validation is silent on real defects
-Status: OPEN (recorded 2026-07-03 while testing whether stock UE tooling catches G40's
-case; informs SPEC-08 before it's fleshed out.)
-
-Facts, all live-verified today:
-- `unreal.SystemLibrary.execute_console_command(None, "MAP CHECK")` issued through RC
-  dispatch CRASHED UE 5.8 with `EXCEPTION_ACCESS_VIOLATION reading 0x28` (crash dump
-  `UECC-Windows-8966F2934F0D67A9EFF48FA23F91A4E2_0000`; crashed session log ends at
-  `Cmd: MAP CHECK`). Do NOT issue MAP CHECK over the bridge again; the earlier in-log
-  MapCheck result reported `0 Error(s), 0 Warning(s)` anyway — no rule covers G40's case.
-- `EditorValidatorSubsystem.is_object_valid(MM_Tree_Trunk, MANUAL)` → `VALID`: stock
-  validators have nothing to say about a defective-under-instancing material. The
-  subsystem API surface is `is_asset_valid / is_object_valid / validate_assets_with_settings /
-  validate_changelist(s) / add_validator` — no `validate_loaded_asset` in 5.8, and
-  `is_asset_valid` wants `AssetData`, not a loaded object.
-Conclusion for SPEC-08: UE's native linters are a floor, not a roof — wrap them via the
-validator-subsystem APIs (never console MAP CHECK through RC), and expect our own rules
-(registered via `add_validator` as Python `EditorValidatorBase` subclasses) to carry the
-real weight.
-
-### G47 — force-deleting an in-use, never-saved asset over RC wedges the editor
-Status: OPEN (recorded 2026-07-04 while live-verifying SPEC-07's R2 rule; hazard record —
-informs any future asset-authoring/cleanup verb.)
-
-`EditorAssetLibrary.delete_directory` on a folder holding a Material created moments
-earlier in the same session (still natively referenced — GCObjectReferencer) triggers
-ForceDeleteObjects → "is in use" modal (auto-closed) → handled ensure ("packages are
-likely corrupt") → the editor WEDGES with the game thread inside the ensure's stack walk
-on the RC dispatch: log frozen, bridge dead, process alive at 5 GB. Recovery was
-taskkill + relaunch. Rules for scratch assets authored over the bridge: delete
-REFERENCERS first (actors, then meshes, then materials), never delete_directory over
-live objects, tolerate a failed polite delete — an unsaved asset evaporates on editor
-restart anyway; NEVER force-delete.
-
 ### G30 — no job/progress pattern for slow mutations: one pathological asset load can still outrun the HTTP timeout
 Status: OPEN (successor to B6, 2026-07-02 — the two concrete offenders are fixed, the
 general pattern isn't built. Reviewed 2026-07-03: deliberately deferred again — the

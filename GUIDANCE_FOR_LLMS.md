@@ -137,6 +137,13 @@ Ctrl+Z. The honest flag is a feature; plan around it.
   something you didn't spawn.
 - **Long ops have long timeouts for a reason**: `terrain` calls run up to minutes
   (mesh rebuild). Don't parallel-fire terrain edits; sequence them.
+- **Never force-delete an in-use asset over the bridge** (G47): `delete_directory` /
+  force-delete over an asset that's still referenced (even a scratch Material you
+  authored moments ago — natively referenced, never saved) raises an "is in use" modal
+  → handled ensure → the editor WEDGES with the RC thread hung; recovery is taskkill +
+  relaunch. Cleanup order for scratch assets: delete REFERENCERS first (actors, then
+  meshes, then materials), polite `delete_asset` only, and tolerate a failed polite
+  delete — an unsaved asset evaporates on editor restart anyway.
 - **Creating a level from the Open World template is a trap** (G36): every
   template-copied always-loaded actor (DirectionalLight, SkyLight, SkyAtmosphere,
   VolumetricCloud, ExponentialHeightFog, PlayerStart, SkySphere) LOOKS fine in the
