@@ -134,8 +134,10 @@ translate conventions, don't re-derive.
 
 Engine-validator layer: 13/13 L1 assets checked, all valid — consistent with G41's
 finding that stock validation is a floor, not a roof (it still says VALID on the G40
-material). The `scope=`/`seconds=` params on the `validate` MCP tool need a client
-reconnect; verified over the raw bridge meanwhile.
+material). The `scope=`/`seconds=` params on the `validate` MCP tool were verified
+END-TO-END through the real tools after the client reconnect (same day): the L1 sweep
+returned F1 with full coverage, and a bogus scope carried its affordances
+(known_stands + next) all the way to the client.
 
 ## Sequencing
 
