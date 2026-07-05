@@ -7,3 +7,6 @@ __pycache__/
 
 # Editor/OS cruft
 .DS_Store
+
+# Claude Code harness scaffolding (worktrees, local state)
+.claude/
