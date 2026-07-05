@@ -12,7 +12,7 @@ contents here.
 INSTRUCTIONS = """\
 ue-buttons turns the Unreal Engine 5 editor into a world-building surface you drive by
 INTENT, not coordinates. Verbs are named for the UE surface they drive (SPEC-05) — add,
-select, transform, asset, material, foliage, terrain, spline, outliner, level, play,
+select, transform, asset, material, foliage, pcg, terrain, spline, outliner, level, play,
 history, plus the agent-only senses feel and validate. If UE owns a word for it, that is
 the verb that owns it; `op=` is the one discriminator everywhere. Perception is ALL
 NUMBERS — there is no screenshot/render/image verb, by design (see the vision policy

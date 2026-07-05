@@ -18,6 +18,7 @@ from . import terrain as terrainmod
 from . import map_ref
 from . import spline as splinemod
 from . import foliage as foliagemod
+from . import pcg as pcgmod
 from . import rules as rulesmod
 from . import render as rendermod
 from . import validate as validatemod
@@ -38,7 +39,7 @@ STATUS_ONLY = {"select"}
 # cleanly undoable via the transaction stack (DynamicMesh/HISM edits don't sit in it — G12),
 # so they never log to the 1:1 history nor push a _Txn. They get a status block; each carries
 # an honest `undoable: false`, and teardown is their own `remove`/editor delete.
-SPATIAL = {"terrain", "spline", "foliage"}
+SPATIAL = {"terrain", "spline", "foliage", "pcg"}
 # `history` with op=undo_to mutates but manages its own undo accounting — never logs
 # itself (would desync the 1:1 count) and never nests a transaction.
 
@@ -243,6 +244,10 @@ def _status_block(verb, params, result):
         # probe that draws nothing). Terrain/spline render-walk is the next increment.
         if verb == "foliage" and focus:
             lines.append(rendermod.population_line(focus))
+        # Sense 3 for pcg groves — same motivating case (a grove correct in the registry
+        # that draws nothing): the volume's live instance total, by exception (SPEC-10).
+        if verb == "pcg" and focus:
+            lines.append(rendermod.grove_line(focus))
     elif verb in STATUS_ONLY:
         fd = validatemod.feel_delta(focus)
         if fd:
@@ -490,6 +495,10 @@ def _v_outliner(p):
     if _state.foliage_stands:
         spatial["foliage_stands"] = {k: f"{v.get('count', '?')} instances"
                                      for k, v in sorted(_state.foliage_stands.items())}
+    groves = getattr(_state, "pcg_volumes", {})
+    if groves:
+        spatial["pcg_groves"] = {k: f"{v.get('instances', '?')} instances"
+                                 for k, v in sorted(groves.items())}
     if spatial:
         spatial["note"] = ("foliage instances live in the level's InstancedFoliageActor "
                            "(untracked above); outliner op=reconcile checks these "
@@ -959,6 +968,12 @@ def _v_foliage(p):
     return foliagemod.handle(p)
 
 
+def _v_pcg(p):
+    """Procedural placement — generate | regenerate | cleanup | describe | palette.
+    Spatial verb (status block, not history-undoable; teardown is op=cleanup). See pcg.py."""
+    return pcgmod.handle(p)
+
+
 def _v_material(p):
     """Material Instance authoring — instance. Asset-side (no status block). See material.py."""
     return materialmod.handle(p)
@@ -1022,6 +1037,7 @@ _VERBS = {
     "asset": _v_asset,
     "material": _v_material,
     "foliage": _v_foliage,
+    "pcg": _v_pcg,
     "terrain": _v_terrain,
     "spline": _v_spline,
     "outliner": _v_outliner,

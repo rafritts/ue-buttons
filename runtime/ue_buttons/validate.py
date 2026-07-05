@@ -654,6 +654,11 @@ def spatial_roster():
         parts.append("stands: " + ", ".join(
             f"{k} {v.get('count', '?')}"
             for k, v in sorted(_state.foliage_stands.items())))
+    groves = getattr(_state, "pcg_volumes", {})
+    if groves:
+        parts.append("groves: " + ", ".join(
+            f"{k} {v.get('instances', '?')}"
+            for k, v in sorted(groves.items())))
     return " · ".join(parts)
 
 
@@ -753,6 +758,22 @@ def reconcile(gc=True):
                     _ue.actor_subsystem().destroy_actor(sa)
         else:
             report["clean"].append({"kind": "spline", "label": label})
+
+    # pcg groves: the volume actor owns its generated instances, so a missing actor means
+    # the grove is gone (level changed/cleared or the human deleted the volume).
+    for label, meta in list(getattr(_state, "pcg_volumes", {}).items()):
+        vol = _ue.find_by_label(label)
+        if vol is None or not isinstance(vol, unreal.PCGVolume):
+            report["orphaned"].append({"kind": "pcg", "label": label,
+                "reason": f"registry claims {meta.get('instances', '?')} instances but no "
+                          "PCGVolume carries this label (level changed/cleared or the "
+                          "volume was deleted)"})
+            if gc:
+                _state.pcg_volumes.pop(label, None)
+        else:
+            from . import pcg as pcgmod
+            report["clean"].append({"kind": "pcg", "label": label,
+                                    "instances": pcgmod._instance_total(vol)})
 
     for label in _editor_stand_labels():
         if label not in _state.foliage_stands:

@@ -291,6 +291,11 @@ def _clear(p):
     _state.splines.clear()
     n_terrains = len(_state.terrains)
     _state.terrains.clear()
+    # pcg groves: the volume actor (destroyed above by the ueb-tag sweep) owns its
+    # generated instances, so the sweep already tore them down; just drop the registry.
+    groves = getattr(_state, "pcg_volumes", {})
+    n_groves = len(groves)
+    groves.clear()
     shown = terrainmod.set_template_hidden(False)
 
     # op log / intents: they describe the arrangement that just ceased to exist.
@@ -298,7 +303,8 @@ def _clear(p):
 
     out = {"cleared": {"actors": actors, "foliage_stands": stands,
                        "foliage_components_swept": swept,
-                       "splines": n_splines, "terrains": n_terrains},
+                       "splines": n_splines, "terrains": n_terrains,
+                       "pcg_groves": n_groves},
            "state_reset": f"{reset} — the editor's own Ctrl+Z stack is the human's; "
                           "don't undo across a clear",
            "reconcile": _transition_reconcile()}

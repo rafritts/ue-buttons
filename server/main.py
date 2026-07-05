@@ -367,6 +367,56 @@ def foliage(op: Literal["paint", "describe", "reseed", "remove"] = "paint",
 
 
 @mcp.tool()
+def pcg(op: Literal["generate", "regenerate", "cleanup", "describe", "palette"] = "generate",
+        label: str = "pcg", graph: str = None, on: str = "terrain",
+        region: dict = None, seed: int = None, rules: dict = None,
+        force: bool = False) -> str:
+    """The PCG framework as intent — populate a surface with a code-authored palette graph.
+    A ueb-tagged PCGVolume sized to the surface carries the graph; the graph samples the
+    surface and spawns instanced meshes onto it. Spatial verb (status block, not
+    history-undoable; teardown is op=cleanup). Perception is per-mesh census — NUMBERS,
+    never a screenshot. (PCGComponent.generate/cleanup; there is no PCGSubsystem in 5.8.)
+
+    BOUNDARIES: terrain carves, spline routes, pcg populates. `pcg` never sculpts geometry
+    and never authors road/river networks (that is `spline`'s) — it only places assets on
+    an existing surface.
+
+    op=generate (graph=, on=, label=, region=?, seed=?, rules=?): spawn a volume over the
+      `on=` surface's AABB (clipped by region= if given — {kind:circle|rect|polygon} MAP
+      cm), assign the palette graph, fire it, and return a per-mesh census + coverage +
+      wall-clock. The volume is auto-sized TALL (the sampler needs Z headroom or it yields
+      zero). 0 instances is a loud warning, never silent success.
+        graph:  a palette name (pcg op=palette lists them). An unknown name errors WITH
+                the palette list. Graphs are code-authored copies under /Game/UEB_PCG —
+                open one in the PCG node editor any time; nothing is hidden.
+        on:     the surface label to grow on (default "terrain") — a ueb terrain or any
+                actor with collision the sampler can ray-cast.
+        seed:   per-grove reroll — sets the PCGComponent's seed WITHOUT touching the shared
+                palette asset (a different arrangement, same palette).
+        rules:  {"wind": "on" (default) | "off"} — off disables World-Position-Offset on
+                the whole grove (kills wind sway AND the G40 pivot-anchored rigid float).
+                A pivot_wpo mesh is auto-stilled regardless (G58); the census reports motion.
+        force:  reserved for the mesh-vetting gate (size / bare-render) — bypasses it with
+                the census still flagging. The curated palette entries are pre-vetted.
+    op=regenerate (label=, seed=?): re-run the grove in place after a surface/palette change
+      or to reroll with a new seed. NEVER moves the volume (moving a generated volume then
+      regenerating produces zero).
+    op=cleanup (label=): full reversal — cleanup the component, destroy the volume (which
+      owns the generated instances), unregister.
+    op=describe (label=?): live per-mesh census re-counted from the volume (label omitted →
+      every grove). Read-only.
+    op=palette: list palette entries — name, source graph, mesh families, tuned density.
+      The discoverability surface (generate with an unknown graph= errors with this list).
+    """
+    p = {"op": op, "label": label, "on": on}
+    for k, v in (("graph", graph), ("region", region), ("seed", seed), ("rules", rules)):
+        if v is not None:
+            p[k] = v
+    if force: p["force"] = True
+    return render(call_ue("pcg", p, timeout=240))
+
+
+@mcp.tool()
 def spline(op: Literal["create", "surface", "describe", "remove"] = "create",
            label: str = "spline", points: list = None, route: dict = None,
            width: float = None, at_fraction: float = None, terrain: str = "terrain",
