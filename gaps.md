@@ -115,18 +115,34 @@ mode and WARN/refuse when it's masked or translucent — a ground surface wants 
 Known-good opaque ground found this session: `/Game/Modular_Rural_Cabin/Materials/Instances/Diorama_Ground`
 (MM_Vertex_Color_Blend, opaque).
 
-### G58 — no verb-surface way to disable foliage wind / override a FoliageType material; had to patch the material via raw probe.sh Python
-Status: OPEN (found 2026-07-04, plain-forest dogfood)
+### G58 — no verb-surface way to neutralise an instanced-foliage WPO offender; the fix needs a master-graph edit via raw probe.sh Python
+Status: OPEN (found 2026-07-04, plain-forest dogfood; the pines' motion is now correctly
+fixed via the workaround below)
 
-R1/G40 correctly refuses the pine as instanced foliage (object-space WPO → whole instance
-translates = rigid float). The only clean fix is to kill the wind, but the verb surface has
-no way to: `foliage rules` has no wind toggle, and there's no FoliageType material-override
-option. I had to drop to `scripts/probe.sh py` and zero the `Wind Intesity`/`Wind Weight`
-scalars on the shared `MI_Pine_Tree_Branches` (0.02→0, 0.2→0) to make the pines static — a
-raw-Python escape off the verb surface, and it mutates a shared marketplace material for all
-its users. Fix: expose `rules.wind: "off"` (or a wind scalar) on `foliage op=paint` that
-mints a per-stand material instance with wind zeroed and assigns it as the FoliageType
-override — so the agent can plant WPO-suspect trees motion-safely without leaving the surface.
+R1/G40 correctly refuses the pine as instanced foliage. Diagnosis pinned the offender
+precisely: the pine's TWO slots split cleanly — `MI_Pine_Tree_Branches` (master
+MM_Tree_Branches) is `masked_wind`, per-instance SAFE (leaves sway correctly, exposes
+`Wind Intesity`/`Wind Weight` scalars); the rigid float is entirely `MI_Pine_Tree_Bark`
+(master **MM_Tree_Trunk**), whose WPO is `pivot_wpo` (ObjectRadius/TransformPosition
+object-space → whole instance translates). Key trap: MM_Tree_Trunk's WPO is HARDWIRED in
+the master graph — the bark instance exposes only `Color Multiply`/`Roughness`, NO wind
+scalar — so no MaterialInstance parameter can disable it, and a MIC override can't either
+(same master). (My first attempt zeroed the BRANCH wind, which was the wrong target: it
+killed the good leaf sway and left the trunk float untouched.)
+
+Correct fix applied via `scripts/probe.sh py`: override MM_Tree_Trunk's World Position
+Offset output with a Constant3Vector(0,0,0) (`MaterialEditingLibrary.create_material_expression`
++ `connect_material_property(..., MP_WORLD_POSITION_OFFSET)` + `recompile_material`), and
+restore the branch wind (0.02 / 0.2). Result: trunk static, needles sway per-instance, R1
+clears (`validate scope=pines` clean), motion verdict drops pivot_wpo→wpo(constant). Trunks
+realistically shouldn't translate, so a permanently-static trunk is correct authoring, not a
+loss. But this is a master-graph edit off the verb surface, mutating a shared marketplace
+master. Fix directions for the surface: (a) `foliage op=paint rules.wind:"off"` that mints a
+per-stand FoliageType whose slot materials are WPO-neutered variants (duplicate the offending
+master, override its WPO output with 0, assign via FoliageType `override_materials`) — keeps
+originals untouched and stays on the verb surface; and/or (b) have R1's `next` name WHICH
+slot/master carries the pivot_wpo (bark vs branches), since the fix targets one slot, not the
+mesh.
 
 ### G59 — foliage op=remove leaves an empty FoliageType registration that reconcile keeps reporting as untracked
 Status: OPEN (minor; found 2026-07-04, plain-forest dogfood)
