@@ -370,7 +370,7 @@ def foliage(op: Literal["paint", "describe", "reseed", "remove"] = "paint",
 
 @mcp.tool()
 def pcg(op: Literal["generate", "regenerate", "cleanup", "describe", "palette"] = "generate",
-        label: str = "pcg", graph: str = None, on: str = "terrain",
+        label: str = None, graph: str = None, on: str = "terrain",
         region: dict = None, seed: int = None, rules: dict = None,
         force: bool = False) -> str:
     """The PCG framework as intent — populate a surface with a code-authored palette graph.
@@ -387,7 +387,9 @@ def pcg(op: Literal["generate", "regenerate", "cleanup", "describe", "palette"] 
       on the editor's ticks, which a single blocking call can't force — so the census can't
       be read in the same call that fires the graph). The FIRST call spawns a volume over
       the `on=` surface's AABB (clipped by region= if given — {kind:circle|rect|polygon}
-      MAP cm), assigns the palette graph, fires it, and returns {"pcg":"generating"}. Call
+      MAP cm; the volume is a BOX, so circle/polygon clip to their XY bbox — a circle
+      region grows a square wood), assigns the palette graph, fires it, and returns
+      {"pcg":"generating"}. Call
       AGAIN with the same label to COLLECT the per-mesh census + coverage (and still any
       pivot-WPO meshes); if it's still running, it says so and you call once more — it never
       re-fires. The volume is auto-sized TALL (the sampler needs Z headroom or it yields
@@ -415,8 +417,12 @@ def pcg(op: Literal["generate", "regenerate", "cleanup", "describe", "palette"] 
     op=palette: list palette entries — name, source graph, mesh families, tuned density.
       The discoverability surface (generate with an unknown graph= errors with this list).
     """
-    p = {"op": op, "label": label, "on": on}
-    for k, v in (("graph", graph), ("region", region), ("seed", seed), ("rules", rules)):
+    p = {"op": op, "on": on}
+    # label is projected only when given: the runtime owns the per-op "pcg" default
+    # (generate/regenerate/cleanup), and an omitted label on describe means EVERY grove
+    # — a tool-side default would make describe-all unreachable (B14).
+    for k, v in (("label", label), ("graph", graph), ("region", region), ("seed", seed),
+                 ("rules", rules)):
         if v is not None:
             p[k] = v
     if force: p["force"] = True

@@ -99,6 +99,17 @@ def _reg():
     return _state.pcg_volumes
 
 
+def _unknown_label(label):
+    """Unknown-label error WITH the next legal moves (G60): the live grove labels and
+    the ready-to-fire commands, mirroring the unknown-graph error's palette list."""
+    groves = sorted(_reg())
+    return {"error": f"no pcg grove labelled '{label}'", "groves": groves,
+            "next": ([f"pcg op=describe label={groves[0]}", "pcg op=describe   (every grove)"]
+                     if groves else
+                     [f"pcg op=generate graph=<palette name> label={label}",
+                      "pcg op=palette   (lists the palette graphs)"])}
+
+
 # ── dispatch ──────────────────────────────────────────────────────────────────────
 def handle(p):
     fn = {"generate": _generate, "regenerate": _regenerate, "cleanup": _cleanup,
@@ -380,7 +391,7 @@ def _regenerate(p):
     meta = _reg().get(label)
     vol = _ue.find_by_label(label)
     if meta is None or vol is None:
-        return {"error": f"no pcg grove labelled '{label}' — pcg op=generate to create it"}
+        return _unknown_label(label)
     if not isinstance(vol, unreal.PCGVolume):
         return {"error": f"'{label}' is not a PCGVolume"}
     # Phase 2: a re-fired grove of this label → collect its census.
@@ -407,7 +418,7 @@ def _cleanup(p):
     meta = _reg().get(label)
     vol = _ue.find_by_label(label)
     if meta is None and vol is None:
-        return {"error": f"no pcg grove labelled '{label}'"}
+        return _unknown_label(label)
     # A label that resolves to a non-PCGVolume actor is not this verb's to tear down —
     # error rather than falsely report a teardown (matches regenerate's guard).
     if vol is not None and not isinstance(vol, unreal.PCGVolume):
@@ -441,7 +452,7 @@ def _describe(p):
     meta = reg.get(label)
     vol = _ue.find_by_label(label)
     if meta is None or not isinstance(vol, unreal.PCGVolume):
-        return {"error": f"no pcg grove labelled '{label}'"}
+        return _unknown_label(label)
     census, _stilled = _census_and_motion(vol, meta.get("wind_off", False), apply=False)
     out = {"label": label, "graph": meta["graph"], "on": meta["on"],
            "census": census, "instances": _instance_total(vol),

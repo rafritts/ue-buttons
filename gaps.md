@@ -42,15 +42,6 @@ cure is an async job + progress pattern (kick the work off the dispatch path, po
 timeout, poll `/remote/info` and RE-READ state before re-issuing — timed-out work usually
 completed invisibly.
 
-### G60 — pcg unknown-label errors are naked: no groves list, no next move
-Status: OPEN (found 2026-07-05, second pcg dogfood)
-
-`pcg op=cleanup label=nosuchgrove` → `⚠ no pcg grove labelled 'nosuchgrove'` and nothing
-else — the finding only describes (half-built, per the HATEOAS law). Contrast the
-unknown-graph error, which carries the palette list + next. The describe/cleanup/
-regenerate unknown-label paths (pcg.py:383/410/444) should carry the live grove labels
-and the ready-to-fire next (`pcg op=describe` / `pcg op=generate label=<label>`).
-
 ### G50 — no lighting surface: a cave interior is pitch black and the agent can't even say so
 Status: OPEN (found 2026-07-04, L2 dogfood — predicted verbatim by the level brief)
 
