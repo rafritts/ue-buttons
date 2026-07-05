@@ -15,4 +15,15 @@ Format: `### B<n> — <title>` · status · repro · root cause · fix · verifi
 
 ---
 
-(no open bugs)
+### B15 — hidden template ground keeps COLLISION: PCG grass floats at z=0 over terrain dips
+Status: OPEN (found 2026-07-05, user report on UEB_PCGMeadow — "grass only rests on 0+ z")
+
+Repro: terrain with noise dipping below z=0 → `pcg op=generate` → every instance over a
+dip sits at EXACTLY z=0.0 (measured: 27/92 sampled instances float, all z=0.0 over
+ground z=−25..−112). Root cause: G37's `set_template_hidden` only sets the two render
+flags (`set_is_temporarily_hidden_in_editor` / `set_actor_hidden_in_game`); the engine
+template Landscape's collision plane at z=0 survives. Our own `trace_ground` ignores it
+by actor list, but PCG's surface sampler ray-casts at the physics level and can't be
+handed an ignore list — it hits whichever surface is higher, so terrain below z=0 loses
+to the ghost plane. Fix: `set_actor_enable_collision(False)` rides the hide (and True
+rides the restore) — hidden means GONE, for renderer and physics alike.
