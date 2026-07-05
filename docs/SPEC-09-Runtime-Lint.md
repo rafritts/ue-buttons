@@ -1,9 +1,66 @@
 # SPEC-09 — Runtime lint: PIE-based checks
 
-Status: **DESIGN — fleshed out 2026-07-03; still GATED on SPEC-08 landing and being
-dogfooded first.** The scope below is the best current shape, written down so the design
-survives context loss — expect the dogfooding of SPEC-08 to reshape it. Do not implement
-before the gate lifts.
+Status: **IN BUILD — gate lifted 2026-07-05.** SPEC-08 landed and was dogfooded across
+four levels (L1/L2/Forest/PCG), so the gate condition is met and the design below is being
+implemented. The original design (2026-07-03) is preserved under `## The checks`; the
+buildable contract — reshaped by two live spikes on 2026-07-05 — is in `## Design refresh`
+immediately below. Build order and mechanism decisions live there.
+
+## Design refresh (2026-07-05) — buildable contract
+
+Two spikes on the running editor settled the two unproven mechanisms and surfaced one
+defect class the 2026-07-03 design did not anticipate.
+
+**Verb + lifecycle — `play op=lint` is TWO-CALL, mirroring `play op=census`.** PIE spin-up
+is asynchronous (the game world does not exist in the dispatch that requests Play), and —
+decisively — per-frame sampling REQUIRES the game thread to tick freely between start and
+read, which a single blocking dispatch cannot allow. So:
+- **Call 1 (editor, not in PIE):** run the STATIC pre-scan (see below); if it finds a
+  PIE-blocking defect, return findings and DO NOT start Play. Otherwise stash the requested
+  `checks`/`route`/`seconds`/`budget_ms` in `_state.lint_run`, register the frame sampler
+  (for `budget`), record the log-file byte offset (for `logs`), `editor_request_begin_play()`,
+  return `{"lint": "sampling", "note": "PIE is running — call play op=lint again in ~<seconds>s"}`.
+- **Call 2 (in PIE — `play` is B8-exempt):** read the sampler buffer + the log tail, run the
+  `traverse` trace-walk in the game world, `editor_request_end_play()`, unregister the
+  sampler, clear `_state.lint_run`, and return the SPEC-08 findings shape (numbered,
+  severity, provenance, ready-to-fire `next`). The run window is the wall-clock gap between
+  the two calls — `seconds` is guidance for how long the agent waits, not a blocking sleep.
+
+**SPIKE 1 — `budget` sampler is PROVEN.** `unreal.register_slate_post_tick_callback(fn)`
+fires `fn(delta_seconds)` on every slate tick and returns a `_DelegateHandle`;
+`unreal.unregister_slate_post_tick_callback(handle)` stops it. A 4 s live run collected
+21 076 real per-frame deltas (min 1.79 ms / mean 18.75 ms / max 125 ms). The callback ticks
+during editor idle too, so the buffer MUST be reset at `begin_play` and read/cleared at
+`end_play` to scope samples to the PIE window; store the buffer + handle in `_state` (never
+reloaded). `budget` is IN — it survived its first experiment.
+
+**SPIKE 2 — the compile-error modal (new, reshapes `logs`).** Requesting Play with a
+Blueprint that has unresolved compiler errors throws a BLOCKING modal ("Blueprint Asset
+Compilation Error … Play in Editor / Cancel"). A modal blocks the game thread, which is the
+same thread RC dispatches run on — so it HANGS the bridge until a human clicks it, and the
+two-call lint pattern would deadlock on call 2. Consequence: **compile errors must be caught
+STATICALLY on call 1, before Play is ever requested** — never inside a PIE run. This becomes
+the first thing `logs` does and the model for the check family: a runtime defect that can be
+seen statically is caught statically; PIE is the last resort, never the first reach.
+
+**Refreshed build order (each still gated on a dogfooded need):**
+1. **`logs` (build first — cheapest, most certain).** Two parts. (a) STATIC pre-scan on
+   call 1: enumerate Blueprints via the AssetRegistry, flag any with a compile-error/dirty
+   status → finding with `next` = open/fix or delete; this also guards the bridge from the
+   modal deadlock. (b) RUNTIME tail on call 2: capture `Saved/Logs/<Project>.log` from the
+   byte offset recorded at `begin_play`, grep the run window for Error/Warning/Ensure/
+   Blueprint-runtime failures. Log-file tail is chosen over an in-process log sink because
+   it is certain to work and needs no engine-callback plumbing.
+2. **`budget`** — sampler from SPIKE 1; compare mean/95th-percentile frame ms against a
+   declared `budget_ms`; over-budget → finding with the measured distribution as provenance.
+3. **`traverse`** — trace-walk a `route=<spline-label>` in the GAME world (capsule-sweep down
+   at capsule-stride intervals along the live-sampled centerline, per G45). Biggest of the
+   three; build after logs + budget prove the two-call harness end to end.
+
+Unchanged from below: the G30 collision policy (hard `seconds` cap ~15 in v1; if a check
+ever needs a longer run, THAT is G30's concrete offender and the async-job/`lint_status`
+split gets built then), the findings-format equivalence with SPEC-08, and B8 discipline
+(every run ends with Play stopped and the editor world intact).
 
 ## Problem
 
@@ -36,7 +93,7 @@ play op=lint checks=[traverse, logs, budget] route=<spline-label> seconds=<n>
 - Returns the same findings format as SPEC-08 (numbered, severity, provenance,
   ready-to-fire `next`), so runtime findings and static findings read identically.
 
-## The checks (build in this order, each gated on a dogfooded need)
+## The checks (original 2026-07-03 detail — build order/mechanisms superseded by `## Design refresh`)
 
 1. **`traverse`** — walk a route end to end. Decision: **trace-walk simulation, not
    navmesh** — the dogfood levels build no nav data, and navmesh answers "can an AI
