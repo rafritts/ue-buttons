@@ -228,10 +228,13 @@ def _authored_terrain_exists():
 
 def substrate_labels():
     """Every label that is a SUBSTRATE, not a placed actor: terrains, foliage stands, spline
-    labels, and spline surface strips. Shared by validate's neighbor pool, foliage's
-    clearance builder, and the map's marker filter — one definition, no drift."""
+    labels, spline surface strips, and pcg grove volumes (deliberately tall — SPEC-10
+    invariant 1 — so the ground lint would read them as buried, B11). Shared by validate's
+    neighbor pool, foliage's clearance builder, and the map's marker filter — one
+    definition, no drift."""
     from . import _state
-    subs = set(_state.terrains) | set(_state.foliage_stands) | set(_state.splines)
+    subs = (set(_state.terrains) | set(_state.foliage_stands) | set(_state.splines)
+            | set(getattr(_state, "pcg_volumes", {})))
     for pd in _state.splines.values():
         sa = pd.get("surface_actor")
         if sa:
@@ -239,9 +242,10 @@ def substrate_labels():
     # The registries die with the session but the LEVEL outlives it (the G47 relaunch
     # taught this): a reopened level's terrain read as a floating actor. Class is the
     # durable tell — the runtime spawns ueb DynamicMeshActors ONLY as terrains and
-    # spline surface strips, so every one of them is a substrate.
+    # spline surface strips, and ueb PCGVolumes only as grove volumes, so every one
+    # of them is a substrate.
     for a in ueb_actors():
-        if isinstance(a, unreal.DynamicMeshActor):
+        if isinstance(a, (unreal.DynamicMeshActor, unreal.PCGVolume)):
             subs.add(a.get_actor_label())
     return subs
 
