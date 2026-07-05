@@ -146,6 +146,19 @@ never sees 331k.
   instances across external-actor cells wants a residency check).
 - **Palette vetting.** Each palette graph must pass R3/G56 (no plugin-runtime leaf masters
   that render bare) before it earns a name — the same gate `foliage op=paint` enforces.
+- **Volume must be TALL, not surface-thin (build gotcha, found 2026-07-05).** The
+  SimpleForest sampler ray-hits the world over the volume's Z extent; a volume sized to a
+  terrain's near-flat AABB (≈20 m tall) silently generates **zero** instances. `on=<surface>`
+  must bracket the surface with generous headroom (the spike used ±60 m and worked; ±10 m
+  gave nothing). Also: **spawn the volume already positioned/scaled, then generate** —
+  moving a PCGVolume *after* a generate left stale state and produced zero on regen; a clean
+  spawn at the right transform is reliable. The verb sizes the box from the surface AABB in
+  XY but a fixed tall Z, and never mutates the transform between set_graph and generate.
+- **PCG palette meshes carry `wpo` wind (found 2026-07-05).** `PCG_Tree_*`/`PCG_Seedling_*`
+  classify as `wpo` (per-vertex wind), NOT the `pivot_wpo` rigid-float bug (G40) — they sway
+  correctly on instances. Desirable, not a defect, but the grow census should surface the
+  motion verdict so "this forest moves" is stated, and `rules.wind:"off"` (G58) stays
+  available if a level wants it stilled.
 
 ## Sequencing
 
