@@ -91,6 +91,9 @@ def _hydrate():
 
 
 # ── engine template ground (G37) ──────────────────────────────────────────────────
+_TEMPLATE_SINK_CM = 200000.0   # exact sink/raise offset — B15 (2 km, far below any build)
+
+
 def set_template_hidden(hidden):
     """Hide/show the engine template's z=0 ground plane (Landscape tree + WP HLOD
     proxies). Traces already ignore it while a ueb terrain exists, but it still RENDERS —
@@ -98,12 +101,29 @@ def set_template_hidden(hidden):
     edge. Pure visual noise, so it goes dark with the first ueb terrain and comes back
     when the last one is removed. Hidden in BOTH editor and game: the editor flag is
     per-session (reapplied by _hydrate after a restart); the game flag saves with the
-    level so PIE agrees."""
+    level so PIE agrees. Collision dies with it (B15): our trace_ground ignores these
+    actors by list, but physics-level samplers (PCG's surface sampler) can't be handed
+    an ignore list — they'd seat instances on the invisible z=0 plane wherever the ueb
+    terrain dips below it. Hidden means GONE, for renderer and physics alike.
+    HOW collision dies: by SINKING the proxies. Landscape heightfield collision ignores
+    every setter Python can reach (actor set_actor_enable_collision, component
+    NO_COLLISION, ECR_IGNORE responses — all read back unchanged or no-op, probed live
+    on 5.8), but collision moves with the actor, so hiding translates each proxy down
+    by an exact constant and restore translates it back up. Idempotent via a z
+    threshold — reasserting hide never double-sinks."""
     n = 0
     for a in _ue.engine_landscape_actors():
         try:
             a.set_is_temporarily_hidden_in_editor(hidden)
             a.set_actor_hidden_in_game(hidden)
+            loc = a.get_actor_location()
+            sunk = loc.z < -_TEMPLATE_SINK_CM / 2.0
+            if hidden and not sunk:
+                a.set_actor_location(
+                    unreal.Vector(loc.x, loc.y, loc.z - _TEMPLATE_SINK_CM), False, True)
+            elif not hidden and sunk:
+                a.set_actor_location(
+                    unreal.Vector(loc.x, loc.y, loc.z + _TEMPLATE_SINK_CM), False, True)
             n += 1
         except Exception:
             pass

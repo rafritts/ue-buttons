@@ -99,6 +99,37 @@ def _reg():
     return _state.pcg_volumes
 
 
+def _hydrate():
+    """Adopt ueb PCGVolume actors absent from the registry (G61) — the LEVEL outlives
+    the session, and terrains already rehydrate on open while groves silently vanished
+    from perception (regenerate refused, roster undercounted). Everything the ops need
+    lives ON the actor: the graph asset (palette name = its basename under /Game/UEB_PCG),
+    the component's seed, the live instance count, the actor bounds. `on` and `region`
+    are not recoverable — `on` falls back to the sole registered terrain, region to None
+    (display-only after generation; the volume is already sized)."""
+    reg = _reg()
+    terrains = sorted(_state.terrains)
+    for a in _ue.ueb_actors():
+        if not isinstance(a, unreal.PCGVolume):
+            continue
+        label = a.get_actor_label()
+        if label in reg:
+            continue
+        comp = a.pcg_component
+        g = comp.get_graph()
+        gpath = g.get_path_name().split(".")[0] if g else None
+        gname = (gpath[len(_PCG_DIR) + 1:] if gpath and gpath.startswith(_PCG_DIR + "/")
+                 else gpath)
+        b = _ue.bounds(a)
+        reg[label] = {"graph": gname, "on": terrains[0] if len(terrains) == 1 else "?",
+                      "seed": int(comp.get_editor_property("seed")),
+                      "region": None, "actor_name": a.get_path_name(),
+                      "coverage": {"x": [round(b["min"][0], 1), round(b["max"][0], 1)],
+                                   "y": [round(b["min"][1], 1), round(b["max"][1], 1)]},
+                      "wind_off": False, "pending": False,
+                      "instances": _instance_total(a), "counts": {}}
+
+
 def _unknown_label(label):
     """Unknown-label error WITH the next legal moves (G60): the live grove labels and
     the ready-to-fire commands, mirroring the unknown-graph error's palette list."""
@@ -112,6 +143,7 @@ def _unknown_label(label):
 
 # ── dispatch ──────────────────────────────────────────────────────────────────────
 def handle(p):
+    _hydrate()      # G61: adopt level-resident groves after a restart (terrain.py:238 twin)
     fn = {"generate": _generate, "regenerate": _regenerate, "cleanup": _cleanup,
           "describe": _describe, "palette": _palette}.get(p.get("op", "generate"))
     if fn is None:

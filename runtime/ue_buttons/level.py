@@ -24,6 +24,7 @@ from . import _state
 from . import _ue
 from . import terrain as terrainmod
 from . import foliage as foliagemod
+from . import pcg as pcgmod
 from . import validate as validatemod
 
 _WP_TEMPLATE = "/Engine/Maps/Templates/OpenWorld"
@@ -120,15 +121,23 @@ def _restamp(clear_log):
 
 def _transition_reconcile():
     """Reconcile-on-transition (never optional): GC registry entries orphaned by the
-    level change, then rehydrate terrain meta for terrains whose actors live in the
-    NEWLY loaded level (which also re-asserts the G37 template hide)."""
+    level change, then rehydrate terrain meta and pcg groves for actors living in the
+    NEWLY loaded level, and reassert the G37/B15 template hide+sink."""
     rec = validatemod.reconcile(gc=True)
     _state.engine_grounds_memo = None    # ground attribution changed (B3/G22)
     terrainmod._hydrate()
+    # B16: reassert the template hide/sink HERE, unconditionally — _hydrate only reaches
+    # its own reassert when the registry was empty, and a same-labeled terrain surviving
+    # the transition (every level names its terrain "terrain") skips it, leaving the
+    # incoming level's white z=0 plane rendering AND answering physics (B15).
+    if _state.terrains:
+        terrainmod.set_template_hidden(True)
+    pcgmod._hydrate()
     orphaned = rec.get("orphaned", [])
     return {"orphaned_gcd": len(orphaned),
             "detail": [f"{o['kind']}:{o['label']}" for o in orphaned],
-            "rehydrated_terrains": sorted(_state.terrains)}
+            "rehydrated_terrains": sorted(_state.terrains),
+            "rehydrated_groves": sorted(getattr(_state, "pcg_volumes", {}))}
 
 
 # ── save ─────────────────────────────────────────────────────────────────────────

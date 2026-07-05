@@ -114,6 +114,12 @@ def handle(verb, params):
                          "play op=stop (or play op=census, which ends Play itself), then "
                          "re-issue."}
     level_note = _level_guard()
+    # B16: the G37/B15 template hide+sink self-heals on EVERY dispatch — WorldPartition
+    # streams template Landscape proxies in on editor ticks AFTER a level opens, so any
+    # one-shot reassert (transition, hydrate) misses whatever hadn't registered yet.
+    # Idempotent and cheap (~130 flag sets); no-op when no ueb terrain exists.
+    if _state.terrains:
+        terrainmod.set_template_hidden(True)
     result = fn(params)
     if level_note and isinstance(result, dict) and "error" not in result:
         result.setdefault("notes", []).append(level_note)
