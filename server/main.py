@@ -183,7 +183,8 @@ def level(op: Literal["streaming", "save", "new", "open", "clear"] = "streaming"
 
 
 @mcp.tool()
-def play(op: Literal["census", "start", "stop", "where"] = "census") -> str:
+def play(op: Literal["census", "lint", "start", "stop", "where"] = "census",
+         checks: list = None, seconds: float = None, budget_ms: float = None) -> str:
     """Play In Editor. Editor verbs refuse during Play (B8) — this verb owns PIE.
 
     op=census (G36): GAME truth — editor and PIE views of a map can disagree completely
@@ -191,12 +192,27 @@ def play(op: Literal["census", "start", "stop", "where"] = "census") -> str:
       while every editor read says fine). Two-step: first call snapshots the always-loaded
       set and starts Play; call AGAIN ~2 s later to census the game world, END Play, and
       get the missing-at-runtime diff. Run it before handing a level to a human.
+    op=lint (SPEC-09): runtime lint — defects that only exist while the game runs. TWO-CALL
+      like census: first call runs a STATIC pre-scan (compile-broken Blueprints would throw
+      a modal that hangs the bridge — caught and refused here, Play not started), then starts
+      Play and arms the samplers; call AGAIN after ~seconds to read them, END Play, and get
+      findings. checks= any of [logs, budget] (traverse is next increment; default [logs]).
+      logs = errors/ensures/warnings in the run window; budget = frame-time distribution vs
+      budget_ms= (e.g. 16.6 for 60fps) — omit budget_ms to just report the distribution.
+      seconds= run window (default 10, cap 15). Findings carry severity + provenance + next.
     op=start | stop: plain PIE control. (LevelEditorSubsystem.editor_request_begin/end_play)
     op=where (SPEC-06 deixis): mid-Play — where the PIE pawn stands and what the player
       camera looks at ("I'm here and I see X"), read from the game world without ending
       Play. The user's "right here, where I'm standing" made resolvable.
     """
-    return render(call_ue("play", {"op": op}))
+    p = {"op": op}
+    if checks is not None:
+        p["checks"] = checks
+    if seconds is not None:
+        p["seconds"] = seconds
+    if budget_ms is not None:
+        p["budget_ms"] = budget_ms
+    return render(call_ue("play", p, timeout=60))
 
 
 @mcp.tool()

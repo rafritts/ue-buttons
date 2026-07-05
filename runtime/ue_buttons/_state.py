@@ -97,6 +97,14 @@ drift = [0.0]         # single-cell accumulator (list so it survives `from . imp
 playtest = None       # or {"avatar", "view", "drop_in", "arm", "source", "playing"}
 playtest_source = None  # cached resolved character-BP path (skip the registry scan on re-enter)
 
+# ── SPEC-09 runtime lint (play op=lint — TWO-CALL, like census) ───────────────────────
+# The run record set on call 1 (checks, log offset, budget) and read on call 2, plus the
+# frame-time sampler's buffer + delegate handle. All live here so the reload that runs
+# between the two calls can't drop them mid-run; every access is getattr-guarded (lint.py).
+lint_run = None       # or {"checks", "seconds", "budget_ms", "route", "log_path", "log_offset", "started"}
+lint_frames = []      # per-frame delta seconds, accumulated by the slate-tick sampler in the PIE window
+lint_sampler = None   # the _DelegateHandle from register_slate_post_tick_callback (None when idle)
+
 
 def cache_dims(path, measured):
     dims_cache[path] = measured

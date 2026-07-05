@@ -25,6 +25,7 @@ from . import render as rendermod
 from . import validate as validatemod
 from . import level as levelmod
 from . import deixis
+from . import lint as lintmod
 
 # R4 (SPEC-05): the runtime is verified against this engine version; a session on a
 # different build gets one warning on its first dispatch — trained reflexes may misfire.
@@ -560,6 +561,9 @@ def _v_play(p):
     les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
     if op == "census":
         return _pie_census(p)
+    # SPEC-09: runtime lint — two-call like census (pre-scan + Play, then read + end Play).
+    if op == "lint":
+        return lintmod.run(p)
     # SPEC-06: "where am I standing / what am I looking at" for the live PIE pawn.
     if op == "where":
         return deixis.pie_where()
@@ -575,7 +579,7 @@ def _v_play(p):
         les.editor_request_end_play()
         _state.pie_census_expect = None
         return {"pie": "stopping"}
-    return {"error": f"unknown play op '{op}'. known: census|start|stop|where"}
+    return {"error": f"unknown play op '{op}'. known: census|lint|start|stop|where"}
 
 
 def _ground_flag(place):
