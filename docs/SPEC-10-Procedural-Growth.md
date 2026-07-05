@@ -1,9 +1,10 @@
 # SPEC-10 — Procedural Growth: wrapping PCG as an intent verb
 
-Status: **DESIGN** (2026-07-05). Grounded by a live spike — every capability claim below
-was exercised over the RC bridge, and the numbers are real (spike trace at the bottom).
-The verb name and the parameter strategy need the user's sign-off before build; the two
-open forks are called out explicitly.
+Status: **DESIGN** (2026-07-05). Grounded by two live spikes — every capability claim
+below was exercised over the RC bridge, and the numbers are real (spike traces at the
+bottom). **Both forks are now decided** (2026-07-05): verb = `foliage op=grow` (extend,
+don't mint); graphs = a code-authored palette (node-value tuning over Python is proven —
+no node editor, no reliance on exposed user parameters).
 
 ## Problem
 
@@ -43,39 +44,49 @@ Driving PCG purely from editor Python over RC, in throwaway level `/Game/Maps/UE
   `regenerate_in_editor`, `dirty_generated`, `get_generated_graph_output`,
   `override_generation_radii`.
 
-## The central design question — parameters
+## How the palette gets tuned — DECIDED (node-value tuning over Python)
 
-Firing a stock graph is trivial; **tuning it by intent is the hard part.** The spike
-found `SimpleForest.user_parameters` is an **empty `InstancedPropertyBag {}`** — the
-showcase graphs hardcode their values in nodes and expose no override surface. There is no
-`get_graph_parameter`/`set_graph_parameter` on `PCGGraphInstance` in 5.8 Python; the only
-`override_*` methods are cosmetic (title/color/category). So "grow a *sparse* pine forest"
-cannot be a scalar we poke into the stock graph. Two honest paths, and this is **fork #1
-for the user**:
+Firing a stock graph is trivial; the open question was **how a tuned variant gets
+authored without the user living in the PCG node editor** (they don't know UE, and
+node-graph work is exactly the editor-fighting this project exists to avoid). Spike #2
+answered it: **graph node settings are readable AND writable over RC**, and the change
+propagates through generation. So the palette is authored entirely in code:
 
-- **(A) Curated graph palette — RECOMMENDED.** A human authors (or we adopt + lightly
-  tune) a small set of *named* graph variants in-editor, ONCE: e.g. `pine_dense`,
-  `mixed_sparse`, `grass_meadow`. The agent selects one by intent name and points it at a
-  surface. No parameter override needed; the taste lives in the graph, authored once by
-  the human — which is exactly our partnership model (human owns taste, agent owns precise
-  placement). This is buildable today with only what the spike already proved.
-- **(B) Property-bag override — DEFERRED.** For graphs that DO expose `user_parameters`,
-  reach the `InstancedPropertyBag` via `call_method` against the C++
-  `GetGraphParameter`/`SetGraphParameter` (both `PCGGraph` and the instance expose
-  `call_method`; untested for params). Higher risk, and moot until a param-exposing graph
-  is in play. Build it when a concrete need shapes it (the G30 ratchet), not speculatively.
+```
+duplicate a stock graph → /Game/UEB_PCG/<name>   (EditorAssetLibrary.duplicate_asset)
+walk graph.nodes → node.get_settings()           (typed PCGSettings subobjects)
+set_editor_property on the density/mesh/prune knobs
+save the /Game copy                               → this IS a palette entry
+```
 
-Path A ships the verb; path B is a later enrichment. The verb's real intent knobs on day
-one are the two the spike already proved: **which graph** (the palette) and **which
-surface / how large an area** (the volume bounds — `on=<terrain>` maps to the volume's
-scaled box).
+Proven end to end (spike #2): cutting `points_per_squared_meter` 8× on the three
+`PCGSurfaceSamplerSettings` nodes of a duplicated SimpleForest dropped the generated count
+**332,941 → 44,502** (seedlings 331k → 44k) — the authored value propagated exactly. The
+tunable surface per node type: `PCGSurfaceSamplerSettings` (density: `points_per_squared_meter`,
+`point_extents`, `point_steepness`, `looseness`, `seed`), `PCGStaticMeshSpawnerSettings`
+(which meshes spawn), `PCGSelfPruningSettings` (spacing/overlap), `PCGTransformPointsSettings`
+(scale/rotation jitter).
 
-## Verb shape (proposal — needs sign-off, fork #2)
+Consequence: **we do NOT need graphs to expose user parameters** (the stock showcase
+graphs don't — `SimpleForest.user_parameters` is an empty `InstancedPropertyBag`, and there
+is no `get/set_graph_parameter` on `PCGGraphInstance` in 5.8). We bypass the parameter
+system and edit node settings directly on our own `/Game` copies. The `call_method` route
+to C++ `GetGraphParameter` remains a theoretical fallback for a param-exposing third-party
+graph, but nothing needs it.
+
+**Palette model.** A small runtime registry maps intent names → `/Game/UEB_PCG/<graph>`,
+each a stock graph duplicated once and tuned in code (checked into the runtime as a build
+step, the way FoliageType minting is). Adding `pine_dense` / `mixed_sparse` / `grass_meadow`
+is writing a tuning function, not opening an editor. The agent's day-one intent knobs:
+**which palette entry** (`graph=`), **which surface / area** (`on=` → volume bounds, proven
+to drive sampling extent), and **seed** (per-node `seed`, for reroll-without-restructure).
+
+## Verb shape — DECIDED: extend `foliage`
 
 PCG is procedural *foliage/vegetation* generation, and `foliage` already owns instanced
-scatter. Recommendation: **extend `foliage`, don't mint a verb** — consistent with SPEC-05
-(if UE owns a word, that verb owns it; `op=` is the discriminator) and with SPEC-08's
-"no new verb" precedent.
+scatter. Decided (2026-07-05): **extend `foliage`, don't mint a verb** — consistent with
+SPEC-05 (if UE owns a word, that verb owns it; `op=` is the discriminator) and with
+SPEC-08's "no new verb" precedent. Keeps "put plants on the ground" in one place.
 
 ```
 foliage op=grow  graph=<palette name>  on=<terrain/surface label>  [region=…]  [seed=n]
@@ -83,9 +94,9 @@ foliage op=regrow  label=<grove>        # re-run generate() after a surface/para
 foliage op=ungrow  label=<grove>        # cleanup(True) + destroy the volume — full reversal
 ```
 
-- `graph=` resolves against the curated palette (SPEC decision: palette is a small
-  registry in the runtime, mapping intent names → `/Game` or `/PCG` graph paths, each
-  vetted the way our FoliageType minting is).
+- `graph=` resolves against the code-authored palette (small runtime registry, intent
+  name → `/Game/UEB_PCG/<graph>`, each a stock graph duplicated + tuned in code, vetted
+  the way FoliageType minting is).
 - `on=` is relational, not coordinate: the named surface's AABB sizes and positions the
   PCGVolume (bounds proven to drive sampling extent). `region=` optionally clips to a
   circle/rect the way `foliage op=paint` already does.
@@ -93,9 +104,8 @@ foliage op=ungrow  label=<grove>        # cleanup(True) + destroy the volume —
   and reconcile like any other ueb actor, so `op=ungrow` and level lifecycle
   (`level op=clear`) already know how to tear it down.
 
-The alternative — a dedicated `grow` verb — is on the table if the user judges procedural
-generation conceptually distinct enough from hand-painting to deserve its own word. I lean
-against (it splits "put plants on the ground" across two verbs), but it's the user's call.
+(A dedicated `grow` verb was weighed and rejected — it would split "put plants on the
+ground" across two verbs.)
 
 ## Perception — census, numbers only
 
@@ -159,5 +169,18 @@ scatter in [[ueb-forest-level-status]] as the proof). `op=regrow` and any parame
    user's visual judgment.
 5. Parameter probe: `SimpleForest.user_parameters` is an empty `InstancedPropertyBag`; no
    `get/set_graph_parameter` in 5.8 Python; `call_method` present on graph + instance
-   (route for path B, untested). Richer forest graphs enumerated under
+   (theoretical fallback, unneeded). Richer forest graphs enumerated under
    `/PCG/SampleContent/…` and `/ProceduralVegetationEditor/…`.
+
+Spike #2 — node-value tuning (2026-07-05, deciding the palette question):
+
+6. `graph.nodes` → 16 nodes; each `node.get_settings()` returns a typed `PCGSettings`
+   subobject (3× `PCGSurfaceSamplerSettings`, `PCGStaticMeshSpawnerSettings`,
+   `PCGSelfPruning`, `PCGTransformPoints`, …). Settings props read fine
+   (`points_per_squared_meter=0.015`, `point_extents`, `point_steepness`, `looseness`,
+   `seed`).
+7. `EditorAssetLibrary.duplicate_asset(SimpleForest → /Game/UEB_PCG/Grow_test)`, then
+   `set_editor_property("points_per_squared_meter", old/8)` on all three samplers, saved.
+   Repointed the spike volume at the copy, `generate(True)` → **44,502 instances**
+   (seedlings 331k → 44k) — the code-authored density propagated through generation
+   exactly. Palette-in-code path proven end to end; no PCG node editor touched.
