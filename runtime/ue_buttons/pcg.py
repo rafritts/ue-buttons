@@ -139,6 +139,9 @@ def _volume_transform(surface_bounds, region):
     if region:
         rx0, ry0, rx1, ry1 = _region_bbox(region)
         x0, y0, x1, y1 = max(x0, rx0), max(y0, ry0), min(x1, rx1), min(y1, ry1)
+        if x1 <= x0 or y1 <= y0:
+            raise ValueError("region does not overlap the surface AABB — nothing to grow "
+                             "on; widen the region or drop it to cover the whole surface")
     cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
     hx, hy = max((x1 - x0) / 2.0, 1.0), max((y1 - y0) / 2.0, 1.0)
     z_span = mx[2] - mn[2]
@@ -235,26 +238,40 @@ def _motion_notes(census, wind_off, stilled):
 # the first call fires the graph and returns "generating"; the next call with the same
 # label COLLECTS the settled census and applies the WPO cure. Mirrors `play op=census`.
 
-def _fire_stub(label, graph, on, coverage, verb):
-    """The phase-1 return: the volume is spawned + firing; census is collected next call."""
+def _fire_stub(label, graph, on, coverage, verb, still=False):
+    """The "generating" return — phase-1 fire, OR a phase-2 collect that found generation
+    still in flight (still=True). Either way the move is the same: call the same op again
+    to collect (NOT re-fire — the graph is already running). Never finalizes a census."""
+    lead = ("generation hasn't finished yet (the graph is still running on the editor's "
+            "ticks) — nothing was re-fired" if still else
+            "PCG generates asynchronously (it advances on the editor's next tick, which a "
+            "single blocking call can't force). The volume is spawned and firing")
     return {"label": label, "graph": graph, "on": on, "coverage": coverage,
             "pcg": "generating", "undoable": False,
-            "note": "PCG generates asynchronously (it advances on the editor's next tick, "
-                    "which a single blocking call can't force). The volume is spawned and "
-                    "firing — call again in ~2 s to collect the census.",
+            "note": f"{lead} — call the same op again in ~2 s to collect the census.",
             "next": [f"pcg op={verb} label={label}   (again, ~2 s — collects the census + "
                      "stills any pivot-WPO meshes)",
                      f"pcg op=cleanup label={label}"]}
 
 
-def _collect(label, meta):
-    """Phase-2: generation has landed (the editor ticked since the fire). Poll the settled
-    total, run the census + WPO-disable audit, finalize the registry, clear pending."""
+def _collect(label, meta, verb, extra_notes=None):
+    """Phase-2: collect the census once generation has LANDED. Gate on the component's own
+    `generated` flag (True only when the graph finished; probed live) — a blocking dispatch
+    holds the game thread, so instance counts can't advance mid-call and a naive poll would
+    finalize whatever partial total it happened to catch. If still in flight, keep pending
+    and return the "call again" stub instead of recording a partial census."""
     vol = _ue.find_by_label(label)
     if not isinstance(vol, unreal.PCGVolume):
         _reg().pop(label, None)
         return {"error": f"the volume for '{label}' vanished before its census — "
                          f"pcg op=generate to rebuild"}
+    comp = vol.pcg_component
+    if not comp.get_editor_property("generated"):
+        stub = _fire_stub(label, meta["graph"], meta["on"], meta.get("coverage"), verb,
+                          still=True)
+        if extra_notes:
+            stub["notes"] = list(extra_notes)
+        return stub
     wind_off = bool(meta.get("wind_off"))
     total = _settle(vol)
     census, stilled = _census_and_motion(vol, wind_off)
@@ -265,17 +282,31 @@ def _collect(label, meta):
            "undoable": False,
            "next": [f"pcg op=regenerate label={label} seed=<n>",
                     f"pcg op=cleanup label={label}"]}
-    notes = _motion_notes(census, wind_off, stilled)
-    # Invariant 5: zero instances is a WARNING, never a silent success.
+    notes = list(extra_notes or [])
+    notes += _motion_notes(census, wind_off, stilled)
+    # Invariant 5: zero instances is a WARNING, never a silent success. `generated` is
+    # True here, so generation genuinely finished empty — the cause is the surface, not timing.
     if total == 0:
         out["degraded_warning"] = (
-            f"grove '{label}' settled at 0 instances — known causes: (a) the surface has no "
-            "collision the sampler can ray-cast, or (b) generation hasn't finished (call "
-            f"pcg op=regenerate label={label} once more). The volume is auto-sized tall, so "
-            "Z headroom is unlikely to be the cause.")
+            f"grove '{label}' finished generating with 0 instances — the surface '{meta['on']}'"
+            " likely has no collision the sampler can ray-cast (the volume is auto-sized "
+            f"tall, so Z headroom isn't the cause). pcg op=cleanup label={label} and grow on "
+            "a collidable surface.")
     if notes:
         out["notes"] = notes
     return out
+
+
+def _mismatch_notes(p, meta, keys):
+    """Warn when a collect call re-passes params that differ from the pending grove's — the
+    grove is already firing with the ORIGINAL params, so the new values are ignored."""
+    notes = []
+    for k in keys:
+        if k in p and p[k] is not None and p[k] != meta.get(k):
+            notes.append(f"'{k}={p[k]}' was ignored — grove '{p.get('label')}' is already "
+                         f"generating with {k}={meta.get(k)} (pcg op=cleanup then generate "
+                         "to change it)")
+    return notes
 
 
 def _generate(p):
@@ -283,7 +314,8 @@ def _generate(p):
     meta = _reg().get(label)
     # Phase 2: a pending grove of this label → collect its census.
     if meta is not None and meta.get("pending"):
-        return _collect(label, meta)
+        return _collect(label, meta, "generate",
+                        _mismatch_notes(p, meta, ("graph", "on", "region")))
 
     graph = p.get("graph")
     if not graph:
@@ -353,9 +385,11 @@ def _regenerate(p):
         return {"error": f"'{label}' is not a PCGVolume"}
     # Phase 2: a re-fired grove of this label → collect its census.
     if meta.get("pending"):
-        return _collect(label, meta)
+        return _collect(label, meta, "regenerate", _mismatch_notes(p, meta, ("region",)))
 
     rules = p.get("rules") or {}
+    if rules.get("wind", "on") not in ("on", "off"):
+        return {"error": f"unknown rules.wind '{rules['wind']}'. known: on|off"}
     wind_off = rules.get("wind", "off" if meta.get("wind_off") else "on") == "off"
     seed = p.get("seed", meta.get("seed"))
     comp = vol.pcg_component
@@ -374,8 +408,12 @@ def _cleanup(p):
     vol = _ue.find_by_label(label)
     if meta is None and vol is None:
         return {"error": f"no pcg grove labelled '{label}'"}
+    # A label that resolves to a non-PCGVolume actor is not this verb's to tear down —
+    # error rather than falsely report a teardown (matches regenerate's guard).
+    if vol is not None and not isinstance(vol, unreal.PCGVolume):
+        return {"error": f"'{label}' is not a PCGVolume — pcg op=cleanup won't touch it"}
     removed = 0
-    if vol is not None and isinstance(vol, unreal.PCGVolume):
+    if vol is not None:
         removed = _instance_total(vol)
         try:
             vol.pcg_component.cleanup(True)

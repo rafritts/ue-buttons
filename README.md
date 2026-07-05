@@ -165,7 +165,7 @@ pixels (there is no screenshot/render verb; see the vision policy). New friction
 
 The whole surface was renamed onto UE's own vocabulary in one hard cut (no shims; see
 `docs/SPEC-05-Verb-Alignment.md` for the law and `docs/vision.md` for the why). Current
-roster — 14 verbs, `op=` the one discriminator everywhere:
+roster — 15 verbs, `op=` the one discriminator everywhere:
 
 | verb | drives | note |
 |---|---|---|

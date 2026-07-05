@@ -383,11 +383,15 @@ def pcg(op: Literal["generate", "regenerate", "cleanup", "describe", "palette"] 
     and never authors road/river networks (that is `spline`'s) — it only places assets on
     an existing surface.
 
-    op=generate (graph=, on=, label=, region=?, seed=?, rules=?): spawn a volume over the
-      `on=` surface's AABB (clipped by region= if given — {kind:circle|rect|polygon} MAP
-      cm), assign the palette graph, fire it, and return a per-mesh census + coverage +
-      wall-clock. The volume is auto-sized TALL (the sampler needs Z headroom or it yields
-      zero). 0 instances is a loud warning, never silent success.
+    op=generate (graph=, on=, label=, region=?, seed=?, rules=?): TWO-CALL (PCG generates
+      on the editor's ticks, which a single blocking call can't force — so the census can't
+      be read in the same call that fires the graph). The FIRST call spawns a volume over
+      the `on=` surface's AABB (clipped by region= if given — {kind:circle|rect|polygon}
+      MAP cm), assigns the palette graph, fires it, and returns {"pcg":"generating"}. Call
+      AGAIN with the same label to COLLECT the per-mesh census + coverage (and still any
+      pivot-WPO meshes); if it's still running, it says so and you call once more — it never
+      re-fires. The volume is auto-sized TALL (the sampler needs Z headroom or it yields
+      zero). 0 instances on a finished grove is a loud warning, never silent success.
         graph:  a palette name (pcg op=palette lists them). An unknown name errors WITH
                 the palette list. Graphs are code-authored copies under /Game/UEB_PCG —
                 open one in the PCG node editor any time; nothing is hidden.
@@ -401,8 +405,9 @@ def pcg(op: Literal["generate", "regenerate", "cleanup", "describe", "palette"] 
         force:  reserved for the mesh-vetting gate (size / bare-render) — bypasses it with
                 the census still flagging. The curated palette entries are pre-vetted.
     op=regenerate (label=, seed=?): re-run the grove in place after a surface/palette change
-      or to reroll with a new seed. NEVER moves the volume (moving a generated volume then
-      regenerating produces zero).
+      or to reroll with a new seed. Same TWO-CALL shape as generate (fire, then call again
+      to collect). NEVER moves the volume (moving a generated volume then regenerating
+      produces zero).
     op=cleanup (label=): full reversal — cleanup the component, destroy the volume (which
       owns the generated instances), unregister.
     op=describe (label=?): live per-mesh census re-counted from the volume (label omitted →
