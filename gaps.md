@@ -43,3 +43,41 @@ geometry — nothing reads luminance at a point). Two gaps in one: an authoring 
 (`add what=point_light` family or a `light` verb — SPEC-worthy, UE owns the word Light)
 and a numeric light-level sense to make "it's too dark in here" a measurable finding
 instead of a human complaint. PIE-tier check candidate for SPEC-09.
+
+### G54 — foliage paint mints FoliageType assets into a shared folder; a label reused across levels raises a blocking "overwrite?" modal that stalls the headless build
+Status: OPEN (found 2026-07-04, plain-forest dogfood — the user had to click "Yes" on two
+editor modals mid-paint for the build to proceed)
+
+`_foliage_type_for` (runtime/ue_buttons/foliage.py:312) mints each stand's
+`FoliageType_InstancedStaticMesh` at a level-agnostic path `/Game/UEB_Foliage/FT_<label>__<idx>`.
+It calls `EditorAssetLibrary.delete_asset` first to recreate fresh — but when the label
+reuses a name from a PREVIOUSLY-SAVED level (this build's `canopy`/`grass` collided with
+L1/L2's `FT_canopy`/`FT_grass`, still referenced by those saved maps), the delete is
+refused (asset in use) and `AssetTools.create_asset` then throws the editor's blocking
+"<asset> already exists — do you want to overwrite?" modal dialog. A headless agent can't
+see or answer it; the whole paint hangs until a human clicks Yes. Silent to the MCP layer —
+the paint call just blocks. Real capability wedge: any second level that reuses a stand
+label (canopy/grass/understory are the obvious defaults) trips it.
+
+Fix direction (pick one, none applied yet): (a) namespace the FoliageType asset by level —
+`FT_<levelname>_<label>__idx` — so names never collide across maps (also touches the remove
+prefix at foliage.py:617); or (b) when `delete_asset` can't remove an in-use asset, fall
+through to a unique minted name (`FT_<label>__<idx>_<n>`) instead of letting create_asset
+prompt; or (c) drive create_asset through a path that passes bAllowOverwrite / suppresses
+the modal. (a) is cleanest — a stand belongs to its level. HATEOAS next once built:
+foliage paint should report the minted FoliageType path so a collision is legible, not a
+silent block.
+
+### G55 — add what=player_start seats the capsule ~36cm high (grounds on the arrow-widget AABB, not the capsule)
+Status: OPEN (found 2026-07-04, plain-forest dogfood)
+
+`add what=player_start place.at=[0,0]` reported `relocated` and "seat the capsule on the
+traced ground," but the very next auto-lint flagged `player_start floats 36.5cm above ground
+(base z=83.2, ground z=46.7)`. The relocate put the actor centre at z≈175 = ground + ~128,
+but the PlayerStart's capsule base sits at z=83.2 (≈92 below centre) — the seating math used
+the actor's full AABB half-height (which includes the upward-pointing direction-arrow
+billboard, ~256 tall) instead of the collision capsule, leaving a ~36cm float. Cosmetically
+harmless (the pawn drops on spawn) but it's a self-inconsistency: the verb claims a seated
+capsule and its own floor-lint immediately contradicts it, forcing a manual `transform move`
+to clear the finding. Fix: ground player_start on its CapsuleComponent extent, not the
+merged actor bounds.
