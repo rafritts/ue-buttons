@@ -1,4 +1,4 @@
-# SPEC-11 — `avatar`: drop a playable third-person character into a scene
+# SPEC-11 — `playtest`: drop the user into the level to inspect it
 
 Status: **DESIGN** (2026-07-05). Audience: the agent implementing the verb. Every engine
 claim below is spike-proven over the RC bridge (traces at bottom) unless marked
@@ -6,265 +6,270 @@ claim below is spike-proven over the RC bridge (traces at bottom) unless marked
 
 ## The ask (user, 2026-07-05)
 
-"A playable avatar the user can drop into a scene to explore anything the MCP server
-generated. Third-person over-the-shoulder camera, **zoomed out enough to see the feet
-touching the ground**. Two things: place a **player-start**, and plop down the **stock UE5
-character**. Ideally **as few MCP calls as possible.**"
+A **debug / inspection** tool, not a shipped gameplay feature. The LLM calls it **once** and
+the user is standing inside the level they just generated, walking around to inspect it.
+Stock UE5 mannequin, **first- OR third-person** at the user's choice; the third-person view
+is an over-the-shoulder follow camera **zoomed out enough to see the feet touching the
+ground**. Fewest possible MCP calls — ideally the one call also drops them straight into
+Play.
 
-Success = **one** ue-buttons call makes any level walkable, then the human presses Play (or
-`play op=start`) and explores with a follow camera that shows the character head-to-toe on
-the ground.
+Success = **one** `playtest op=enter` call and the user is walking the scene; **one**
+`playtest op=exit` and Play stops and the throwaway avatar is gone, level untouched.
 
 ## The one decisive engine fact that shapes everything
 
 **UE 5.8 Python cannot read or edit a Blueprint's internals** — `parent_class` and
 `simple_construction_script` are not exposed on the `Blueprint` object (proven: both raise
 "Failed to find property"). So the camera boom that lives *inside* the character Blueprint
-is **not tunable through the asset.** The GameMode-spawns-a-pawn path therefore gives us a
-character we cannot frame.
+is **not tunable through the asset.** The GameMode-spawns-a-pawn path gives us a character
+we cannot frame.
 
-But a **spawned instance** of that Blueprint has every SCS component instanced and
-mutable. On an instance we can read and set the SpringArm's `target_arm_length`, its
-`socket_offset`/`relative_rotation`, and the actor's `auto_possess_player` (all proven).
+But a **spawned instance** of that Blueprint has every SCS component instanced and mutable.
+On an instance we can read/set the SpringArm's `target_arm_length`, activate the
+first- vs third-person camera, and set `auto_possess_player` (all proven).
 
-→ **The avatar is a placed, auto-possessed character *instance*, not a GameMode pawn.**
-This is the whole design. It also happens to match the user's words exactly: "plop down
-the avatar" = spawn a visible character actor in the level, tuned, that Play possesses.
+→ **The avatar is a placed, auto-possessed character *instance*, spawned for the session
+and destroyed on exit.** This is the whole design, and it matches "plop down a throwaway
+avatar and drop me in."
 
 ## Decisions already made (do not relitigate)
 
-- **Verb = `avatar`** (recommended; the user owns this taste call — see "For the user"
-  below). Its own verb, not `add what=avatar`: `add` spawns exactly one actor and returns
-  it; `avatar op=place` is a *composite* level fixture (PlayerStart + character + camera
-  tune + possession + registry entry) with its own reversible lifecycle — the same profile
-  (SPATIAL, ueb-tagged, reconcile/clear/cleanup) that earned `pcg` a verb rather than a
-  `foliage` op. Overloading `add`'s single-actor contract with a multi-actor composite is
-  the reason to split.
-- **Mechanism = placed auto-possessed instance** (forced by the BP-not-editable fact
-  above). No GameMode override in the primary path (SPIKE-CHECK 1 gates a fallback).
-- **One call does both halves.** `avatar op=place` ensures the PlayerStart *and* plops the
-  character at the same spot — the user asked for two things and for fewest calls; the verb
-  reconciles them into one dispatch.
+- **Verb = `playtest`** (user's call, 2026-07-05). It names the intent — a developer walking
+  their own build to inspect it, not a gameplay feature. Its own verb (not `add what=…` or a
+  `play` op): `play` owns *runtime PIE control* (census/start/stop/where) over an
+  already-playable level; `playtest` is the *editor-time setup + drop-in* that makes an
+  arbitrary generated scene walkable in one shot. They're adjacent — the docstrings
+  cross-reference — but distinct.
+- **The avatar is transient debug scaffolding, not a saved level fixture.** `enter` spawns
+  it; `exit` destroys it. It is ueb-tagged so `outliner op=reconcile` / `level op=clear`
+  sweep a leftover, and `describe`/the status block warn if a playtest avatar is still
+  present (so it never gets saved into the user's level by accident).
+- **One call drops the user in.** `enter` spawns + tunes + auto-possesses **and** begins
+  Play in a single dispatch (spawn-then-`begin_play` in one dispatch is proven). `exit` ends
+  Play and removes the avatar — and, like `play op=stop`, is allowed *during* Play because
+  it owns ending its own session ([[always-allowed-to-stop-pie]]).
+- **First- and third-person are both first-class** via `view=`. The stock character carries
+  BOTH a `Camera_FP` (CineCamera) and a `SpringArm`+`Camera_TP` (proven). `view=third`
+  (default) tunes the boom for the feet-on-ground framing; `view=first` activates the head
+  camera (no boom, no feet — that's the eyes view).
+- **Mechanism = placed auto-possessed instance** (forced by the BP-not-editable fact). No
+  GameMode override in the primary path (SPIKE-CHECK 1 gates a fallback).
 - **"Stock UE5 character" = the mannequin the project actually has.** There is no
   `/Game/ThirdPerson/...` template here and `/Engine` ships no third-person character
-  (proven). The project's third-person kit rode in on a marketplace pack:
+  (proven). The project's kit rode in on a marketplace pack:
   `/Game/GV_FreeShrubsPack/Demo/ThirdPersonCharacter` (full Manny + anim BP + control rigs,
-  with a first-person AND a third-person camera). We adopt it as the avatar source and
-  **discover it by shape, not by hard path** (see Character source), so a pack rename
-  doesn't silently break the verb.
+  FP and TP cameras). We adopt it and **discover it by shape, not by hard path** (see
+  Character source), so a pack rename doesn't silently break the verb.
 - **Perception stays numbers-only.** The agent never looks at the framing. Whether the feet
-  read as "touching the ground" is the **user's** visual call (the no-vision policy) — the
-  verb exposes the camera knobs (`arm`, and a framing offset) and reports them; the human
-  tunes to taste.
+  read as "touching the ground" is the **user's** visual call ([[no-llm-vision-view-removed]])
+  — the verb exposes the camera knobs (`arm`, framing offset) and reports them; the human
+  tunes to taste while inside the playtest.
 
 ## Verb contract
 
 ### MCP tool (`server/main.py`)
 
-Follow the `pcg` tool as the template (thin projection, `call_ue`, long-ish timeout — a
-spawn + ground trace is quick, but PIE-adjacent work wants headroom):
+Thin projection over `call_ue`, `pcg` tool as the template:
 
 ```python
 @mcp.tool()
-def avatar(op: Literal["place", "remove", "describe"] = "place",
-           label: str = "avatar", place: dict = None, yaw: float = None,
-           facing: str = None, arm: float = None, force: bool = False) -> str:
-    """Drop a playable third-person character into the level so a human can walk the
-    scene — the "let me explore this" button. ONE call places the PlayerStart AND plops a
-    tuned, auto-possessed stock mannequin at that spot; then press Play (or play op=start).
+def playtest(op: Literal["enter", "exit", "describe"] = "enter",
+             view: Literal["third", "first"] = "third",
+             place: dict = None, yaw: float = None, facing: str = None,
+             arm: float = None, force: bool = False) -> str:
+    """DEBUG drop-in — stand the user inside the level they just built to inspect it. NOT a
+    shipped gameplay feature: a throwaway stock mannequin, possessed, dropped into Play in
+    ONE call, and removed on exit.
 
-    op=place (default): ensure the level's PlayerStart at the target (relocate-or-create,
-      G35) and spawn an auto-possessed ThirdPersonCharacter instance grounded there, its
-      over-the-shoulder SpringArm zoomed out (arm=, default 500cm) so the feet-on-ground
-      contact is in frame. Re-running with the same label re-seats/re-tunes (idempotent).
-    op=remove: destroy the character instance + unregister (the PlayerStart stays — it's a
-      level marker). Full reversal of the plop.
-    op=describe: is this level playable? PlayerStart location, avatar label, arm length,
-      auto-possess state — read-only.
+    op=enter (default): plop an auto-possessed stock character at the drop-in point (the
+      level's PlayerStart if it has one, else a ground-traced origin), select the camera per
+      view=, and BEGIN Play. The user is now walking the scene. Idempotent per session.
+    op=exit: end Play and destroy the debug avatar (allowed during Play — it owns ending its
+      own session). Leaves the level exactly as it was.
+    op=describe: read-only — is a playtest live, which view, where the drop-in point is, and
+      whether a stray avatar is still placed.
 
-    place/yaw/facing: the add-verb placement vocabulary (where the player drops in, which
-      way they face). arm: SpringArm length in cm — the zoom-out lever ("see the feet").
+    view=third (default): over-the-shoulder SpringArm zoomed out (arm=, default 500cm) so the
+      feet-on-ground contact is in frame. view=first: eyes-level first-person camera (no boom).
+    place/yaw/facing: the add-verb placement vocabulary for the drop-in point + facing.
+    arm: SpringArm length in cm — the third-person zoom-out lever ("see the feet").
+    force: spawn/enter anyway past a soft guard (e.g. a playtest already live).
     """
-    p = {"op": op, "label": label, "place": place or {}}
+    p = {"op": op, "view": view, "place": place or {}}
     if yaw is not None: p["yaw"] = yaw
     if facing is not None: p["facing"] = facing
     if arm is not None: p["arm"] = arm
     if force: p["force"] = True
-    return render(call_ue("avatar", p, timeout=120))
+    return render(call_ue("playtest", p, timeout=120))
 ```
 
-Also update: `server/_instructions.py` (verb count 15 → 16; add `avatar` to the verb list
-and the conventions blurb) and the README verb table.
+Also update: `server/_instructions.py` (verb count 15 → 16; add `playtest` to the list, note
+it owns the drop-in-to-inspect affordance while `play` owns runtime PIE) and the README verb
+table.
 
 ### Ops
 
 | op | params | effect |
 |---|---|---|
-| `place` | `place=?`, `yaw=?`, `facing=?`, `arm=?`, `label=` | ensure PlayerStart at target (reuse `_add_player_start`), spawn grounded auto-possessed ThirdPersonCharacter instance, tune its TP SpringArm, ueb-tag + register, return playable state |
-| `remove` | `label=` | destroy the character actor + unregister; PlayerStart survives |
-| `describe` | `label=?` (omit → the level's avatar) | read-only playability census: PlayerStart xyz, avatar xyz, arm, auto-possess, source BP |
+| `enter` | `view=`, `place=?`, `yaw=?`, `facing=?`, `arm=?` | spawn grounded auto-possessed stock character at the drop-in point, activate the FP or TP camera (tune the TP boom), begin Play, return the drop-in census |
+| `exit` | — | end Play, destroy the avatar, unregister; level untouched |
+| `describe` | — | read-only: playtest live? which view? drop-in xyz? stray avatar present? |
 
-Build order: `place` + `remove` first; `describe` in the same PR if cheap.
+Build order: `enter` + `exit` first; `describe` in the same PR (cheap, and it's the "did I
+leave an avatar behind" safety read).
 
 ### Errors (each carries the next legal move — the vision law)
 
-- **No third-person character found** in the project → error naming what was searched (a
+- **No stock character found** in the project → error naming what was searched (a
   `Character`-derived BP with a SpringArm+Camera) and the two fixes: add the Engine "Third
-  Person" feature content, or point `avatar` at a known BP. This is the one failure the
-  user is most likely to hit on a fresh project.
-- unknown `facing=` spline / bad `place=` reference → same reference-lookup errors `add`
-  already raises (reuse the shared placement tail).
-- duplicate `label=` that isn't our own avatar → error (labels unique across ueb actors);
-  re-running against *our* avatar label is a legal re-tune, not a collision (mirror
-  `_add_player_start`'s relocate-or-create guard).
+  Person" feature content, or point `playtest` at a known BP. The most likely fresh-project
+  failure.
+- **A playtest is already live / an avatar is already placed** → soft guard: report it and
+  offer `playtest op=exit` (clean up) or `force=True` (re-enter). Never silently stack two.
+- bad `place=`/`facing=` reference → the same reference-lookup errors `add` already raises
+  (reuse the shared placement tail).
 
-## Runtime implementation (`runtime/ue_buttons/avatar.py`, new module)
+## Runtime implementation (`runtime/ue_buttons/playtest.py`, new module)
 
-Mirror `pcg.py`'s shape: a `handle(p)` dispatching on `p["op"]`, returning a plain dict.
-Wire into `verbs.py`:
+Mirror `pcg.py`'s shape: `handle(p)` dispatching on `p["op"]`, returning a plain dict. Wire
+into `verbs.py`:
 
-- `from . import avatar as avatarmod`; add `"avatar": _v_avatar` to `_VERBS`.
-- Add `"avatar"` to the **`SPATIAL`** set (`verbs.py:42`, currently
-  `{"terrain","spline","foliage","pcg"}`) — same lifecycle class: status block yes,
-  history/transaction handled like the others, `undoable` per the SPATIAL default, teardown
-  is its own `remove` + the `level op=clear` ueb-tag sweep. `_focus_label` already routes
-  SPATIAL via `result["label"]`, so every mutating result must carry `label`.
+- `from . import playtest as playtestmod`; add `"playtest": _v_playtest` to `_VERBS`.
+- `playtest` is **not** a persistent SPATIAL fixture, but its avatar must be sweepable.
+  Simplest: keep a light session record in `_state` (below), ueb-tag the avatar so
+  `outliner op=reconcile` and `level op=clear` already catch a leftover, and let `enter`/
+  `exit`/`describe` bypass the normal mutating-verb status block (editor reads are refused
+  during Play anyway, B8). Do **not** add `playtest` to `SPATIAL` — its lifecycle is the
+  session, not the level.
+- `exit` must be callable during Play (whitelist it alongside `play` in the B8 refusal
+  gate — it's the counterpart to `play op=stop`).
 
-### `op=place` algorithm
+### `op=enter` algorithm
 
-1. **Ensure the PlayerStart.** Call the existing `_add_player_start(p, label="player_start",
-   place, snap, yaw, facing, under_cover, tags)` path (relocate-or-create, capsule seated on
-   the traced ground, ueb-tagged — all already built for `add what=player_start`, G35).
-   Reuse it verbatim; do not re-implement grounding. The avatar and the PlayerStart share
-   the resolved spawn point.
-2. **Resolve the character class.** `source = _find_third_person_bp()` (see Character
+1. **Guard.** If `_state.playtest` shows a live session or a placed avatar and not `force`,
+   return the soft-guard error with the `exit`/`force` affordances.
+2. **Resolve the drop-in point.** `place=` if given (add placement vocabulary), else the
+   level's existing `PlayerStart` location if one exists, else a downward ground trace at
+   origin. Do **not** create or relocate a PlayerStart — the debug avatar is auto-possessed
+   and needs none; keep the level's footprint unchanged.
+3. **Resolve the character class.** `source = _find_third_person_bp()` (see Character
    source) → a `BlueprintGeneratedClass` (`load_object(None, path + "_C")`, proven). Error
    with the HATEOAS message if none.
-3. **Spawn the instance grounded at the PlayerStart point.**
+4. **Spawn the instance grounded at the drop-in point.**
    `EditorActorSubsystem.spawn_actor_from_class(cls, loc, rot)`; seat the **capsule** on the
-   traced ground exactly as `_add_player_start` does (Manny's capsule half-height ≈ 88 cm —
-   read it off the spawned `CapsuleComponent`, don't hardcode). Label it (`label`, default
-   `"avatar"`), ueb-tag via `_apply_tags` / the `_ue.UEB_TAG` append so
-   outliner/feel/reconcile see it.
-4. **Tune the third-person SpringArm** on the instance (proven settable):
-   - `arm = spring.get_editor_property("target_arm_length")`; set to `p.get("arm", 500.0)`
-     — the "zoom out to see feet" lever (stock default is 300 cm, too tight for the ask).
-   - `socket_offset` Z lift (framing bias so the character sits high enough that feet + a
-     patch of ground are in frame) — **SPIKE-CHECK 2** for the exact value; start ~+60 cm.
-   - Do **not** rely on a fixed `relative_rotation` pitch: the boom has
-     `use_pawn_control_rotation=True` (proven), so the controller's pitch drives it at
-     runtime and any spawn-time pitch is transient. Arm length + socket Z are the durable
-     levers; the human tilts down with the mouse for more.
-   - Pick the **third-person** boom/camera specifically: this character has both `Camera_FP`
-     and `SpringArm`+`Camera_TP`. Select the `SpringArmComponent` (there is one) and,
-     if the character exposes a FP/TP toggle, leave it in whatever state Play starts in and
-     just tune the TP boom (SPIKE-CHECK 3 — confirm Play opens on the TP camera; if it opens
-     first-person, the census must say so and `describe` reports the active view).
-5. **Auto-possess.** `actor.set_editor_property("auto_possess_player",
-   unreal.AutoReceiveInput.PLAYER0)` (proven settable) — pressing Play possesses *this*
-   tuned instance, so the camera we set is the camera the human gets.
-6. **Register + return** (shape below). Record the resolved PlayerStart point, the arm, the
-   source BP path.
+   traced ground the way `_add_player_start` does (Manny's capsule half-height ≈ 88 cm — read
+   it off the spawned `CapsuleComponent`, don't hardcode). Label it (`"playtest_avatar"`),
+   ueb-tag via `_apply_tags` / `_ue.UEB_TAG`.
+5. **Select the camera** (SPIKE-CHECK 3 — confirm the activate mechanism):
+   - `view="third"`: ensure `Camera_TP`/`SpringArm` is the active camera; set the SpringArm
+     `target_arm_length = p.get("arm", 500.0)` (the zoom-out lever; stock default 300 is too
+     tight for "see the feet") and a `socket_offset` Z framing lift (~+60 cm; exact value =
+     SPIKE-CHECK 2, the user's visual call). Don't rely on spawn-time boom **pitch**:
+     `use_pawn_control_rotation=True` (proven) means the controller drives pitch at runtime,
+     so pitch is transient — arm length + socket Z are the durable levers.
+   - `view="first"`: activate `Camera_FP`; no boom, no arm/feet framing.
+   - Mechanism to force one: on the instance, `chosen_cam.set_active(True)` and deactivate the
+     other `CameraComponent`; if the BP exposes a FP/TP bool it may reassert on possess, so
+     verify the possessed pawn opens on the requested camera (part of SPIKE-CHECK 1's PIE
+     read) and, if the BP wins, set that bool via `set_editor_property` on the instance.
+6. **Auto-possess + begin Play in the same dispatch.**
+   `actor.set_editor_property("auto_possess_player", unreal.AutoReceiveInput.PLAYER0)`
+   (proven), then `LevelEditorSubsystem.editor_request_begin_play()` (proven to work in the
+   same dispatch as the spawn). The user is now in the level.
+7. **Record + return** the drop-in census (built from the pre-play reads):
+
+```python
+{"playtest": "live", "view": "third", "avatar": "playtest_avatar",
+ "source": "GV_FreeShrubsPack/.../ThirdPersonCharacter",
+ "drop_in": [x, y, z], "arm": 500.0, "auto_possess": "Player0",
+ "next": ["playtest op=exit  (stop + remove the avatar)",
+          "playtest op=enter view=third arm=<cm>  (re-drop, re-tune the zoom)"]}
+```
+
+### `op=exit`
+
+`editor_request_end_play()`, then `destroy_actor` the recorded avatar (and belt-and-braces:
+sweep any ueb-tagged `Character` labelled `playtest_avatar`), clear `_state.playtest`. Return
+`{"playtest": "ended", "removed": True}`. If no session was live, say so — don't error.
 
 **No GameMode override in the primary path.** A placed pawn with `AutoPossessPlayer=Player0`
 possesses itself on Play; the default GameMode's `RestartPlayer` skips spawning a pawn when
-the controller already has one — so there should be no stray pawn. **SPIKE-CHECK 1** gates
-this: verify on Play that `GetPlayerController(0).GetControlledPawn()` **is our instance**,
-pawn count is 1, and movement input is live. If a stray default pawn appears OR input is
-dead, the fallback is to set `WorldSettings.default_game_mode` (proven settable) to the
-discovered `ThirdPersonGameMode` and drop the placed instance — but that reintroduces the
-untunable-camera problem, so treat it as a last resort and log a gap. Verifying SPIKE-CHECK 1
-is TWO-CALL: `get_game_world()` returns `None` inside the dispatch that starts Play (the PIE
-world isn't live until the editor ticks — the same async gap `play op=census` is built
-around). Reuse `play`'s two-call PIE-world introspection to read the possessed pawn.
+the controller already has one — so no stray pawn. **SPIKE-CHECK 1** gates this: on Play,
+verify `GetPlayerController(0).GetControlledPawn()` **is our instance**, pawn count is 1,
+input is live, and the active camera matches `view=`. If a stray pawn appears or input is
+dead, the fallback is `WorldSettings.default_game_mode = <discovered ThirdPersonGameMode>`
+(proven settable) — but that reintroduces the untunable camera, so it's a last resort; log a
+gap. Reading the possessed pawn is **TWO-CALL**: `get_game_world()` returns `None` in the
+dispatch that starts Play (the PIE world needs an editor tick — the same async gap
+[[spec10-pcg-status]]'s `play op=census` is built around). Reuse `play`'s two-call PIE-world
+introspection.
 
 ### Character source (`_find_third_person_bp`)
 
-Discover, don't hard-code a marketplace path. Search the Asset Registry for a `Blueprint`
+Discover, don't hard-code the marketplace path. Search the Asset Registry for a `Blueprint`
 whose generated class derives from `unreal.Character` **and** whose instance carries a
-`SpringArmComponent` + `CameraComponent`. Order of preference:
+`SpringArmComponent` + `CameraComponent`. Preference order:
 1. a canonical template path if present (`/Game/ThirdPerson/Blueprints/BP_ThirdPersonCharacter`);
-2. the known pack character `/Game/GV_FreeShrubsPack/Demo/ThirdPersonCharacter` (current
-   only source — proven present);
-3. any other match, first by name containing "ThirdPerson"/"Character".
-Cache the resolved path in the registry so repeat `place` calls skip the scan. If nothing
-matches → the HATEOAS "no character found" error. (Adopting the pack character couples us to
-that pack; a full de-fragilize would copy the whole Mannequin tree into `/Game/UEB_Play/`,
-which is heavy and out of scope for v1 — discovery + a clear error is the pragmatic floor.
-Log the coupling as an open item.)
+2. the known pack character `/Game/GV_FreeShrubsPack/Demo/ThirdPersonCharacter` (current only
+   source — proven present);
+3. any other match (name containing "ThirdPerson"/"Character").
+Cache the resolved path so repeat `enter` calls skip the scan. None → the HATEOAS error.
+(Adopting the pack character couples us to that pack; a full de-fragilize would copy the whole
+Mannequin tree into `/Game/UEB_Play/`, heavy and out of scope for v1 — discovery + a clear
+error is the pragmatic floor. Log the coupling as an open item.)
 
-### State registry (`_state.py`)
-
-```python
-avatars = {}   # {label: {source_bp, arm, player_start, actor_name, spawn_xyz}}
-```
-
-`_state` is never hot-reloaded — guard every access with
-`hasattr(_state, "avatars")`-init, same pattern as `pcg_volumes`. Extend
-`outliner op=reconcile` to prune `avatars` entries whose actor is gone, and confirm
-`level op=clear` destroys the avatar via the ueb-tag sweep (a plain Character actor dies on
-`destroy_actor` — no special pre-pass, unlike PCG's ISM volume).
-
-### Result dicts
-
-`place` (the SPATIAL status block renders around this; `notes` → ⚠ lines):
+### Session state (`_state.py`)
 
 ```python
-{"label": "avatar", "source": "GV_FreeShrubsPack/.../ThirdPersonCharacter",
- "player_start": [x, y, z], "spawn": [x, y, z], "arm": 500.0,
- "auto_possess": "Player0", "camera": "third_person",
- "next": ["play op=start", "avatar op=place label=avatar arm=<cm>  (re-tune the zoom)",
-          "avatar op=remove label=avatar"]}
+playtest = None   # or {"avatar": label, "view", "drop_in", "arm", "source", "playing": bool}
 ```
 
-`remove`: `{"label": ..., "removed": True}` (PlayerStart untouched).
-`describe`: the same playability census, read live.
+`_state` is never hot-reloaded — guard every access with `hasattr`/`getattr(_state,
+"playtest", None)`, same pattern as `_state.follow`. `outliner op=reconcile` and `level
+op=clear` already sweep the ueb-tagged avatar; also clear `_state.playtest` when the avatar
+is gone so `describe` never claims a phantom session.
 
 ## Invariants
 
-1. **Tune the instance, never the Blueprint** — BP internals are not Python-writable
-   (proven); the camera lives on the spawned actor's components.
+1. **Tune the instance, never the Blueprint** — BP internals aren't Python-writable (proven);
+   the camera lives on the spawned actor's components.
 2. **Auto-possess the placed pawn** — it's what makes Play use our tuned camera and what
    suppresses the GameMode's stray pawn (SPIKE-CHECK 1).
-3. **Seat the capsule on the ground**, not the AABB — the character's sprite/arrow/mesh
-   bounds float the capsule if you seat the full AABB (the exact bug `_add_player_start`
-   already fixes for the PlayerStart, G55). Reuse that reseat.
-4. **Arm length is the zoom lever; socket Z is the framing bias.** Not spawn-pitch (transient
-   under `use_pawn_control_rotation`).
-5. **Every mutating result carries `label`** (SPATIAL status block depends on it).
-6. **`remove` leaves the PlayerStart** — it's a level marker with its own lifecycle.
+3. **Seat the capsule on the ground**, not the AABB — the sprite/arrow/mesh bounds float the
+   capsule otherwise (the exact bug `_add_player_start` fixes, G55). Reuse that reseat.
+4. **Arm length is the third-person zoom lever; socket Z is the framing bias** — not
+   spawn-pitch (transient under `use_pawn_control_rotation`). First-person ignores both.
+5. **The avatar is transient** — `exit` removes it; a saved level must never carry a
+   `playtest_avatar` (describe/status warn if one lingers).
+6. **`exit` works during Play** — it's the counterpart to `play op=stop`.
 
 ## Verification plan (live, over the MCP tools, before commit)
 
-1. `avatar op=place` on a fresh generated scene (e.g. a `pcg` forest): returns playable,
-   PlayerStart + avatar co-located, avatar ueb-tagged and visible to `outliner`/`feel`,
-   arm reported.
-2. `play op=start` → **SPIKE-CHECK 1**: exactly one pawn, it is possessed by Player0, it is
-   our instance, WASD moves it (the human confirms movement; the census confirms the single
-   possessed pawn). `play op=stop`.
-3. **The user's visual acceptance** (the no-vision policy hands this to the human): press
-   Play, confirm the over-the-shoulder camera shows the mannequin's feet on the ground.
-   `avatar op=place arm=<cm>` re-tunes until the framing is right; record the chosen arm +
-   socket Z as the new default in this spec (**SPIKE-CHECK 2**).
-4. `avatar op=describe`: playability census matches the live actors.
-5. `avatar op=remove`: character gone, registry pruned, PlayerStart still present; re-place
-   with the same label works.
-6. `outliner op=reconcile` after a human-deletes-the-avatar simulation prunes the entry;
-   `level op=clear` removes the avatar with the rest of the ueb arrangement.
-7. Failures found on the way become numbered gaps in `gaps.md` (fix → live-verify → prune),
-   per house discipline.
+1. `playtest op=enter view=third` on a fresh generated scene (e.g. a `pcg` forest): returns
+   `playtest: live`, drop-in point sane, avatar ueb-tagged.
+2. **SPIKE-CHECK 1** (two-call PIE read): exactly one pawn, possessed by Player0, it is our
+   instance, it opens on the TP camera, WASD moves it (the human confirms movement).
+3. **The user's visual acceptance** (no-vision policy hands this to the human): in the live
+   playtest, confirm the over-the-shoulder camera shows the mannequin's feet on the ground.
+   Re-`enter` with `arm=<cm>` until right; record the chosen arm + socket Z as the defaults
+   in this spec (**SPIKE-CHECK 2**).
+4. `playtest op=enter view=first`: first-person head camera active, no boom (SPIKE-CHECK 3 —
+   the camera-select mechanism holds through possess).
+5. `playtest op=exit`: Play ends, avatar gone, `_state.playtest` cleared; the level has no
+   leftover character. Re-enter works.
+6. `describe`: reports live/idle correctly; warns if an avatar lingers (simulate by killing
+   Play out-of-band and confirming reconcile + describe agree).
+7. `outliner op=reconcile` / `level op=clear` sweep a leftover avatar and clear the session.
+8. Failures found on the way become numbered gaps in `gaps.md` (fix → live-verify → prune).
 
-## For the user (one taste call + one open risk)
+## Open items
 
-- **Verb name.** This spec recommends a dedicated `avatar` verb (own lifecycle, matches
-  "plop down the avatar"). The alternative is `add what=avatar` (parallels the existing
-  `add what=player_start`, but strains `add`'s one-actor contract). Verb-surface is a taste
-  call the user owns (as `pcg`'s naming was) — say the word to switch.
-- **"Stock UE5 character" reality.** This project's only third-person character is the
-  mannequin bundled inside the `GV_FreeShrubsPack` demo folder; there is no Epic Third
-  Person template installed. The verb adopts and discovers it. If you'd rather have the
-  canonical Epic mannequin, add the Engine "Third Person" feature content and `avatar` will
-  prefer it automatically.
+- **Full character-source de-fragilize** (copy the Mannequin tree into `/Game/UEB_Play/`) —
+  deferred; discovery + clear error is the v1 floor.
+- **"Stock UE5 character" reality**: this project's only third-person character is the
+  mannequin bundled in `GV_FreeShrubsPack/Demo/`; no Epic Third Person template is installed.
+  The verb adopts and discovers it. Adding the Engine "Third Person" feature content makes
+  `playtest` prefer the canonical mannequin automatically.
 
 ## Ground truth — spike traces (2026-07-05, all over the RC bridge)
 
@@ -273,25 +278,25 @@ Level at probe time: `UEB_PCGMeadow` then `UEB_PCGForest` (a parallel session sw
 
 1. **Character hunt.** No `/Game/ThirdPerson/...` and no `/Engine` third-person character
    (`does_asset_exist` false; engine search empty). Found a full kit under
-   `/Game/GV_FreeShrubsPack/Demo/`: `ThirdPersonCharacter` (Blueprint),
-   `ThirdPersonGameMode` (Blueprint), `SKM_Manny`, `ABP_Manny`, `SK_Mannequin`,
-   `CR_Mannequin_*` control rigs, Manny materials/poses/textures.
-2. **GameMode override is live.** `WorldSettings.default_game_mode` reads (`None`) and is a
-   settable editor property; `ThirdPersonGameMode_C` loads and its `default_pawn_class` **is**
+   `/Game/GV_FreeShrubsPack/Demo/`: `ThirdPersonCharacter` (Blueprint), `ThirdPersonGameMode`
+   (Blueprint), `SKM_Manny`, `ABP_Manny`, `SK_Mannequin`, `CR_Mannequin_*` control rigs.
+2. **GameMode override is live** (fallback path only). `WorldSettings.default_game_mode` reads
+   (`None`) and is settable; `ThirdPersonGameMode_C` loads, its `default_pawn_class` **is**
    `ThirdPersonCharacter_C`.
-3. **BP internals are opaque to Python.** `Blueprint.get_editor_property("parent_class")`
-   and `("simple_construction_script")` both raise "Failed to find property" — the camera
-   boom cannot be edited through the asset. (Decisive: forces the instance path.)
-4. **Instance components (spawned `ThirdPersonCharacter_C`):** `CollisionCylinder`
-   (Capsule), `Arrow`, `CharacterMesh0` (SkeletalMesh), `Camera_FP` (CineCamera),
-   `SpringArm` (SpringArmComponent), `Camera_TP` (CameraComponent), plus a SpotLight and
-   camera proxy/frustum helpers. SpringArm defaults: `target_arm_length=300`,
-   `socket_offset=(0,0,0)`, `relative_rotation=(0,0,0)`, `use_pawn_control_rotation=True`.
-5. **Instance is tunable.** Set `target_arm_length` 300 → 650 (read back 650);
-   `relative_rotation` set; `auto_possess_player = AutoReceiveInput.PLAYER0` set and read
-   back (`AutoReceiveInput.PLAYER0`). `spawn_actor_from_class` / `destroy_actor` /
-   `editor_request_begin_play` / `editor_request_end_play` all work.
+3. **BP internals are opaque to Python.** `Blueprint.get_editor_property("parent_class")` and
+   `("simple_construction_script")` both raise "Failed to find property" — the camera boom
+   can't be edited through the asset. (Decisive: forces the instance path.)
+4. **Instance components (spawned `ThirdPersonCharacter_C`):** `CollisionCylinder` (Capsule),
+   `Arrow`, `CharacterMesh0` (SkeletalMesh), **`Camera_FP` (CineCamera)**, `SpringArm`
+   (SpringArmComponent), **`Camera_TP` (CameraComponent)**, plus a SpotLight and camera
+   proxy/frustum helpers. So BOTH first- and third-person cameras exist on one character.
+   SpringArm defaults: `target_arm_length=300`, `socket_offset=(0,0,0)`,
+   `relative_rotation=(0,0,0)`, `use_pawn_control_rotation=True`.
+5. **Instance is tunable.** `target_arm_length` 300 → 650 (read back 650); `relative_rotation`
+   set; `auto_possess_player = AutoReceiveInput.PLAYER0` set + read back.
+   `spawn_actor_from_class` / `destroy_actor` / `editor_request_begin_play` /
+   `editor_request_end_play` all work; spawn-then-begin_play in one dispatch works.
 6. **PIE-world async gap** (confirms SPIKE-CHECK 1 is two-call): `get_game_world()` returns
-   `None` in the same dispatch that starts Play — the PIE world needs an editor tick, the
-   same reason `play op=census` is two-call. All spike actors were destroyed and Play ended;
-   no test state saved to the user's level.
+   `None` in the same dispatch that starts Play — the PIE world needs an editor tick, same
+   reason `play op=census` is two-call. All spike actors were destroyed and Play ended; no
+   test state saved to the user's level.
