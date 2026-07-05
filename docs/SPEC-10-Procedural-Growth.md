@@ -25,6 +25,13 @@ the next call with the same label COLLECTS the settled census and applies the WP
 the G30 fire/collect job pattern, mirroring `play op=census`. `regenerate` is the same
 two-call shape. This is the [[G30]] async-job pattern's first built instance.
 
+The collect gates on the component's own `PCGComponent.generated` flag (False while the
+graph is still running, True only when it finished — probed live), NOT on a count-stability
+poll: a blocking dispatch holds the game thread so counts can't advance mid-call, and a
+naive "stable across two reads" loop would finalize whatever partial total it caught. If
+`generated` is still False, collect keeps the grove pending and returns the "call again"
+stub — it never records a partial census or re-fires the graph.
+
 SPIKE-CHECK outcomes: `PCGComponent.seed` IS a settable editor property (per-grove reroll,
 shared graph untouched — verified: seed 7 → 31227, seed 99 → 31183). Generated ISM
 components live ON the volume actor, so `destroy_actor` (cleanup + `level op=clear`'s
