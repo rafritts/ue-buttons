@@ -1,4 +1,7 @@
-# SPEC-10 — Procedural Growth: wrapping PCG as an intent verb
+# SPEC-10 — pcg: wrapping UE's PCG framework as an intent verb
+
+(Filename keeps the original "Procedural-Growth" slug; the verb and scope are `pcg`,
+generic placement — see Scope.)
 
 Status: **DESIGN** (2026-07-05). Grounded by two live spikes — every capability claim
 below was exercised over the RC bridge, and the numbers are real (spike traces at the
@@ -104,6 +107,46 @@ mesh (e.g. `SM_FlowerTree_*`) rigid-floats when instanced (G40), so the grow mus
 for the fantasy plot, the same cure as G58. `wpo` (plain wind, e.g. the pines/shrubs) is left
 to sway.
 
+## Scope — PCG is generic placement, not a foliage feature
+
+A huge share of world content will flow through this verb, so the spec must not bake in
+its first use case. PCG is a **point-dataflow placement/assembly system**: sample points
+(from a surface, spline, texture, volume, or other actors) → filter/transform (slope,
+noise, density, distance-to, self-prune) → spawn assets at the survivors — mesh
+instances, **actors, Blueprints, spline meshes**. The verb wraps *that*; vegetation is
+the first palette class, not the boundary. What the same surface covers:
+
+- **Forests / scatter** — stock graphs, spike-proven.
+- **Dressing** — debris in a canyon, props in a cabin, stalagmites in a carved cave: the
+  same sample→spawn shape with a different palette (the surface sampler reads any
+  collision, including cave interiors).
+- **Kit assembly (cities, ruins, fences)** — PCG assembles modular kits along grids and
+  splines (Epic's Electric Dreams pattern). Needs an authored graph + a modular asset
+  kit; **no stock city graph ships** — see "the graph is the ceiling."
+- **Rock formations / spires** — as placed+scaled+stacked rock meshes, trivially (a
+  palette with large scale ranges).
+- **What `pcg` is NOT: a sculptor.** Carving caves, raising cliffs, novel geometry —
+  geometry-script territory, owned by `terrain`. Road/river *networks* are authored by
+  `spline`; `pcg` *consumes* splines as inputs (spawn-along-spline, clear-near-spline via
+  difference nodes). Division of labor: **terrain carves, spline routes, pcg populates.**
+
+**The graph is the ceiling.** Our proven authoring surface is duplicate-a-stock-graph +
+tune node values (densities, mesh entries, prune spacing). Stock templates cover
+vegetation/grass/rocks; there is nothing city-shaped to duplicate. OPEN SPIKE: can
+editor Python author a graph **from scratch** (add nodes, wire edges)? If yes, the agent
+can grow arbitrary generators in code; if no, new palette classes come from duplicating
+the nearest stock/marketplace graph. Either way the verb shape below is unchanged — only
+the palette registry grows.
+
+**Graphs are visible, ordinary assets.** Palette entries live at `/Game/UEB_PCG/<name>`
+as normal PCG graph assets — the user can double-click one in the Content Browser and
+UE's node editor opens it like any hand-made graph. Code-authored means *we* never open
+that editor, not that the artifacts are hidden.
+
+**Backend.** Nothing PCG-specific in the transport and no UE-side MCP exists: the same
+RC bridge → editor Python → `PCGComponent` API (`set_graph` / `generate` / `cleanup`)
+that every other verb rides.
+
 ## Verb shape — DECIDED: mint `pcg`
 
 Decided (2026-07-05, revising the same-day `foliage op=grow` call): **`pcg` is its own
@@ -136,10 +179,10 @@ across verbs" lost to "a standalone UE system gets an unambiguous verb of its ow
 
 ## Perception — census, numbers only
 
-Policy holds: no screenshot, the agent perceives the result as numbers. After a grow, walk
-the volume's managed ISM components and count per `static_mesh` — proven in the spike (5
-components, exact per-species counts). The verb returns a **per-species census** and the
-volume's world-AABB coverage:
+Policy holds: no screenshot, the agent perceives the result as numbers. After a generate,
+walk the volume's managed ISM components and count per `static_mesh` — proven in the spike
+(5 components, exact per-mesh counts). The verb returns a **per-mesh census** (per-species,
+when the palette is a forest) and the volume's world-AABB coverage:
 
 ```
 grew grove_north (graph=mixed_sparse, on=terrain):
