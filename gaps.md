@@ -110,10 +110,18 @@ Status: OPEN (found 2026-07-04, plain-forest dogfood — the user's #2 complaint
 ground mesh renders opaque only where the alpha mask passes — everywhere else is a hole you
 see straight through to the void, which reads exactly as "the ground is clipping through the
 floor." `MI_UEB_Grass` is a trap precisely because it's the material named "Grass" an agent
-reaches for as a forest floor. Fix: `terrain op=create/shape` should vet the material's blend
-mode and WARN/refuse when it's masked or translucent — a ground surface wants BLEND_OPAQUE.
-Known-good opaque ground found this session: `/Game/Modular_Rural_Cabin/Materials/Instances/Diorama_Ground`
-(MM_Vertex_Color_Blend, opaque).
+reaches for as a forest floor.
+
+SECOND trap, same gap (found next pass): the "obvious" opaque replacement `Diorama_Ground`
+(MM_Vertex_Color_Blend) is opaque but carries a WATER feature (`Water Darkness` scalar +
+low-roughness wet layer); on the terrain with uniform vertex color it rendered the WHOLE
+floor as a reflective flat sheen — the user read it as "the forest floor is underwater." So
+BLEND_OPAQUE is necessary but not sufficient. Fix: `terrain op=create/shape` should vet the
+material and warn on (i) non-opaque blend AND (ii) very-low-roughness / water-ish surfaces
+that read as wet — a matte ground wants high roughness. Actually-good floor built this
+session: `/Game/UEB_Materials/MI_UEB_ForestFloor` (MM_Vertex_Color_Blend, `Water Darkness`=0,
+Rougness 1/2/3 ≈0.9–0.95, tiling `Grass_/Ground_Dirt_/Rocky_Ground_` basecolor+DET textures
+from Modular_Rural_Cabin/Textures/Tiling). High roughness is the real cure for the sheen.
 
 ### G58 — no verb-surface way to neutralise an instanced-foliage WPO offender; the fix needs a master-graph edit via raw probe.sh Python
 Status: OPEN (found 2026-07-04, plain-forest dogfood; the pines' motion is now correctly
@@ -130,19 +138,31 @@ scalar — so no MaterialInstance parameter can disable it, and a MIC override c
 (same master). (My first attempt zeroed the BRANCH wind, which was the wrong target: it
 killed the good leaf sway and left the trunk float untouched.)
 
-Correct fix applied via `scripts/probe.sh py`: override MM_Tree_Trunk's World Position
-Offset output with a Constant3Vector(0,0,0) (`MaterialEditingLibrary.create_material_expression`
-+ `connect_material_property(..., MP_WORLD_POSITION_OFFSET)` + `recompile_material`), and
-restore the branch wind (0.02 / 0.2). Result: trunk static, needles sway per-instance, R1
-clears (`validate scope=pines` clean), motion verdict drops pivot_wpo→wpo(constant). Trunks
-realistically shouldn't translate, so a permanently-static trunk is correct authoring, not a
-loss. But this is a master-graph edit off the verb surface, mutating a shared marketplace
-master. Fix directions for the surface: (a) `foliage op=paint rules.wind:"off"` that mints a
-per-stand FoliageType whose slot materials are WPO-neutered variants (duplicate the offending
-master, override its WPO output with 0, assign via FoliageType `override_materials`) — keeps
-originals untouched and stays on the verb surface; and/or (b) have R1's `next` name WHICH
-slot/master carries the pivot_wpo (bark vs branches), since the fix targets one slot, not the
-mesh.
+ATTEMPT 1 (did NOT work at render time): overrode MM_Tree_Trunk's WorldPositionOffset output
+with a Constant3Vector(0,0,0) via `MaterialEditingLibrary.create_material_expression` +
+`connect_material_property(..., MP_WORLD_POSITION_OFFSET)` + `recompile_material` + save, and
+restored branch wind. `validate scope=pines` went clean and the motion verdict dropped
+pivot_wpo→wpo(constant) — but the USER STILL SAW MASSIVE FLOAT. Lesson: a master-graph WPO
+override (even with use_material_attributes=False) did not propagate to the already-placed
+instanced-foliage components' rendered shader — the static analyzer was satisfied while the
+runtime kept the old motion. Do not trust a master WPO edit to fix placed foliage; and note
+the analyzer now UNDER-reports (says constant) while the render still moved.
+
+ATTEMPT 2 (reliable, applied): set `world_position_offset_disable_distance = 1` on every pine
+foliage component (40 HISM comps across 8 IFAs) AND persisted it on the 5 `FT_pines__*`
+FoliageType assets. Semantics: WPO is disabled for instances beyond 1 cm from camera ⇒
+effectively always disabled ⇒ trees render planted, no float. This is the deterministic kill.
+Downside: it disables ALL WPO on the component, so the (safe) branch masked-wind sway dies too
+— the pines are now fully STATIC. Acceptable (no-float was the priority) but sway is lost.
+
+Two sub-gaps this exposed:
+  • The verb surface has no way to set `world_position_offset_disable_distance` — the reliable
+    knob — so this needed raw probe.sh Python. Real fix: `foliage op=paint rules.wind:"off"`
+    should set it on the minted FoliageType (and repaint applies it to components). That's the
+    clean, deterministic on-surface fix — simpler than minting WPO-neutered material variants.
+  • The motion census reads the MATERIAL GRAPH, not the component's disable_distance, so after
+    the WPO kill it still false-positives "886 instances MOVE (unmasked WPO)". The census
+    should factor in `world_position_offset_disable_distance` before claiming a stand moves.
 
 ### G59 — foliage op=remove leaves an empty FoliageType registration that reconcile keeps reporting as untracked
 Status: OPEN (minor; found 2026-07-04, plain-forest dogfood)
