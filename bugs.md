@@ -15,4 +15,13 @@ Format: `### B<n> — <title>` · status · repro · root cause · fix · verifi
 
 ---
 
-(no open bugs)
+### B14 — pcg op=describe "label omitted → every grove" is unreachable through the MCP tool
+Status: OPEN (found 2026-07-05, second pcg dogfood — UEB_PCGMeadow, first drive through
+the real MCP tool)
+
+Repro: `pcg op=describe` (no label) → `⚠ no pcg grove labelled 'pcg'` while grove 'wood'
+exists. Root cause: the tool signature's `label: str = "pcg"` default is ALWAYS projected
+into params, so the runtime (whose `_describe` correctly treats a missing label as
+"every grove", pcg.py:430) never sees an omitted label. Fix: `label=None` in the tool
+signature, project only when given — the runtime already owns the per-op "pcg" default
+for generate/regenerate/cleanup (pcg.py:313/379/406).
