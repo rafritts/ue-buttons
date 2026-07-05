@@ -1,9 +1,40 @@
 # SPEC-10 — `pcg`: wrap UE's PCG framework as an intent verb
 
-Status: **DESIGN, build-ready** (2026-07-05). Audience: the agent implementing the verb.
-Every engine claim below is spike-proven over the RC bridge (traces at bottom) unless
-marked **SPIKE-CHECK** — those you verify live before relying on them. Filename keeps the
-original "Procedural-Growth" slug; the verb is `pcg`.
+Status: **IMPLEMENTED + live-verified** (2026-07-05). Audience: the agent implementing the
+verb. Every engine claim below is spike-proven over the RC bridge (traces at bottom)
+unless marked **SPIKE-CHECK** — those you verify live before relying on them. Filename
+keeps the original "Procedural-Growth" slug; the verb is `pcg`.
+
+## BUILD OUTCOME (2026-07-05)
+
+Shipped: `pcg` verb (generate/regenerate/cleanup/describe/palette), runtime `pcg.py`,
+wired into `verbs.py` (SPATIAL), reconcile/roster/outliner/`level op=clear`, sense-3
+`render.grove_line`, the MCP tool, README + instructions. One curated palette entry
+`mixed_sparse` (SimpleForest, density cut 8× → ~31k over a 252 m surface). Live-verified
+end-to-end: palette + unknown-graph HATEOAS error, generate→census (per-mesh counts +
+motion), seed reroll (arrangement changes, shared asset untouched), cleanup (volume +
+instances gone), reconcile clean + orphan-GC, status block render line + grove roster.
+
+**The one design change from this spec — generate is TWO-CALL, not a single-call poll.**
+The spec assumed step 6's "poll until stable" runs inside one dispatch. It CANNOT: PCG
+generation is asynchronous (it advances on the editor's tick), and a blocking Python
+dispatch holds the game thread so the editor never ticks mid-call — an in-call poll sees
+zero forever. There is no `PCGSubsystem`, no synchronous flush, no way to pump the tick
+from Python (probed live). So generate FIRES the graph and returns `{"pcg":"generating"}`;
+the next call with the same label COLLECTS the settled census and applies the WPO cure —
+the G30 fire/collect job pattern, mirroring `play op=census`. `regenerate` is the same
+two-call shape. This is the [[G30]] async-job pattern's first built instance.
+
+SPIKE-CHECK outcomes: `PCGComponent.seed` IS a settable editor property (per-grove reroll,
+shared graph untouched — verified: seed 7 → 31227, seed 99 → 31183). Generated ISM
+components live ON the volume actor, so `destroy_actor` (cleanup + `level op=clear`'s
+ueb-tag sweep) removes the instances with it — no pcg-aware pre-pass needed. Mesh vetting
+(size/bare-render gate) is deferred to the palette-authoring path (the mesh-SWAP helper) —
+the one shipped entry uses proven stock meshes; the motion half of vetting (pivot_wpo →
+WPO-disable) IS built and runs on the census. Level save/reopen residency left to the
+spike's proof (not re-run to avoid writing test state into the user's project).
+
+---
 
 ## Decisions already made (do not relitigate)
 

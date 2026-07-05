@@ -327,6 +327,28 @@ def population_line(label):
     return "⚠ render: " + f"population '{label}' — {st['verdict']}"
 
 
+def grove_line(label):
+    """The Sense-3 line for a pcg grove (SPEC-10): the volume's live instance total, by
+    exception — the same motivating case as foliage (a grove correct in the registry that
+    draws nothing). A generated PCGVolume's ISM components are registered by the engine's
+    own generate path, so the catchable failure here is 0 instances."""
+    if not RENDER_FLOOR:
+        return "render: OFF — floor is down"
+    from . import pcg as pcgmod
+    vol = _ue.find_by_label(label)
+    if vol is None:
+        return f"⚠ render: grove '{label}' — no volume actor (WILL NOT DRAW)"
+    meta = getattr(_state, "pcg_volumes", {}).get(label)
+    if meta and meta.get("pending"):
+        return (f"render: grove '{label}' generating (async) — instances land on the "
+                f"editor's next tick; pcg op=generate label={label} again to collect")
+    total = pcgmod._instance_total(vol)
+    if total > 0:
+        return f"render: DRAWS — grove '{label}' {total} instances"
+    return (f"⚠ render: grove '{label}' — 0 instances (WILL NOT DRAW) → "
+            f"pcg op=regenerate label={label}")
+
+
 # ── link 1: streaming / residency (SPEC-03 §"scene gains streaming/residency") ──────
 # The collection-scoped blindness the surface most lacks: a build correct by every per-actor
 # metric that renders as nothing because its population lives in an unloaded data layer or an

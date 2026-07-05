@@ -23,6 +23,15 @@ can't chunk (the next dispatch would stall behind it on the game thread anyway);
 the async job + progress pattern when a new concrete offender appears to shape it,
 not speculatively.)
 
+First built instance of the pattern (SPEC-10, 2026-07-05): `pcg op=generate` is
+two-call fire/collect. PCG generation is ASYNCHRONOUS — the graph advances only on the
+editor's tick, which a single blocking dispatch can't force (Python holds the game
+thread), so an in-call poll can never observe completion. So generate FIRES the graph and
+returns `{"pcg":"generating"}`; the next call with the same label COLLECTS the settled
+per-mesh census and applies the WPO cure (mirrors `play op=census`'s two-step). This is
+the async-job shape for a verb whose slow work is off-thread; the still-open wedge below
+is the different case — a single ATOMIC game-thread load that no fire/poll split can chunk.
+
 B6's fixes hold: `terrain op=carve` batches its flatten features into ONE mesh rebuild (38-disc
 carve round-trips in <0.5 s, was ~30 s dark), and `asset inventory measure=True` bounds each
 batch by wall-clock (`seconds=`, default 20 s) as well as count. But the wall-clock check

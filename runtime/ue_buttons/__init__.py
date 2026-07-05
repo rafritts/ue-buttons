@@ -34,6 +34,7 @@ from . import terrain
 from . import map_ref
 from . import spline
 from . import foliage
+from . import pcg
 from . import render
 from . import validate
 from . import level
@@ -44,7 +45,7 @@ from . import verbs
 # render before validate/verbs — both consume its source-filter predicate (SPEC-03).
 # rules before asset/foliage — the SPEC-07 engine feeds the classifier and the gates.
 _RELOADABLE = [_ue, relational, rules, asset, material, heightfield, terrain, map_ref,
-               spline, foliage, render, validate, level, deixis, verbs]
+               spline, foliage, pcg, render, validate, level, deixis, verbs]
 
 SENTINEL = "UEB>>>"
 

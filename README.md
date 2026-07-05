@@ -140,6 +140,11 @@ foliage.py     instanced-foliage populations — paint/describe/reseed/remove; s
                jittered-grid sampling, per-point ground trace + slope, auto-clears splines
                & buildings. Instances go through the editor foliage subsystem so they
                render (G14: a hand-built HISM has no render proxy from script).
+pcg.py         UE's PCG framework as a verb (SPEC-10) — generate/regenerate/cleanup/
+               describe/palette; a ueb-tagged PCGVolume carries a code-authored palette
+               graph (duplicate stock + tune density in Python, saved under /Game/UEB_PCG);
+               drives the PCGComponent directly (no PCGSubsystem in 5.8); per-mesh census
+               + G58 WPO-disable on pivot_wpo meshes.
 material.py    MaterialInstanceConstant authoring — op=instance, read-back verified.
 ```
 
@@ -167,6 +172,7 @@ roster — 14 verbs, `op=` the one discriminator everywhere:
 | `add` `select` `transform` `asset` `history` | Place Actors / selection / gizmos / Content Browser / Undo History | `transform op=move` (was nudge) · `select op=user` (deixis, SPEC-06) |
 | `material` | Material Instance editor | `op=instance` (from asset) |
 | `foliage` | Foliage mode (was `scatter`) | `op=paint/describe/reseed/remove` |
+| `pcg` | PCG framework (SPEC-10) | `op=generate/regenerate/cleanup/describe/palette` — code-authored palette graphs |
 | `terrain` | MACRO ≈ Landscape (was `landscape`) | + `op=carve along=<spline>` (from path) |
 | `spline` | SplineComponent (was `path`) | curve + surface strip; carve moved out |
 | `outliner` `level` `play` | the three surfaces `scene` conflated | census/reconcile · streaming + lifecycle `save/new/open/clear` (SPEC-04) · census/start/stop |
