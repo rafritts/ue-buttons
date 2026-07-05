@@ -128,6 +128,17 @@ def _collect(p, les):
 
 
 # ── static pre-scan: compile-broken authored Blueprints ───────────────────────────────
+def _pkg_has_file(pn):
+    """True iff the package's .uasset actually exists on disk. A file-less asset is a
+    session phantom (deleted on disk but still loaded/registered in memory) — it can never
+    be a persistent play-blocking Blueprint, so the pre-scan must skip it or it reports a
+    zombie that a restart would clear."""
+    if not pn.startswith("/Game/"):
+        return True   # engine/plugin content — assume real; not our authored scope anyway
+    content = unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_content_dir())
+    return os.path.exists(os.path.join(content, pn[len("/Game/"):] + ".uasset"))
+
+
 def _authored_blueprint_pkgs():
     ar = unreal.AssetRegistryHelpers.get_asset_registry()
     out = []
@@ -136,7 +147,7 @@ def _authored_blueprint_pkgs():
         pn = str(a.package_name)
         parts = pn.split("/")
         if len(parts) > 2 and any(parts[2].startswith(r) or parts[2] == r
-                                  for r in _AUTHORED_ROOTS):
+                                  for r in _AUTHORED_ROOTS) and _pkg_has_file(pn):
             out.append(pn)
     return out
 

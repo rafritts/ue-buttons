@@ -1,15 +1,17 @@
 # SPEC-09 — Runtime lint: PIE-based checks
 
-Status: **IN BUILD — gate lifted 2026-07-05; `logs` + `budget` implemented, `traverse` next.**
+Status: **`logs` + `budget` IMPLEMENTED + live-verified end-to-end 2026-07-05; `traverse` next.**
 SPEC-08 landed and was dogfooded across four levels (L1/L2/Forest/PCG), so the gate condition
 is met. `play op=lint` is live in `runtime/ue_buttons/lint.py` (two-call: static pre-scan +
-Play, then read + end Play). The static compile-error pre-scan is LIVE-VERIFIED (it caught a
-real compile-broken Blueprint and refused Play, proving the modal-deadlock guard); the frame
-sampler, log-cursor, budget math and log-tail classification are each verified (live spike +
-offline unit tests). The full in-PIE collect round-trip awaits a clean editor (a throwaway
-compile-broken BP's session phantom was aborting PIE entry during the build). The original
-design (2026-07-03) is preserved under `## The checks`; the buildable contract — reshaped by
-two live spikes on 2026-07-05 — is in `## Design refresh` immediately below.
+Play, then read + end Play). VERIFIED through the full dispatch: the static compile-error
+pre-scan caught a real compile-broken Blueprint and refused Play (proving the modal-deadlock
+guard); a live two-call run collected 1155 real per-frame samples (mean 8.47ms / p95 8.82ms
+/ max 125ms), flagged over-budget against a forced threshold with stats provenance + a
+ready-to-fire `next`, and ended Play cleanly (no leaked sampler, no stuck PIE). The pre-scan
+skips file-less phantom Blueprints (a deleted-but-still-loaded asset is a session artifact,
+never a persistent play-blocker). The original design (2026-07-03) is preserved under
+`## The checks`; the buildable contract — reshaped by the live spikes — is in
+`## Design refresh` immediately below.
 
 ## Design refresh (2026-07-05) — buildable contract
 
