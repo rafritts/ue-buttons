@@ -322,7 +322,9 @@ def foliage(op: Literal["paint", "describe", "reseed", "remove"] = "paint",
     reproducible, spline-respecting stand. One labelled stand holds the whole population
     (instanced foliage components in the level's InstancedFoliageActor), never thousands
     of rows. Ground z + slope come from world traces. Spatial verb (not history-undoable);
-    teardown is op=remove. (Cousin: PCG — its 5.8 Python surface is too thin; R2.)
+    teardown is op=remove. BESPOKE, not PCG: this is our own sampler with per-instance
+    rules and deterministic seeds — graph-driven mass generation belongs to the PCG
+    framework (SPEC-10 wraps it as the `pcg` verb).
 
     op=paint — InstancedFoliageActor.add_instances + minted FoliageType assets:
       meshes:  inventory FAMILY names, optional weight — ["Pine_Tree", "Black_Alder:0.3"]
@@ -424,6 +426,8 @@ def terrain(op: Literal["create", "shape", "flatten", "carve", "describe",
     synthesised from a declarative heightfield; no layers, no grass types. You describe
     landforms, the runtime builds the mesh (Geometry Script DynamicMesh, collidable — so
     ground-snap / foliage / spline-drape trace it directly). All coords are MAP cm.
+    BESPOKE, not PCG: deterministic heightfield math, rebuildable from the feature list;
+    nothing here fires a PCG graph (terrain carves, pcg populates).
     NOT undoable via history (see the `undoable` field). While a ueb terrain exists, the
     engine template's z=0 Landscape is neither traced NOR rendered (G37); removing the
     last ueb terrain restores it.

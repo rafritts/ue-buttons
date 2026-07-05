@@ -43,6 +43,17 @@ def pcg(op: Literal["generate", "regenerate", "cleanup", "describe", "palette"] 
 Also update: `server/_instructions.py` (verb list says 14 — becomes 15) and the README
 verb table.
 
+**Docstring seam (user requirement, 2026-07-05): bespoke vs PCG must be unmistakable.**
+`terrain` and `foliage` are BESPOKE systems (our own heightfield math / our own IFA
+sampler) and their docstrings already say so with "BESPOKE, not PCG" lines pointing at
+SPEC-10. When this verb ships: (1) drop the "(SPEC-10 wraps it as…)" caveat from the
+`foliage` docstring — the verb is real now, name it directly; (2) the `pcg` docstring
+states the choice rule from the other side: "Graph-driven MASS generation (PCG
+framework). For precise per-instance control — a specific stand with deterministic
+seeds and clearing rules — use `foliage`; for sculpting the ground itself use `terrain`
+(bespoke; pcg never sculpts)." The agent picking a verb must be able to decide from the
+docstrings alone, without this spec.
+
 ### Ops
 
 | op | params | effect |
