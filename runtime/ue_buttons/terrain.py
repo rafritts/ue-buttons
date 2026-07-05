@@ -263,6 +263,7 @@ def _create(p):
                                   "restored when the last ueb terrain is removed")
     if meta.get("material"):
         out["material"] = meta["material"]
+        out.setdefault("notes", []).extend(_vet_material(meta["material"]))
     else:
         out.setdefault("notes", []).append(_default_material_note(label))
     return out
@@ -275,6 +276,47 @@ def _default_material_note(label):
     return (f"{label} is wearing the engine default material (WorldGridMaterial grid) — "
             f"nothing else will tell you it's untextured (G53). Pass material=<name|/Game "
             f"path> on terrain create/shape (asset op=find kind=material to browse).")
+
+
+# G57: the two dogfooded traps a plausible "ground"-named material springs on the terrain —
+# both statically readable off the master, both invisible to every mechanical read (a hole
+# and a wet sheen collide with nothing), so they must be SAID at author time.
+_WET_TELLS = ("water", "wet", "pond", "ocean", "lake", "puddle", "wetness", "sea")
+
+
+def _vet_material(path):
+    """Warn (not refuse) when a terrain surface material will misread as ground: a non-opaque
+    blend punches see-through holes (BLEND_MASKED grass-cutout) or ghosts (translucent); a
+    water/wet feature renders the whole floor as a reflective sheen ('underwater'). Reads the
+    base master — an instance inherits its blend and exposes the same params."""
+    m = _ue.load_asset(path)
+    base = m.get_base_material() if isinstance(m, unreal.MaterialInterface) else None
+    if base is None:
+        return []
+    short = path.rsplit("/", 1)[-1]
+    notes = []
+    blend = base.get_editor_property("blend_mode")
+    if blend != unreal.BlendMode.BLEND_OPAQUE:
+        bn = str(blend).split(".")[-1].split(":")[0]
+        notes.append(f"surface material {short} is {bn}, not opaque — on solid ground a "
+                     f"non-opaque master renders see-through wherever its mask/alpha fails, "
+                     f"reading as 'the ground is clipping through the floor' (G57); pass an "
+                     f"opaque material (asset op=describe shows blend_mode).")
+    mel = unreal.MaterialEditingLibrary
+    names = [base.get_name().lower()]
+    for getter in (mel.get_scalar_parameter_names, mel.get_vector_parameter_names,
+                   mel.get_texture_parameter_names):
+        try:
+            names += [str(n).lower() for n in getter(base)]
+        except Exception:
+            pass
+    hits = sorted({t for t in _WET_TELLS for nm in names if t in nm})
+    if hits:
+        notes.append(f"surface material {short} carries a water/wet feature ({', '.join(hits)}) "
+                     f"— on a terrain with uniform vertex data it can render the whole floor as "
+                     f"a reflective wet sheen (reads as 'the forest floor is underwater', G57); "
+                     f"prefer a dry opaque ground material.")
+    return notes
 
 
 def _remove(p):
@@ -338,6 +380,10 @@ def _shape(p):
            "undoable": False}
     if not meta.get("material"):
         out["notes"] = [_default_material_note(label)]
+    else:
+        vet = _vet_material(meta["material"])
+        if vet:
+            out.setdefault("notes", []).extend(vet)
     return out
 
 

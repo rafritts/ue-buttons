@@ -120,6 +120,32 @@ def _r2_evidence(mesh):
     return ", ".join(sorted(refs)) if refs else None
 
 
+# R3: material masters under a runtime-dependent plugin root. The mesh is a plain
+# StaticMesh export; the master expects per-vertex/runtime data its own system feeds
+# (Season/Health/vertex masks), so scattered as static foliage the leaf cards render
+# invisible and a full canopy reads bare/dead (G56, the plain-forest "dead trees").
+# Data, one entry per dogfooded plugin — add a row when a new one bites, never speculatively.
+_RUNTIME_DEP_PLUGIN_ROOTS = ("/ProceduralVegetation",)   # startswith → /ProceduralVegetationEditor too
+
+
+def _r3_evidence(mesh):
+    """A material master rooted under a known runtime-dependent plugin — renders bare when
+    the mesh is scattered as static foliage (G56). Cached per material."""
+    hits = set()
+    for sm in mesh.static_materials:
+        mi = sm.material_interface
+        if mi is None:
+            continue
+        key = (mi.get_path_name(), "R3")
+        if key not in _cert_cache:
+            base = mi.get_base_material()
+            mp = base.get_path_name().split(".")[0] if base is not None else ""
+            plugin = next((r for r in _RUNTIME_DEP_PLUGIN_ROOTS if mp.startswith(r)), None)
+            _cert_cache[key] = [mp.rsplit("/", 1)[-1]] if plugin else []
+        hits.update(_cert_cache[key])
+    return ", ".join(sorted(hits)) if hits else None
+
+
 # ── the rule table (data — one row per dogfooded defect class) ──────────────────────
 # id: never reused (gap-number discipline). gap: the dogfooded defect that earned the
 # row. tier: cheapest tier that can catch it (static | census | pie). usage: which
@@ -142,6 +168,17 @@ RULES = [
                 "no per-instance data, so those nodes render as constants",
      "alternative": "scatter it via foliage op=paint (instancing supplies the data), "
                     "or pick a mesh whose materials carry no PerInstance* nodes"},
+    {"id": "R3", "gap": "G56", "tier": "static", "usage": "instanced",
+     "severity": "breaks",
+     "title": "plugin-runtime leaf material renders bare as static foliage",
+     "evidence": _r3_evidence,
+     "verdict": "wear a material master under a runtime-dependent plugin ({evidence}) — it "
+                "needs per-vertex/runtime data a plain StaticMesh never supplies, so the "
+                "leaf cards render invisible and a full canopy reads as bare/dead branches",
+     "alternative": "scatter a self-contained /Game foliage mesh instead — e.g. "
+                    "Modular_Rural_Cabin/Meshes/Foliage/SM_Pine_Tree_0[1-5] (master "
+                    "MM_Tree_Branches, masked_wind, self-contained); asset op=describe "
+                    "shows the material master and warns when it lives outside /Game"},
 ]
 
 

@@ -340,7 +340,9 @@ def foliage(op: Literal["paint", "describe", "reseed", "remove"] = "paint",
                tree-scale variants BlockAll bodies so the PIE pawn stops at trunks;
                understory stays collision-free. Visibility traces still pass through
                foliage by engine design — "which tree" is feel op=looking_at's math
-               pass, not a trace)}.
+               pass, not a trace), wind: "on" (default) | "off" (G58 — off disables the
+               stand's World-Position-Offset: kills wind sway AND the G40 pivot-anchored
+               rigid float, so a mesh that floats when instanced renders planted static)}.
                DEFAULT: every paint auto-clears existing splines
                (width/2+margin) and buildings (footprint+margin) — the trail stays open
                THROUGH the trees. Spacing below the measured canopy width warns (G28);

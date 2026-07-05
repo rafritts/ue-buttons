@@ -236,6 +236,18 @@ def _ifa_fismcs():
     return out
 
 
+def _wpo_disabled(c):
+    """G58: is this foliage component's World-Position-Offset switched off? A positive
+    world_position_offset_disable_distance (rules.wind:"off" bakes 1) disables WPO past
+    that many cm from camera — an explicit authoring choice to still the stand. Default 0
+    means never-disable (WPO fully live)."""
+    try:
+        dd = c.get_editor_property("world_position_offset_disable_distance")
+        return dd is not None and dd > 0
+    except Exception:
+        return False
+
+
 def motion_census():
     """G40: the level-wide motion census — aggregate foliage instances by motion verdict
     and call out meshes whose WPO breaks under instancing. Returns one warning line for
@@ -250,6 +262,11 @@ def motion_census():
         total += n
         mesh = c.get_editor_property("static_mesh")
         if mesh is None:
+            continue
+        # G58: a component with WPO-disable set (rules.wind:"off") renders static no matter
+        # what the material graph wires — read the live knob, not just the graph, so a
+        # deliberately-stilled stand stops false-flagging as moving.
+        if _wpo_disabled(c):
             continue
         kind, _note = asset._mesh_motion(mesh)
         if kind in ("pivot_wpo", "wpo", "wpo_suspect"):
@@ -272,14 +289,23 @@ def motion_census():
     return "motion: " + "; ".join(parts)
 
 
-def _clear_tagged(tag):
+def _clear_tagged(tag, untag=False):
     """Empty every foliage component carrying `tag` (Python can't destroy the component, but a
-    cleared FISMC has zero instances → nothing drawn). Returns how many were cleared."""
+    cleared FISMC has zero instances → nothing drawn). Returns how many were cleared.
+
+    G59: on a true teardown (untag=True) also STRIP the tag from the emptied component. The
+    component itself can't be removed from the IFA over Python (no per-type remove in 5.8),
+    but an untagged 0-instance component is invisible to every ueb registry — so reconcile
+    can finally report a clean 0-untracked after a stand is removed, instead of a phantom."""
     cleared = 0
     for c in _ifa_fismcs():
-        if tag in [str(t) for t in c.get_editor_property("component_tags")]:
+        tags = [str(t) for t in c.get_editor_property("component_tags")]
+        if tag in tags:
             c.clear_instances()
             cleared += 1
+            if untag:
+                c.set_editor_property("component_tags",
+                                      [unreal.Name(t) for t in tags if t != tag])
     return cleared
 
 
@@ -309,10 +335,14 @@ def _wants_collision(mode, mesh_path):
     return h >= _COLLIDE_MIN_HEIGHT_CM
 
 
-def _foliage_type_for(label, idx, mesh_path, collide=False):
-    """A per-stand FoliageType_InstancedStaticMesh asset (namespaced by label+variant) with
-    its mesh set. Recreated fresh each build so it never carries stale settings/instances."""
-    name = f"FT_{_sanitize(label)}__{idx}"
+def _foliage_type_for(label, idx, mesh_path, collide=False, wind_off=False):
+    """A per-stand FoliageType_InstancedStaticMesh asset (namespaced by level+label+variant)
+    with its mesh set. Recreated fresh each build so it never carries stale settings/instances.
+    G54: the level prefix keeps a label reused across maps (canopy/grass are the obvious
+    defaults) from colliding on the shared /Game/UEB_Foliage asset name — a cross-map collision
+    made delete_asset refuse (asset still in use by the other map) and create_asset then raised
+    the editor's blocking 'overwrite?' modal that stalls a headless build."""
+    name = f"FT_{_sanitize(_ue.level_name())}_{_sanitize(label)}__{idx}"
     full = f"{_FOLIAGE_DIR}/{name}"
     if unreal.EditorAssetLibrary.does_asset_exist(full):
         unreal.EditorAssetLibrary.delete_asset(full)
@@ -320,6 +350,11 @@ def _foliage_type_for(label, idx, mesh_path, collide=False):
     ft = atools.create_asset(name, _FOLIAGE_DIR, unreal.FoliageType_InstancedStaticMesh,
                              unreal.FoliageType_InstancedStaticMeshFactory())
     ft.set_editor_property("mesh", _ue.load_asset(mesh_path))
+    if wind_off:
+        # G58: WPO is disabled for instances beyond this distance from camera; 1 cm ⇒
+        # effectively always off ⇒ trees render planted (no G40 rigid float) at the cost
+        # of all animation. Baked onto the FT so a reseed/repaint keeps the stand static.
+        ft.set_editor_property("world_position_offset_disable_distance", 1)
     if collide:
         # Writing the raw struct sets the NAME components will copy, but never runs the
         # profile-application path (collision_enabled stays NO_COLLISION) — the created
@@ -421,6 +456,9 @@ def _paint(p):
     if rules.get("collision", "auto") not in ("auto", "block", "none"):
         return {"error": f"unknown rules.collision '{rules['collision']}'. "
                          "known: auto|block|none"}
+    if rules.get("wind", "on") not in ("on", "off"):
+        return {"error": f"unknown rules.wind '{rules['wind']}'. known: on|off "
+                         "(off disables WPO — kills wind AND the G40 rigid-float)"}
     # SPEC-07 firing point 1 — painting IS instancing: a breaks-severity pairing
     # (R1: pivot-anchored WPO) refuses BEFORE planting; force=true overrides and the
     # census keeps flagging the stand.
@@ -498,6 +536,7 @@ def _generate(label, region, meshes, seed, rules, p):
     tag = _FOLIAGE_TAG + label
     _clear_tagged(tag)                                   # drop any orphaned empties for this label
     collision_mode = rules.get("collision", "auto")
+    wind_off = rules.get("wind", "on") == "off"
     blocking, walk_through, blocked_paths = [], [], set()
     ft_paths = []
     for idx, vp in enumerate(variant_paths):
@@ -508,19 +547,23 @@ def _generate(label, region, meshes, seed, rules, p):
         (blocking if collide else walk_through).append(vp.rsplit("/", 1)[-1])
         if collide:
             blocked_paths.add(vp)
-        ft, full = _foliage_type_for(label, idx, vp, collide)
+        ft, full = _foliage_type_for(label, idx, vp, collide, wind_off)
         ft_paths.append(full)
         _add_tagged(world, ft, tlist, tag)
-    # G46: apply the profile ON the created components — the PrimitiveComponent call is
-    # what actually flips collision_enabled + channel responses (the FT struct write
-    # alone leaves every instance body inert).
-    if blocked_paths:
+    # G46/G58: apply the settings ON the created components — the PrimitiveComponent call
+    # is what actually flips collision_enabled + channel responses (the FT struct write
+    # alone leaves every instance body inert), and WPO-disable must ride the live component
+    # too so already-placed instances stop moving without a repaint.
+    if blocked_paths or wind_off:
         for c in _ifa_fismcs():
             if tag not in [str(t) for t in c.get_editor_property("component_tags")]:
                 continue
             mesh = c.get_editor_property("static_mesh")
-            if mesh and mesh.get_path_name().split(".")[0] in blocked_paths:
+            path0 = mesh.get_path_name().split(".")[0] if mesh else None
+            if blocked_paths and path0 in blocked_paths:
                 c.set_collision_profile_name("BlockAll")
+            if wind_off:
+                c.set_editor_property("world_position_offset_disable_distance", 1)
 
     _state.foliage_stands[label] = {
         "region": region,
@@ -541,8 +584,16 @@ def _generate(label, region, meshes, seed, rules, p):
                          "walk_through": walk_through},
            "note": "instanced foliage (registered) — renders in the viewport"}
     # G39: a population that will MOVE (WPO wind/displacement) is announced at author
-    # time — a whole-mesh-bobbing understory must never paint silently again.
-    notes = _canopy_notes(meshes, spacing, jit) + asset.motion_notes(variant_paths)
+    # time — a whole-mesh-bobbing understory must never paint silently again. G58: with
+    # rules.wind='off' that WPO is switched off on this stand, so the motion notes would
+    # only mislead — report the stilling instead.
+    notes = _canopy_notes(meshes, spacing, jit)
+    if wind_off:
+        notes.append("rules.wind='off' — WPO disabled on this stand: it renders static "
+                     "(no sway, and no G40 rigid float), and the motion census won't flag "
+                     "it (G58)")
+    else:
+        notes += asset.motion_notes(variant_paths)
     # G46: a tree-scale stand painted collision-free is a playtest trap — say so with
     # the ready fix, at author time.
     if collision_mode == "none" and \
@@ -611,10 +662,10 @@ def _remove(p):
     label = p.get("label", "foliage")
     s = _state.foliage_stands.get(label)
     tag = _FOLIAGE_TAG + label
-    cleared = _clear_tagged(tag)
+    cleared = _clear_tagged(tag, untag=True)   # G59: strip the tag so no phantom stand lingers
     ft_paths = list((s or {}).get("foliage_types", []))
     if not ft_paths and unreal.EditorAssetLibrary.does_directory_exist(_FOLIAGE_DIR):
-        prefix = f"FT_{_sanitize(label)}__"
+        prefix = f"FT_{_sanitize(_ue.level_name())}_{_sanitize(label)}__"
         for a in unreal.EditorAssetLibrary.list_assets(_FOLIAGE_DIR, recursive=False):
             if prefix in a:
                 ft_paths.append(a.split(".")[0])

@@ -755,8 +755,14 @@ def _add_player_start(p, label, place, snap, yaw, facing, under_cover=False, tag
         # Reseat by what actually matters: capsule centred ON the point, bottom at grade.
         cap = actor.get_component_by_class(unreal.CapsuleComponent)
         if cap is not None:
+            # A 2D at=[x,y] ground-snaps implicitly inside _place_actor (like ground:true),
+            # but that path seats the FULL AABB (incl. the ~256cm arrow billboard) on the
+            # ground — floating the capsule ~36cm. So reseat on the capsule whenever the
+            # start is grounded: the explicit snap flag OR the implicit 2D-at snap (G55).
+            at = (place or {}).get("at")
+            grounded = snap or (isinstance(at, (list, tuple)) and len(at) == 2)
             z = actor.get_actor_location().z
-            if snap:
+            if grounded:
                 ig = _cover_ignore(actor) if under_cover else actor
                 gz = _ue.trace_ground(target[0], target[1], ignore=ig)
                 if gz is not None:
