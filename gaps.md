@@ -42,6 +42,19 @@ cure is an async job + progress pattern (kick the work off the dispatch path, po
 timeout, poll `/remote/info` and RE-READ state before re-issuing — timed-out work usually
 completed invisibly.
 
+### G61 — pcg groves don't rehydrate on level open (terrains do)
+Status: OPEN (found 2026-07-05, reopening UEB_PCGForest)
+
+`level op=open` rehydrates terrain meta for actors living in the incoming level, but
+the grove registry stays empty while the ueb PCGVolume actor (carrying its graph, seed,
+and generated instances) sits right there in the level — so `pcg op=regenerate
+label=forest` answers "no pcg grove labelled 'forest'" and the status roster
+undercounts the world. Everything needed to rebuild the meta lives ON the actor:
+graph = component's graph asset (palette name = basename under /Game/UEB_PCG),
+seed = component property, instances = live ISM count, coverage = actor bounds.
+Fix: a pcg `_hydrate` (adopt ueb PCGVolumes absent from the registry), run on
+transition next to the terrain one and on first pcg dispatch after a restart.
+
 ### G50 — no lighting surface: a cave interior is pitch black and the agent can't even say so
 Status: OPEN (found 2026-07-04, L2 dogfood — predicted verbatim by the level brief)
 
