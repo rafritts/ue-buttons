@@ -2,9 +2,10 @@
 
 Status: **DESIGN** (2026-07-05). Grounded by two live spikes — every capability claim
 below was exercised over the RC bridge, and the numbers are real (spike traces at the
-bottom). **Both forks are now decided** (2026-07-05): verb = `foliage op=grow` (extend,
-don't mint); graphs = a code-authored palette (node-value tuning over Python is proven —
-no node editor, no reliance on exposed user parameters).
+bottom). **Both forks are now decided** (2026-07-05): verb = **`pcg`** (a standalone UE
+system earns its own verb — revised same day from `foliage op=grow`, see Verb shape);
+graphs = a code-authored palette (node-value tuning over Python is proven — no node
+editor, no reliance on exposed user parameters).
 
 ## Problem
 
@@ -103,17 +104,21 @@ mesh (e.g. `SM_FlowerTree_*`) rigid-floats when instanced (G40), so the grow mus
 for the fantasy plot, the same cure as G58. `wpo` (plain wind, e.g. the pines/shrubs) is left
 to sway.
 
-## Verb shape — DECIDED: extend `foliage`
+## Verb shape — DECIDED: mint `pcg`
 
-PCG is procedural *foliage/vegetation* generation, and `foliage` already owns instanced
-scatter. Decided (2026-07-05): **extend `foliage`, don't mint a verb** — consistent with
-SPEC-05 (if UE owns a word, that verb owns it; `op=` is the discriminator) and with
-SPEC-08's "no new verb" precedent. Keeps "put plants on the ground" in one place.
+Decided (2026-07-05, revising the same-day `foliage op=grow` call): **`pcg` is its own
+verb.** The user's tiebreak is predictability — nothing about `foliage op=grow` suggests
+PCG, while a verb named `pcg` is totally unambiguous. And it is the *stronger* reading of
+the SPEC-05 law: verbs are named for the UE surface they drive, and PCG is a named,
+standalone UE system (its own plugin, editor mode, and asset type) — not a feature of the
+foliage mode. The seam is clean: `foliage` = InstancedFoliageActor painting, `pcg` =
+graph-driven generation. Op names mirror the PCG component's own API (`generate()` /
+`cleanup()`) for the same predictability reason:
 
 ```
-foliage op=grow  graph=<palette name>  on=<terrain/surface label>  [region=…]  [seed=n]
-foliage op=regrow  label=<grove>        # re-run generate() after a surface/param change
-foliage op=ungrow  label=<grove>        # cleanup(True) + destroy the volume — full reversal
+pcg op=generate  graph=<palette name>  on=<terrain/surface label>  [region=…]  [seed=n]
+pcg op=regenerate  label=<grove>       # re-run generate() after a surface/param change
+pcg op=cleanup   label=<grove>         # cleanup(True) + destroy the volume — full reversal
 ```
 
 - `graph=` resolves against the code-authored palette (small runtime registry, intent
@@ -123,11 +128,11 @@ foliage op=ungrow  label=<grove>        # cleanup(True) + destroy the volume —
   PCGVolume (bounds proven to drive sampling extent). `region=` optionally clips to a
   circle/rect the way `foliage op=paint` already does.
 - The result is a labelled, ueb-tagged PCGVolume actor — it joins the outliner registry
-  and reconcile like any other ueb actor, so `op=ungrow` and level lifecycle
+  and reconcile like any other ueb actor, so `op=cleanup` and level lifecycle
   (`level op=clear`) already know how to tear it down.
 
-(A dedicated `grow` verb was weighed and rejected — it would split "put plants on the
-ground" across two verbs.)
+(The earlier `foliage op=grow` shape was weighed and reversed — "don't split plants
+across verbs" lost to "a standalone UE system gets an unambiguous verb of its own.")
 
 ## Perception — census, numbers only
 
@@ -142,10 +147,10 @@ grew grove_north (graph=mixed_sparse, on=terrain):
    200 boulders (PCG_Boulder_02)
   331412 seedlings (PCG_Seedling_01)     ← untuned showcase density; see note
   coverage: x[-15000,15000] y[-15000,15000], on terrain surface
-  → foliage op=ungrow label=grove_north      # ready to fire
+  → pcg op=cleanup label=grove_north         # ready to fire
 ```
 
-Every grow carries the HATEOAS `next` (regrow / ungrow), per the vision law. The seedling
+Every generate carries the HATEOAS `next` (regenerate / cleanup), per the vision law. The seedling
 flood is the honest showcase output and precisely the argument for the curated palette
 (A): a tuned `mixed_sparse` graph would author a sane seedling count once, so the agent
 never sees 331k.
@@ -185,10 +190,10 @@ never sees 331k.
 ## Sequencing
 
 Independent of SPEC-09 (runtime lint). Depends on nothing unbuilt — path A rests entirely
-on spike-proven capability. Recommended first build: the palette registry + `op=grow`/
-`op=ungrow` against ONE curated graph, dogfooded on a real level (retire the hand-rolled
-scatter in [[ueb-forest-level-status]] as the proof). `op=regrow` and any parameter work
-(path B) follow only if dogfooding demands them.
+on spike-proven capability. Recommended first build: the palette registry + `op=generate`/
+`op=cleanup` against ONE curated graph, dogfooded on a real level (retire the hand-rolled
+scatter in [[ueb-forest-level-status]] as the proof). `op=regenerate` and any parameter
+work (path B) follow only if dogfooding demands them.
 
 ## Spike trace (2026-07-05, all over the RC bridge)
 
