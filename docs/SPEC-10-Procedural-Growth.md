@@ -74,12 +74,34 @@ system and edit node settings directly on our own `/Game` copies. The `call_meth
 to C++ `GetGraphParameter` remains a theoretical fallback for a param-exposing third-party
 graph, but nothing needs it.
 
-**Palette model.** A small runtime registry maps intent names → `/Game/UEB_PCG/<graph>`,
-each a stock graph duplicated once and tuned in code (checked into the runtime as a build
-step, the way FoliageType minting is). Adding `pine_dense` / `mixed_sparse` / `grass_meadow`
-is writing a tuning function, not opening an editor. The agent's day-one intent knobs:
-**which palette entry** (`graph=`), **which surface / area** (`on=` → volume bounds, proven
-to drive sampling extent), and **seed** (per-node `seed`, for reroll-without-restructure).
+**Swapping the meshes (proven 2026-07-05).** Density is one axis; *which assets* grow is
+the other, and it's the same node-editing move. Each `PCGStaticMeshSpawnerSettings` node
+holds `mesh_selector_parameters` (a `PCGMeshSelectorWeighted`) whose `mesh_entries` is an
+array of `PCGMeshSelectorWeightedEntry` — each a `{descriptor.static_mesh, weight}`. Rebuild
+that array in code and the spawner grows whatever you point it at. Verified end to end:
+swapped the showcase `PCG_Tree_*` for `SM_Pine_Tree_01..05` (weighted) → 601 pines; and
+built three side-by-side plots on one terrain from three duplicated graphs — **pine**
+(`SM_Pine_Tree_*`, 6–17 m conifers), **scrub** (`GV_Vol7_Shrub_*_full`, 2–6.5 m), **fantasy**
+(`SM_FlowerTree_*`) — all draping the relief (saved: `/Game/Maps/UEB_ForestVariants`).
+
+**Palette entry = a tuning function** (duplicate stock graph → set sampler densities + swap
+spawner mesh_entries → save `/Game/UEB_PCG/<graph>`), checked into the runtime the way
+FoliageType minting is. Adding `pine_dense` / `mixed_sparse` / `flower_grove` is writing one,
+not opening an editor. The agent's day-one intent knobs: **which palette entry** (`graph=`),
+**which surface / area** (`on=` → volume bounds, proven to drive sampling extent), and
+**seed** (per-node `seed`, for reroll-without-restructure).
+
+**Mesh vetting is a hard gate on palette entries (found 2026-07-05).** A mesh only earns a
+palette slot after two checks, both cheap over RC: (1) **size** — `mesh.get_bounds()` height,
+so a 0.6 m "Decoration" sprig never gets scattered as a canopy tree; (2) **bare-render / G56**
+— walk the mesh's material masters, reject any under a runtime-dependent plugin
+(`MA_Foliage_Trees` etc., the R3 rule). Dogfooding proved the need: `Megaplant_Library`
+`Decoration_*` meshes are 0.6 m AND wear `MA_Foliage_Trees` (would render bare) — auto-rejected;
+`UEB_Trees` hornbeam/spruce/birch are the same trap. And **motion**: a `pivot_wpo` palette
+mesh (e.g. `SM_FlowerTree_*`) rigid-floats when instanced (G40), so the grow must set
+`world_position_offset_disable_distance=1` on its spawned ISM components post-generate — done
+for the fantasy plot, the same cure as G58. `wpo` (plain wind, e.g. the pines/shrubs) is left
+to sway.
 
 ## Verb shape — DECIDED: extend `foliage`
 
