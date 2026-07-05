@@ -657,7 +657,7 @@ def spatial_roster():
     groves = getattr(_state, "pcg_volumes", {})
     if groves:
         parts.append("groves: " + ", ".join(
-            f"{k} {'generating' if v.get('instances') is None else v['instances']}"
+            f"{k} {'generating' if v.get('pending') or v.get('instances') is None else v['instances']}"
             for k, v in sorted(groves.items())))
     return " · ".join(parts)
 
