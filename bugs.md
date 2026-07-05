@@ -12,17 +12,3 @@ Distinction from `gaps.md`: gaps are friction, missing capability, or design lim
 bugs are things that are *supposed to work and don't*.
 
 Format: `### B<n> — <title>` · status · repro · root cause · fix · verification.
-
----
-
-### B17 — terrain meta file is shared across levels keyed by label alone: same-label terrains clobber each other
-Status: OPEN (found 2026-07-05 while diagnosing B16; PRE-EXISTING, predates pcg)
-
-Repro: level A saves terrain meta under label "terrain"; level B creates its own
-"terrain" → `_save_meta` merges by label into ONE shared Saved/ file, so B's features
-overwrite A's. Reopen A: `_hydrate` adopts B's heightfield model for A's actor —
-`terrain op=shape/flatten` would REBUILD A's terrain as B's landform, and z_model
-diverges from traces. Every dogfood level uses the label "terrain", so every pair
-collides. Fix direction: key the disk meta by (level package, label) with a one-time
-migration of the flat file; the in-session registry stays label-keyed (it is per-level
-by construction — reconcile GCs on transition).

@@ -27,6 +27,8 @@ MAX_STEPS = 220             # cap grid density so a shape stays a single snappy 
 DEFAULT_UV_TILE_CM = 400.0  # ground texture repeat: one UV tile every 4 m (G33)
 _META_NAME = "ueb_terrains.json"
 _OLD_META_NAME = "ueb_landscapes.json"   # pre-SPEC-05 file; renamed on first hydrate
+_LEGACY_KEY = "__ueb_legacy__"           # B17 holding bucket for un-attributable flat entries
+                                         # (real keys are package paths starting with "/")
 
 
 # ── persistence (survives editor restart; the hamlet is rebuilt from calls, but describe
@@ -37,11 +39,14 @@ def _meta_path():
 
 
 def _save_meta(prune=None):
-    """MERGE _state.terrains into the on-disk meta — the file is shared across levels,
-    and with SPEC-04's new/open/clear in play a flat dump from level B would silently
-    destroy level A's persisted heightfields. prune=[labels] deletes entries (terrain
-    removed / level cleared); stale disk entries are otherwise harmless — _hydrate only
-    adopts a label whose actor exists in the loaded level."""
+    """MERGE _state.terrains into the on-disk meta. The file is shared across levels, so
+    it is keyed by level package (B17): `{pkg: {label: meta}}`. Before B17 the top level
+    was a flat `{label: meta}` and level B's "terrain" clobbered level A's same-labelled
+    heightfield — every dogfood level uses the label "terrain", so every pair collided.
+    Now each level owns its own bucket; only the CURRENT level's bucket is rewritten, so
+    other levels' entries are untouched. prune=[labels] deletes from this level's bucket
+    (terrain removed / level cleared). _hydrate still only adopts a label whose actor
+    exists in the loaded level."""
     try:
         disk = {}
         if os.path.exists(_meta_path()):
@@ -49,14 +54,50 @@ def _save_meta(prune=None):
                 disk = json.load(f)
     except Exception:
         disk = {}
-    disk.update(_state.terrains)
+    disk = _migrate(disk)
+    pkg = _ue.package_name()
+    bucket = dict(_state.terrains)
     for label in (prune or []):
-        disk.pop(label, None)
+        bucket.pop(label, None)
+    if bucket:
+        disk[pkg] = bucket
+    else:
+        disk.pop(pkg, None)
+    # a label this level owns is no longer "un-attributable" — claim it out of legacy so
+    # another same-labelled level can't re-adopt it later.
+    legacy = disk.get(_LEGACY_KEY)
+    if legacy:
+        for label in bucket:
+            legacy.pop(label, None)
+        if not legacy:
+            disk.pop(_LEGACY_KEY, None)
     try:
         with open(_meta_path(), "w") as f:
             json.dump(disk, f)
     except Exception:
         pass
+
+
+def _migrate(disk):
+    """One-time upgrade of the pre-B17 flat `{label: meta}` file to the per-level
+    `{pkg: {label: meta}}` shape. Flat entries carry NO level attribution (that is the
+    B17 bug), so they cannot be assigned to a package here — they are parked in a neutral
+    holding bucket (`_LEGACY_KEY`) that saves never overwrite. Each level then CLAIMS its
+    own labels from legacy on _hydrate, by actor-existence, and _save_meta finalises the
+    claim. Detected by shape: a top-level value that is a meta dict (has 'features' or
+    'z_model') rather than a per-level bucket. Idempotent — a new-format file has no flat
+    entries left to move."""
+    if not disk:
+        return disk
+    flat = {k: v for k, v in disk.items()
+            if isinstance(v, dict) and ("features" in v or "z_model" in v)}
+    if not flat:
+        return disk
+    buckets = {k: v for k, v in disk.items() if k not in flat}
+    legacy = dict(buckets.get(_LEGACY_KEY, {}))
+    legacy.update(flat)
+    buckets[_LEGACY_KEY] = legacy
+    return buckets
 
 
 def _hydrate():
@@ -81,7 +122,14 @@ def _hydrate():
             disk = json.load(f)
     except Exception:
         return
-    for label, meta in disk.items():
+    disk = _migrate(disk)
+    # B17: adopt THIS level's own bucket, then CLAIM any un-attributed legacy label whose
+    # actor lives here (finalised into this level's bucket on the next _save_meta). The
+    # actor-exists filter is what keeps another level's terrain from leaking in.
+    bucket = dict(disk.get(_ue.package_name(), {}))
+    for label, meta in disk.get(_LEGACY_KEY, {}).items():
+        bucket.setdefault(label, meta)
+    for label, meta in bucket.items():
         if _ue.find_by_label(label) is not None:
             _state.terrains[label] = meta
     # G37: the editor-side hide is per-session — reassert it when terrains rehydrate

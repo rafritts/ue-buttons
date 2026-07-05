@@ -295,3 +295,11 @@ def level_name():
     return world.get_name() if world else "?"
 
 
+def package_name():
+    """Full package path of the current editor level, e.g. '/Game/Maps/UEB_PCGForest'
+    (or '/Temp/Untitled_0' for an unsaved level). Unlike level_name(), this is unique
+    across folders — the right key for per-level persisted state (B17)."""
+    world = editor_world()
+    return world.get_package().get_name() if world else "?"
+
+
