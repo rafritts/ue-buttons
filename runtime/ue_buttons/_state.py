@@ -90,6 +90,13 @@ foliage_stands = {}   # {label: {meshes, region, density, seed, rules, counts}}
 intents = []          # [{check, a, b, reason, status, source, max_depth?, depth_at_decl?}]
 drift = [0.0]         # single-cell accumulator (list so it survives `from . import _state`)
 
+# ── SPEC-11 playtest session (transient debug avatar — NOT a level fixture) ──────────
+# The drop-in avatar's lifecycle is the SESSION, not the level: enter records it, exit
+# clears it. Lives here so a handler hot-reload can't drop it mid-session; every access
+# is getattr/hasattr-guarded (playtest.py) so a live editor predating this line still works.
+playtest = None       # or {"avatar", "view", "drop_in", "arm", "source", "playing"}
+playtest_source = None  # cached resolved character-BP path (skip the registry scan on re-enter)
+
 
 def cache_dims(path, measured):
     dims_cache[path] = measured

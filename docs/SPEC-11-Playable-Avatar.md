@@ -1,8 +1,45 @@
 # SPEC-11 — `playtest`: drop the user into the level to inspect it
 
-Status: **DESIGN** (2026-07-05). Audience: the agent implementing the verb. Every engine
-claim below is spike-proven over the RC bridge (traces at bottom) unless marked
-**SPIKE-CHECK** — those you verify live before relying on them.
+Status: **IMPLEMENTED + live-verified 2026-07-05** (was DESIGN). The verb ships in
+`runtime/ue_buttons/playtest.py`, wired into `verbs.py` / `main.py` / `_instructions.py`.
+Building it resolved every SPIKE-CHECK and forced three design deltas — see **Build outcome**
+immediately below; the original design follows unchanged as the record. Every engine claim
+was spike-proven over the RC bridge (traces at bottom).
+
+## Build outcome (2026-07-05) — what the live build proved and changed
+
+Verified end-to-end through `ue_buttons.dispatch` on `UEB_PCGMeadow`/`UEB_PCGForest`: enter
+drops in, the pawn is possessed, both cameras select, arm zoom applies, the stray is swept,
+exit leaves the level with **zero leftover actors**. Three deltas from the design, each
+forced by ground truth:
+
+- **DELTA 1 — `enter` is TWO-CALL (like `play census`).** Tuning the SpringArm on the spawned
+  editor *instance* does NOT survive `begin_play`: PIE re-runs the BP construction and the arm
+  reverts to the BP default 300 (the spawned components even get renamed `TRASH_*`). The tuning
+  that STICKS is on the **live possessed pawn**, which exists only after PIE ticks. So call 1
+  spawns + auto-possesses + begins Play (user is walking immediately on default framing); call 2
+  (in PIE, whitelisted) applies the zoom, selects the camera, and clears the stray. Re-calling
+  enter while live **retunes the zoom / switches view live — no Play restart** (a UX win).
+- **DELTA 2 — the GameMode spawns a stray pawn.** Our auto-possessed avatar wins Player0's
+  controller, orphaning the GameMode's own pawn — PIE carried a second, unpossessed mannequin
+  (`pawn_count=2`). Call 2 destroys every unpossessed pawn in the game world (`pawn_count → 1`).
+  SPIKE-CHECK 1 is thus RESOLVED: PC0 possesses our instance; the stray is swept, not tolerated.
+- **DELTA 3 — `exit` is TWO-CALL when Play is running.** The editor-world avatar is
+  **unreachable while PIE is live** — active-world enumeration returns PIE actors, an explicit
+  `get_editor_world()` enumeration returns `[]` for it, and a stored direct reference no-ops
+  (all three tried). It only becomes removable once Play has fully ended, and `end_play` is
+  async — so exit call 1 ends Play (user is out), call 2 (back in the editor) sweeps the avatar.
+- **DROPPED — the socket-Z framing lift.** `socket_offset` did not persist even on the live
+  pawn (the BP rewrites it), so `arm` (target_arm_length) is the sole zoom lever; the user
+  pitches the view down with the mouse to bring the feet into frame. SPIKE-CHECK 2 (the exact
+  arm for "feet on the ground") stays the **user's visual call**; default `arm=500`.
+- **SPIKE-CHECK 3 RESOLVED:** both `Camera_FP` (on the mesh) and `Camera_TP` (on the SpringArm)
+  select cleanly on the live pawn and survive possess (`view=first` ↔ `view=third`, live).
+- **Corrections to design constants:** class load is `EditorAssetLibrary.load_blueprint_class`
+  (`load_object(None, path+"_C")` returns None until the asset is in memory); the capsule
+  half-height is **96 cm** (read live, not the guessed ~88).
+
+Audience for the rest of this doc: the original design contract, preserved.
 
 ## The ask (user, 2026-07-05)
 

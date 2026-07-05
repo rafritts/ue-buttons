@@ -19,6 +19,7 @@ from . import map_ref
 from . import spline as splinemod
 from . import foliage as foliagemod
 from . import pcg as pcgmod
+from . import playtest as playtestmod
 from . import rules as rulesmod
 from . import render as rendermod
 from . import validate as validatemod
@@ -108,6 +109,12 @@ def handle(verb, params):
             or _ue.editor_world() is None):
         if verb == "play":
             return _v_play(params)
+        # playtest owns its OWN Play session: op=exit ends it (counterpart to play op=stop),
+        # op=enter's phase 2 tunes the LIVE possessed pawn + sweeps the GameMode stray (both
+        # require the game world). Whitelisted during PIE like `play`; op=describe stays an
+        # editor read and falls through to the B8 message below.
+        if verb == "playtest" and params.get("op") in ("enter", "exit"):
+            return _v_playtest(params)
         return {"error": "the editor is in PIE (Play) — the verb surface reads and mutates "
                          "the EDITOR world, and during Play that world reads as empty "
                          "(mutations would no-op; reconcile would GC live registries — B8). "
@@ -980,6 +987,18 @@ def _v_pcg(p):
     return pcgmod.handle(p)
 
 
+def _v_playtest(p):
+    """DEBUG drop-in — stand the user inside the level to INSPECT it (SPEC-11). NOT a
+    gameplay feature: a throwaway auto-possessed stock mannequin, dropped into Play, removed
+    on exit. Adjacent to `play` (which owns runtime PIE control over an already-playable
+    level); playtest is the editor-time setup that makes an arbitrary generated scene
+    walkable. enter + exit are TWO-CALL (PIE async — the live pawn to tune, and the editor
+    avatar to remove, only exist across a tick; mirrors play census). Session-scoped, NOT a
+    SPATIAL fixture — no status block, no history. op=enter (default) | exit | describe.
+    See playtest.py."""
+    return playtestmod.handle(p)
+
+
 def _v_material(p):
     """Material Instance authoring — instance. Asset-side (no status block). See material.py."""
     return materialmod.handle(p)
@@ -1049,5 +1068,6 @@ _VERBS = {
     "outliner": _v_outliner,
     "level": _v_level,
     "play": _v_play,
+    "playtest": _v_playtest,
     "validate": _v_validate,
 }

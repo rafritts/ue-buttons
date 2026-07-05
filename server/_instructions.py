@@ -13,7 +13,11 @@ INSTRUCTIONS = """\
 ue-buttons turns the Unreal Engine 5 editor into a world-building surface you drive by
 INTENT, not coordinates. Verbs are named for the UE surface they drive (SPEC-05) — add,
 select, transform, asset, material, foliage, pcg, terrain, spline, outliner, level, play,
-history, plus the agent-only senses feel and validate. If UE owns a word for it, that is
+playtest, history, plus the agent-only senses feel and validate. `playtest` is the DEBUG
+drop-in FOR THE USER — one call puts the HUMAN on foot inside the level they just built so
+THEY can walk it and inspect it. You fire the single call and step back; whether it feels
+right is the user's judgment, never yours (you have no vision — playtest is the user's eyes,
+not a sense you read). `play` owns runtime PIE. If UE owns a word for it, that is
 the verb that owns it; `op=` is the one discriminator everywhere. Perception is ALL
 NUMBERS — there is no screenshot/render/image verb, by design (see the vision policy
 below).

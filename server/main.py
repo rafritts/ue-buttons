@@ -200,6 +200,52 @@ def play(op: Literal["census", "start", "stop", "where"] = "census") -> str:
 
 
 @mcp.tool()
+def playtest(op: Literal["enter", "exit", "describe"] = "enter",
+             view: Literal["third", "first"] = "third",
+             place: dict = None, yaw: float = None, facing: str = None,
+             arm: float = None, force: bool = False) -> str:
+    """DEBUG drop-in — stand the user INSIDE the level they just built to inspect it (SPEC-11).
+    NOT a shipped gameplay feature: a throwaway stock mannequin, auto-possessed, dropped into
+    Play and removed on exit. Adjacent to `play` (which owns runtime PIE control over an
+    already-playable level) — `playtest` is the editor-time setup that makes an arbitrary
+    generated scene walkable.
+
+    op=enter (default): TWO-CALL (PIE is async — the pawn to tune exists only after Play
+      ticks, same tax `play op=census` pays). CALL 1 spawns an auto-possessed stock character
+      at the drop-in point (the level's PlayerStart if it has one, else a ground-traced
+      origin) and BEGINS Play — the user is walking immediately on the default framing. CALL 2
+      (~2 s later, same op) finishes framing on the LIVE pawn: applies the view= camera + arm=
+      zoom and sweeps the GameMode's stray pawn. Calling enter AGAIN while live RETUNES the
+      zoom / switches view with NO restart (say "zoom out" → re-enter arm=<more>). The avatar
+      is ueb-tagged + transient; it must never be saved into the level.
+    op=exit: TWO-CALL while Play runs (the editor avatar is unreachable until Play fully ends,
+      and end_play is async). CALL 1 ends Play — the user is out. CALL 2 (~1 s later) removes
+      the debug avatar. Leaves the level exactly as it was. (One call is enough if Play was
+      already stopped.) Whitelisted during Play — the counterpart to play op=stop.
+    op=describe: read-only — is a playtest live, which view, where the drop-in point is, and
+      whether a stray avatar is still placed (the "did I leave one behind" safety read).
+
+    view=third (default): over-the-shoulder SpringArm zoomed out (arm=, default 500 cm) so the
+      feet are in frame; the user pitches the view down to bring them onto the ground.
+      view=first: eyes-level head camera (no boom).
+    place/yaw/facing: the add-verb placement vocabulary for the drop-in point + facing.
+    arm: SpringArm length in cm — the third-person zoom-out lever ("see the feet"). Whether
+      the feet read as touching the ground is the USER's visual call, never yours: they ask
+      for more/less zoom and you re-enter with a new arm= (perception here is the human's —
+      you have no screenshot verb, so you cannot judge the framing yourself).
+    force: spawn/enter anyway past the soft guard (a playtest already live) — clears a stray
+      avatar first, then re-drops.
+    """
+    p = {"op": op, "view": view}
+    for k, v in (("place", place), ("yaw", yaw), ("facing", facing), ("arm", arm)):
+        if v is not None:
+            p[k] = v
+    if force:
+        p["force"] = True
+    return render(call_ue("playtest", p, timeout=120))
+
+
+@mcp.tool()
 def feel(op: Literal["describe", "distance_between", "gap_between", "is_aligned",
                      "clearance", "render_state", "framing", "visible", "looking_at"],
          target: str = None, a: str = None, b: str = None,
