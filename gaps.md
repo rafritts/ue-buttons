@@ -118,10 +118,20 @@ low-roughness wet layer); on the terrain with uniform vertex color it rendered t
 floor as a reflective flat sheen — the user read it as "the forest floor is underwater." So
 BLEND_OPAQUE is necessary but not sufficient. Fix: `terrain op=create/shape` should vet the
 material and warn on (i) non-opaque blend AND (ii) very-low-roughness / water-ish surfaces
-that read as wet — a matte ground wants high roughness. Actually-good floor built this
-session: `/Game/UEB_Materials/MI_UEB_ForestFloor` (MM_Vertex_Color_Blend, `Water Darkness`=0,
-Rougness 1/2/3 ≈0.9–0.95, tiling `Grass_/Ground_Dirt_/Rocky_Ground_` basecolor+DET textures
-from Modular_Rural_Cabin/Textures/Tiling). High roughness is the real cure for the sheen.
+that read as wet.
+
+THIRD trap (same session): my instance of MM_Vertex_Color_Blend with `Rougness 1/2/3`≈0.9
+rendered as a FULL MIRROR — those scalars do NOT drive the master's final roughness (it comes
+from a texture channel I didn't supply, so it defaulted to 0 = mirror). Lesson: configuring an
+unfamiliar blend master by guessing param names burns turns (masked→holes, water→wet sheen,
+roughness-scalar-ignored→mirror, three misses). The reliable cure was to STOP instancing that
+master and hand-author a trivial base Material with every pin controlled:
+`/Game/UEB_Materials/M_UEB_ForestFloor` — TextureSample(Grass_Basecolor)→BaseColor,
+TextureSample(Grass_Normal, SAMPLERTYPE_NORMAL)→Normal, Constant(0.92)→Roughness, metallic 0,
+opaque; the terrain already tiles UVs every 4 m (DEFAULT_UV_TILE_CM=400) so mesh UVs tile it.
+Broader fix worth considering: a `material op=ground`/simple-opaque helper that mints exactly
+this (basecolor+normal+constant-roughness) so the agent never has to reverse-engineer a
+diorama master for a plain floor.
 
 ### G58 — no verb-surface way to neutralise an instanced-foliage WPO offender; the fix needs a master-graph edit via raw probe.sh Python
 Status: OPEN (found 2026-07-04, plain-forest dogfood; the pines' motion is now correctly
