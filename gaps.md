@@ -81,3 +81,60 @@ harmless (the pawn drops on spawn) but it's a self-inconsistency: the verb claim
 capsule and its own floor-lint immediately contradicts it, forcing a manual `transform move`
 to clear the finding. Fix: ground player_start on its CapsuleComponent extent, not the
 merged actor bounds.
+
+### G56 — foliage paint accepts a tree whose leaf material needs the Procedural-Vegetation runtime; it renders bare ("dead trees") with no refusal
+Status: OPEN (found 2026-07-04, plain-forest dogfood — the user's #1 complaint: "most of the
+trees are dead, literally no leaves")
+
+The whole `/Game/UEB_Trees` set (Hornbeam/Norway-Spruce/Silver-Birch, SM_ exports of
+Megaplant_Library) has a `..._Foliage` material slot whose master is
+`/ProceduralVegetationEditor/SampleAssets/Materials/MasterMaterials/MA_Foliage_Trees` — a
+plugin master outside /Game carrying Season/Health/Translucency params that expect
+per-vertex runtime data the plain StaticMesh never supplies. On instanced foliage the leaf
+cards render invisible/bare, so a full canopy reads as dead winter branches. `asset
+op=describe` on the material DOES warn ("master lives outside /Game … engine/plugin
+materials often expect runtime data this mesh won't have"), but nothing hoists that into the
+paint path: `foliage op=paint` planted 793 of them with only a motion note, no refusal.
+Contrast R1/G40, which refuses on WPO. Fix: a paint-time rule (call it R-leaf) that refuses
+(force-overridable) when a scattered mesh's material master lives outside /Game under a known
+runtime-dependent plugin (ProceduralVegetation, etc.) — "these will render bare as static
+foliage; use a self-contained /Game foliage material." Known-good source discovered this
+session: `/Game/Modular_Rural_Cabin/Meshes/Foliage/SM_Pine_Tree_0[1-5]` (master MM_Tree_Branches,
+masked_wind, self-contained) — same proven pack as the grass/logs.
+
+### G57 — terrain accepts a BLEND_MASKED surface material; the cutout punches see-through holes ("ground clipping through the floor")
+Status: OPEN (found 2026-07-04, plain-forest dogfood — the user's #2 complaint)
+
+`terrain op=create material=MI_UEB_Grass` took a material whose blend_mode is BLEND_MASKED
+(a grass-blade cutout) and applied it as the terrain surface. A masked material on a solid
+ground mesh renders opaque only where the alpha mask passes — everywhere else is a hole you
+see straight through to the void, which reads exactly as "the ground is clipping through the
+floor." `MI_UEB_Grass` is a trap precisely because it's the material named "Grass" an agent
+reaches for as a forest floor. Fix: `terrain op=create/shape` should vet the material's blend
+mode and WARN/refuse when it's masked or translucent — a ground surface wants BLEND_OPAQUE.
+Known-good opaque ground found this session: `/Game/Modular_Rural_Cabin/Materials/Instances/Diorama_Ground`
+(MM_Vertex_Color_Blend, opaque).
+
+### G58 — no verb-surface way to disable foliage wind / override a FoliageType material; had to patch the material via raw probe.sh Python
+Status: OPEN (found 2026-07-04, plain-forest dogfood)
+
+R1/G40 correctly refuses the pine as instanced foliage (object-space WPO → whole instance
+translates = rigid float). The only clean fix is to kill the wind, but the verb surface has
+no way to: `foliage rules` has no wind toggle, and there's no FoliageType material-override
+option. I had to drop to `scripts/probe.sh py` and zero the `Wind Intesity`/`Wind Weight`
+scalars on the shared `MI_Pine_Tree_Branches` (0.02→0, 0.2→0) to make the pines static — a
+raw-Python escape off the verb surface, and it mutates a shared marketplace material for all
+its users. Fix: expose `rules.wind: "off"` (or a wind scalar) on `foliage op=paint` that
+mints a per-stand material instance with wind zeroed and assigns it as the FoliageType
+override — so the agent can plant WPO-suspect trees motion-safely without leaving the surface.
+
+### G59 — foliage op=remove leaves an empty FoliageType registration that reconcile keeps reporting as untracked
+Status: OPEN (minor; found 2026-07-04, plain-forest dogfood)
+
+After `foliage op=remove label=canopy` (and understory), `outliner op=reconcile` kept listing
+`canopy`/`understory` as `untracked, 0 instances` even across repeated removes — the instances
+and components are gone but an empty FoliageType/tag registration lingers in the IFA's
+used-types list, so the diff never goes fully clean. Harmless (nothing renders) but it means
+reconcile can't report a truly empty "0 untracked" after a legitimate stand replacement. Fix:
+`op=remove` should also drop the now-unused FoliageType from the IFA (and/or delete the
+FT_<label>__* asset when no instances remain).
