@@ -1,269 +1,276 @@
-# SPEC-10 — pcg: wrapping UE's PCG framework as an intent verb
+# SPEC-10 — `pcg`: wrap UE's PCG framework as an intent verb
 
-(Filename keeps the original "Procedural-Growth" slug; the verb and scope are `pcg`,
-generic placement — see Scope.)
+Status: **DESIGN, build-ready** (2026-07-05). Audience: the agent implementing the verb.
+Every engine claim below is spike-proven over the RC bridge (traces at bottom) unless
+marked **SPIKE-CHECK** — those you verify live before relying on them. Filename keeps the
+original "Procedural-Growth" slug; the verb is `pcg`.
 
-Status: **DESIGN** (2026-07-05). Grounded by two live spikes — every capability claim
-below was exercised over the RC bridge, and the numbers are real (spike traces at the
-bottom). **Both forks are now decided** (2026-07-05): verb = **`pcg`** (a standalone UE
-system earns its own verb — revised same day from `foliage op=grow`, see Verb shape);
-graphs = a code-authored palette (node-value tuning over Python is proven — no node
-editor, no reliance on exposed user parameters).
+## Decisions already made (do not relitigate)
 
-## Problem
+- **Verb = `pcg`**, its own verb (user call, 2026-07-05, reversing `foliage op=grow`):
+  PCG is a standalone UE system; predictability demands an unambiguous name. Ops mirror
+  the PCG component's own API: `generate` / `regenerate` / `cleanup`.
+- **Graphs = code-authored palette**: duplicate a stock graph → tune node settings in
+  Python → save under `/Game/UEB_PCG/`. No node editor, no `user_parameters` (stock
+  graphs don't expose any; 5.8 has no `get/set_graph_parameter`).
+- **Scope is generic placement, not foliage.** PCG samples points (surface / spline /
+  texture / volume / actors), filters them, and spawns assets (ISM instances, actors,
+  Blueprints, spline meshes). Palette classes will grow beyond vegetation (dressing,
+  kit assembly, rock formations). Boundaries to enforce in verb docs and errors:
+  **terrain carves, spline routes, pcg populates** — `pcg` never sculpts geometry, and
+  networks (roads/rivers) are `spline`'s to author, `pcg`'s to consume.
+- **Perception = numbers only** (per-mesh census). No screenshots.
+- Palette graphs are ordinary visible assets: the user can open `/Game/UEB_PCG/<name>`
+  in the PCG node editor at any time. Nothing is hidden; only *our* authoring path is
+  code.
 
-We hand-roll forest scatter — `foliage op=paint` over an InstancedFoliageActor, with the
-agent computing density from spacing (`density ∝ 1/spacing²`, `4× = halve min_spacing`).
-It works, but it is the exact coordinate-fiddling the project exists to escape, one
-abstraction up: the agent reasons about spacing numbers instead of saying "grow a forest
-here." UE5 already solves this declaratively with the **PCG framework** (node graph:
-sample a surface → filter by density/slope/noise → spawn instances), and the forest graph
-ships **with the engine**. The question this spec answers: how do we expose PCG as an
-intent verb that stays inside our laws — legible, numbers-only perception; relational, not
-coordinate, authoring; reversible; and driven entirely over Remote Control.
+## Verb contract
 
-## What the spike proved (ground truth, 2026-07-05)
+### MCP tool (`server/main.py`)
 
-Driving PCG purely from editor Python over RC, in throwaway level `/Game/Maps/UEB_PCGSpike`
-(30000 cm flat ueb terrain):
+Follow the `foliage` tool as the template (thin projection, `call_ue`, long timeout):
 
-- **Firing a graph is fully reachable.** `spawn PCGVolume → scale to cover the surface →
-  vol.pcg_component.set_graph(load_asset(graph)) → comp.generate(True)`. No GUI, no
-  `PCGSubsystem` (absent in 5.8 Python — drive the component directly).
-- **The forest graph is stock.** The PCG plugin ships 56 graph templates, incl.
-  `/PCG/GraphTemplates/TPL_Showcase_SimpleForest`, `…HierarchicalGenerationForest`,
-  `…RuntimeGrassGPU`, plus richer sample content under `/PCG/SampleContent/SimpleForest/…`
-  and the ProceduralVegetation plugin's `SeedPointScatter`. Epic authored the graph; the
-  "a human wires the node graph once" cost is already paid.
-- **One call produced 332,941 instances** across 5 ISM components: ~1,329 mature trees
-  (`PCG_Tree_01/02/03`) + 200 boulders + 331k seedling undergrowth — ~3× our whole
-  hand-built forest, with zero density math on our side.
-- **It sampled OUR terrain.** The graph read the ueb StaticMesh terrain's collision
-  directly (all instances on-surface, z=0). **No Landscape required** — this matters,
-  because Python can't author a Landscape in 5.8 ([[ue58-python-api-constraints]]) and our
-  terrain is a DynamicMesh. PCG scattered on it anyway.
-- **Self-contained meshes.** The graph spawns its own `PCG_*` content — NONE of the
-  bare-branch procedural-vegetation trap that R3/G56 guards against.
-- **Reversible.** `comp.cleanup(True)` emptied it cleanly. The component also exposes
-  `regenerate_in_editor`, `dirty_generated`, `get_generated_graph_output`,
-  `override_generation_radii`.
-
-## How the palette gets tuned — DECIDED (node-value tuning over Python)
-
-Firing a stock graph is trivial; the open question was **how a tuned variant gets
-authored without the user living in the PCG node editor** (they don't know UE, and
-node-graph work is exactly the editor-fighting this project exists to avoid). Spike #2
-answered it: **graph node settings are readable AND writable over RC**, and the change
-propagates through generation. So the palette is authored entirely in code:
-
-```
-duplicate a stock graph → /Game/UEB_PCG/<name>   (EditorAssetLibrary.duplicate_asset)
-walk graph.nodes → node.get_settings()           (typed PCGSettings subobjects)
-set_editor_property on the density/mesh/prune knobs
-save the /Game copy                               → this IS a palette entry
+```python
+@mcp.tool()
+def pcg(op: Literal["generate", "regenerate", "cleanup", "describe", "palette"] = "generate",
+        label: str = "pcg", graph: str = None, on: str = "terrain",
+        region: dict = None, seed: int = None, rules: dict = None,
+        force: bool = False) -> str:
+    ...
+    return render(call_ue("pcg", p, timeout=240))
 ```
 
-Proven end to end (spike #2): cutting `points_per_squared_meter` 8× on the three
-`PCGSurfaceSamplerSettings` nodes of a duplicated SimpleForest dropped the generated count
-**332,941 → 44,502** (seedlings 331k → 44k) — the authored value propagated exactly. The
-tunable surface per node type: `PCGSurfaceSamplerSettings` (density: `points_per_squared_meter`,
-`point_extents`, `point_steepness`, `looseness`, `seed`), `PCGStaticMeshSpawnerSettings`
-(which meshes spawn), `PCGSelfPruningSettings` (spacing/overlap), `PCGTransformPointsSettings`
-(scale/rotation jitter).
+Also update: `server/_instructions.py` (verb list says 14 — becomes 15) and the README
+verb table.
 
-Consequence: **we do NOT need graphs to expose user parameters** (the stock showcase
-graphs don't — `SimpleForest.user_parameters` is an empty `InstancedPropertyBag`, and there
-is no `get/set_graph_parameter` on `PCGGraphInstance` in 5.8). We bypass the parameter
-system and edit node settings directly on our own `/Game` copies. The `call_method` route
-to C++ `GetGraphParameter` remains a theoretical fallback for a param-exposing third-party
-graph, but nothing needs it.
+### Ops
 
-**Swapping the meshes (proven 2026-07-05).** Density is one axis; *which assets* grow is
-the other, and it's the same node-editing move. Each `PCGStaticMeshSpawnerSettings` node
-holds `mesh_selector_parameters` (a `PCGMeshSelectorWeighted`) whose `mesh_entries` is an
-array of `PCGMeshSelectorWeightedEntry` — each a `{descriptor.static_mesh, weight}`. Rebuild
-that array in code and the spawner grows whatever you point it at. Verified end to end:
-swapped the showcase `PCG_Tree_*` for `SM_Pine_Tree_01..05` (weighted) → 601 pines; and
-built three side-by-side plots on one terrain from three duplicated graphs — **pine**
-(`SM_Pine_Tree_*`, 6–17 m conifers), **scrub** (`GV_Vol7_Shrub_*_full`, 2–6.5 m), **fantasy**
-(`SM_FlowerTree_*`) — all draping the relief (saved: `/Game/Maps/UEB_ForestVariants`).
+| op | params | effect |
+|---|---|---|
+| `generate` | `graph=` (required), `on=`, `label=`, `region=?`, `seed=?`, `rules=?` | spawn a ueb-tagged PCGVolume sized to the `on=` surface, assign the palette graph, `generate(True)`, return census |
+| `regenerate` | `label=`, `seed=?` | re-run `generate(True)` on the existing volume (after a surface/palette change, or reroll with a new seed) |
+| `cleanup` | `label=` | `pcg_component.cleanup(True)` + destroy the volume + unregister — full reversal |
+| `describe` | `label=` (omitted → all groves) | census + params from the registry, re-counted live; read-only |
+| `palette` | — | list palette entries: name, source graph, mesh families, tuned density; read-only. This is the discoverability surface — `generate` with an unknown `graph=` errors with this same list (HATEOAS) |
 
-**Palette entry = a tuning function** (duplicate stock graph → set sampler densities + swap
-spawner mesh_entries → save `/Game/UEB_PCG/<graph>`), checked into the runtime the way
-FoliageType minting is. Adding `pine_dense` / `mixed_sparse` / `flower_grove` is writing one,
-not opening an editor. The agent's day-one intent knobs: **which palette entry** (`graph=`),
-**which surface / area** (`on=` → volume bounds, proven to drive sampling extent), and
-**seed** (per-node `seed`, for reroll-without-restructure).
+Build order: `generate` + `cleanup` + `palette` first; `regenerate`/`describe` in the
+same PR if cheap, else after dogfooding demands them.
 
-**Mesh vetting is a hard gate on palette entries (found 2026-07-05).** A mesh only earns a
-palette slot after two checks, both cheap over RC: (1) **size** — `mesh.get_bounds()` height,
-so a 0.6 m "Decoration" sprig never gets scattered as a canopy tree; (2) **bare-render / G56**
-— walk the mesh's material masters, reject any under a runtime-dependent plugin
-(`MA_Foliage_Trees` etc., the R3 rule). Dogfooding proved the need: `Megaplant_Library`
-`Decoration_*` meshes are 0.6 m AND wear `MA_Foliage_Trees` (would render bare) — auto-rejected;
-`UEB_Trees` hornbeam/spruce/birch are the same trap. And **motion**: a `pivot_wpo` palette
-mesh (e.g. `SM_FlowerTree_*`) rigid-floats when instanced (G40), so the grow must set
-`world_position_offset_disable_distance=1` on its spawned ISM components post-generate — done
-for the fantasy plot, the same cure as G58. `wpo` (plain wind, e.g. the pines/shrubs) is left
-to sway.
+### Errors (each carries the next legal move, per the vision law)
 
-## Scope — PCG is generic placement, not a foliage feature
+- unknown `graph=` → error listing palette names + `pcg op=palette`.
+- unknown `on=` label → error naming the outliner lookup that failed.
+- `generate` produced **0 instances** → NOT silent success: `degraded_warning` naming
+  the two known causes (volume headroom, moved-after-generate — see Invariants) with the
+  re-fire line.
+- duplicate `label=` → error (labels are unique across ueb actors).
 
-A huge share of world content will flow through this verb, so the spec must not bake in
-its first use case. PCG is a **point-dataflow placement/assembly system**: sample points
-(from a surface, spline, texture, volume, or other actors) → filter/transform (slope,
-noise, density, distance-to, self-prune) → spawn assets at the survivors — mesh
-instances, **actors, Blueprints, spline meshes**. The verb wraps *that*; vegetation is
-the first palette class, not the boundary. What the same surface covers:
+## Runtime implementation (`runtime/ue_buttons/pcg.py`, new module)
 
-- **Forests / scatter** — stock graphs, spike-proven.
-- **Dressing** — debris in a canyon, props in a cabin, stalagmites in a carved cave: the
-  same sample→spawn shape with a different palette (the surface sampler reads any
-  collision, including cave interiors).
-- **Kit assembly (cities, ruins, fences)** — PCG assembles modular kits along grids and
-  splines (Epic's Electric Dreams pattern). Needs an authored graph + a modular asset
-  kit; **no stock city graph ships** — see "the graph is the ceiling."
-- **Rock formations / spires** — as placed+scaled+stacked rock meshes, trivially (a
-  palette with large scale ranges).
-- **What `pcg` is NOT: a sculptor.** Carving caves, raising cliffs, novel geometry —
-  geometry-script territory, owned by `terrain`. Road/river *networks* are authored by
-  `spline`; `pcg` *consumes* splines as inputs (spawn-along-spline, clear-near-spline via
-  difference nodes). Division of labor: **terrain carves, spline routes, pcg populates.**
+Mirror `foliage.py`'s shape: a `handle(p)` dispatching on `p["op"]`, returning a plain
+dict. Wire into `verbs.py`:
 
-**The graph is the ceiling.** Our proven authoring surface is duplicate-a-stock-graph +
-tune node values (densities, mesh entries, prune spacing). Stock templates cover
-vegetation/grass/rocks; there is nothing city-shaped to duplicate. OPEN SPIKE: can
-editor Python author a graph **from scratch** (add nodes, wire edges)? If yes, the agent
-can grow arbitrary generators in code; if no, new palette classes come from duplicating
-the nearest stock/marketplace graph. Either way the verb shape below is unchanged — only
-the palette registry grows.
+- `from . import pcg as pcgmod`; add `"pcg": _v_pcg` to `_VERBS`.
+- Add `"pcg"` to the `SPATIAL` set — same lifecycle class as terrain/spline/foliage:
+  status block yes, history/transaction no, `undoable: false`, teardown is its own
+  `cleanup`. `_focus_label` already handles SPATIAL via `result["label"]` — every
+  mutating result must carry `label`.
+- `_status_block`'s foliage-only `population_line` branch: extend the sense-3 render
+  walk to pcg groves (same motivating case — a grove correct in data that draws
+  nothing). If that's more than a small change, log it as a gap and ship without.
 
-**Graphs are visible, ordinary assets.** Palette entries live at `/Game/UEB_PCG/<name>`
-as normal PCG graph assets — the user can double-click one in the Content Browser and
-UE's node editor opens it like any hand-made graph. Code-authored means *we* never open
-that editor, not that the artifacts are hidden.
+### State registry (`_state.py`)
 
-**Backend.** Nothing PCG-specific in the transport and no UE-side MCP exists: the same
-RC bridge → editor Python → `PCGComponent` API (`set_graph` / `generate` / `cleanup`)
-that every other verb rides.
-
-## Verb shape — DECIDED: mint `pcg`
-
-Decided (2026-07-05, revising the same-day `foliage op=grow` call): **`pcg` is its own
-verb.** The user's tiebreak is predictability — nothing about `foliage op=grow` suggests
-PCG, while a verb named `pcg` is totally unambiguous. And it is the *stronger* reading of
-the SPEC-05 law: verbs are named for the UE surface they drive, and PCG is a named,
-standalone UE system (its own plugin, editor mode, and asset type) — not a feature of the
-foliage mode. The seam is clean: `foliage` = InstancedFoliageActor painting, `pcg` =
-graph-driven generation. Op names mirror the PCG component's own API (`generate()` /
-`cleanup()`) for the same predictability reason:
-
-```
-pcg op=generate  graph=<palette name>  on=<terrain/surface label>  [region=…]  [seed=n]
-pcg op=regenerate  label=<grove>       # re-run generate() after a surface/param change
-pcg op=cleanup   label=<grove>         # cleanup(True) + destroy the volume — full reversal
+```python
+pcg_volumes = {}   # {label: {graph, on, seed, region, actor_name, counts}}
 ```
 
-- `graph=` resolves against the code-authored palette (small runtime registry, intent
-  name → `/Game/UEB_PCG/<graph>`, each a stock graph duplicated + tuned in code, vetted
-  the way FoliageType minting is).
-- `on=` is relational, not coordinate: the named surface's AABB sizes and positions the
-  PCGVolume (bounds proven to drive sampling extent). `region=` optionally clips to a
-  circle/rect the way `foliage op=paint` already does.
-- The result is a labelled, ueb-tagged PCGVolume actor — it joins the outliner registry
-  and reconcile like any other ueb actor, so `op=cleanup` and level lifecycle
-  (`level op=clear`) already know how to tear it down.
+`_state` is never hot-reloaded (see its header) — a new module-level name is only
+present after an editor restart, so every access goes through a
+`hasattr(_state, "pcg_volumes")`-guarded init, same pattern as `_state.follow` in
+`verbs.py`.
 
-(The earlier `foliage op=grow` shape was weighed and reversed — "don't split plants
-across verbs" lost to "a standalone UE system gets an unambiguous verb of its own.")
+Registry lifecycle: extend `outliner op=reconcile` to diff `pcg_volumes` against the
+live level (prune entries whose volume actor is gone), exactly as it does for
+`terrains`/`foliage_stands`. Confirm `level op=clear` tears groves down via the
+ueb-tag sweep — **SPIKE-CHECK**: destroying the PCGVolume actor must also remove its
+generated instances; if orphans survive, `clear` needs a pcg-aware pre-pass
+(`cleanup(True)` before destroy).
 
-## Perception — census, numbers only
+### `op=generate` algorithm
 
-Policy holds: no screenshot, the agent perceives the result as numbers. After a generate,
-walk the volume's managed ISM components and count per `static_mesh` — proven in the spike
-(5 components, exact per-mesh counts). The verb returns a **per-mesh census** (per-species,
-when the palette is a forest) and the volume's world-AABB coverage:
+1. **Resolve** `graph=` in the palette (materialize the `/Game/UEB_PCG/` asset if
+   missing — see Palette). Resolve `on=` to a live actor; AABB via `_ue.bounds(actor)`.
+2. **Compute the volume transform.** XY center/extent from the AABB (clipped by
+   `region=` if given — reuse foliage's region vocabulary: circle/rect/polygon/terrain,
+   MAP cm). Z: center on the surface's z mid, half-extent `max(6000, surface_z_span/2 +
+   2000)` cm — the sampler ray-casts over the volume's Z extent and a thin volume yields
+   **zero** instances (proven: ±6000 worked, ±1000 gave nothing). PCGVolume's unscaled
+   box is ±100 cm, so `scale3d = half_extents / 100`.
+3. **Spawn the volume already at that transform** (`EditorActorSubsystem.
+   spawn_actor_from_class(unreal.PCGVolume, loc)` + set scale before any generate).
+   NEVER move/rescale it after a generate — proven to leave stale state that produces 0
+   on regen. Label it, ueb-tag it (reuse `add`'s tagging helper so outliner/feel/level
+   see it).
+4. **Assign + fire**: `vol.pcg_component.set_graph(unreal.load_asset(palette_path))`
+   then `comp.generate(True)`. There is NO `PCGSubsystem` in 5.8 Python — drive the
+   component only.
+5. **Seed** — **SPIKE-CHECK**: `PCGComponent` is expected to expose a `seed` property;
+   if so, `seed=` sets it pre-generate (per-grove reroll without touching the shared
+   palette asset). If not, per-grove seeding means writing node seeds — which would
+   mutate the shared palette graph, so in that case duplicate the graph per grove or
+   drop `seed=` from v1 and log a gap. Never mutate a shared `/Game/UEB_PCG` asset per
+   call.
+6. **Wait for completion (G30).** `generate(force)` can complete asynchronously (spike
+   observed results landing a beat later). Poll: re-read the volume's ISM component
+   instance counts until stable across two reads (with a bounded loop; the server call
+   allows 240 s). Measure and record wall-clock in the result. If a big surface wedges
+   the HTTP call anyway, this becomes G30's job/progress pattern — build it then, not
+   speculatively.
+7. **Census + motion audit.** Walk the volume's generated ISM components; count per
+   `static_mesh` (proven: 5 comps, exact per-mesh counts). For each unique mesh run the
+   same material-motion classifier the foliage path uses (`foliage.motion_census` /
+   the asset-module motion helpers): meshes classified `pivot_wpo` rigid-float when
+   instanced (G40) → set `world_position_offset_disable_distance = 1` on their ISM
+   components post-generate (the G58 cure; proven on the fantasy plot). Plain `wpo`
+   (wind sway) is left on but reported in the census. `rules={"wind":"off"}` forces the
+   disable on ALL the grove's components (same knob as foliage G58).
+8. **Register + return** (shape below). Also confirm the level saves + reopens with the
+   instances intact once during verification — 333k instances across World Partition
+   external-actor cells wants one explicit residency check (spike saved without
+   complaint; re-verify after reopen).
 
+### Result dicts
+
+`generate`/`regenerate` (the status block renders around this; `notes` become ⚠ lines):
+
+```python
+{"label": "grove_north", "graph": "mixed_sparse", "on": "terrain",
+ "census": [{"mesh": "PCG_Tree_01", "count": 425, "motion": "wpo"}, ...],
+ "instances": 44502, "coverage": {"x": [-15000, 15000], "y": [-15000, 15000]},
+ "wall_clock_s": 4.1, "seed": 7,
+ "next": ["pcg op=regenerate label=grove_north seed=<n>",
+          "pcg op=cleanup label=grove_north"]}
 ```
-grew grove_north (graph=mixed_sparse, on=terrain):
-  1329 trees  (PCG_Tree_01 ×425, _02 ×489, _03 ×415)
-   200 boulders (PCG_Boulder_02)
-  331412 seedlings (PCG_Seedling_01)     ← untuned showcase density; see note
-  coverage: x[-15000,15000] y[-15000,15000], on terrain surface
-  → pcg op=cleanup label=grove_north         # ready to fire
+
+`cleanup`: `{"label": ..., "removed_instances": n, "removed": True}`.
+`palette`: `{"palette": [{"name": "mixed_sparse", "source": "TPL_Showcase_SimpleForest",
+"meshes": [...], "density_note": ...}, ...]}`.
+
+## Palette registry (in `pcg.py`)
+
+```python
+PALETTE = {
+    "mixed_sparse": {
+        "source": "/PCG/GraphTemplates/TPL_Showcase_SimpleForest",
+        "tune": _tune_mixed_sparse,   # (graph) -> None, edits node settings
+    },
+    ...
+}
 ```
 
-Every generate carries the HATEOAS `next` (regenerate / cleanup), per the vision law. The seedling
-flood is the honest showcase output and precisely the argument for the curated palette
-(A): a tuned `mixed_sparse` graph would author a sane seedling count once, so the agent
-never sees 331k.
+- **Materialize lazily**: `generate` with `graph=name` checks
+  `/Game/UEB_PCG/<name>`; if absent → `EditorAssetLibrary.duplicate_asset(source,
+  dest)` → run `tune(graph)` → save. Idempotent; the `/Game` copy is the asset of
+  record and user-inspectable.
+- **Tuning surface (all proven read+write over RC, propagate through generation):**
+  - `PCGSurfaceSamplerSettings`: `points_per_squared_meter` (density),
+    `point_extents`, `point_steepness`, `looseness`, `seed`.
+  - `PCGStaticMeshSpawnerSettings`: `mesh_selector_parameters`
+    (`PCGMeshSelectorWeighted`) `.mesh_entries` — array of
+    `PCGMeshSelectorWeightedEntry`, each `{descriptor.static_mesh, weight}`. Rebuild
+    this array to swap what grows (proven: pine/scrub/fantasy plots).
+  - `PCGSelfPruningSettings` (spacing/overlap), `PCGTransformPointsSettings`
+    (scale/rotation jitter).
+  - Access pattern: `graph.nodes` → `node.get_settings()` → typed `PCGSettings`
+    subobject → `set_editor_property`.
+- **Mesh vetting is a hard gate on every entry's mesh list** (all cheap over RC):
+  1. size — `mesh.get_bounds()` height sane for the slot (a 0.6 m sprig never becomes a
+     canopy tree; proven need: Megaplant `Decoration_*`);
+  2. bare-render / G56 — walk the mesh's material masters, reject runtime-dependent
+     plugin masters (`MA_Foliage_Trees` etc., the R3 rule);
+  3. motion — classify; `pivot_wpo` is allowed but must trigger the step-7 WPO disable.
+  `force=True` on generate bypasses (1)–(2) with the same census-keeps-flagging
+  semantics foliage uses.
+- First shipped entries: ONE curated forest entry (tuned SimpleForest — sane seedling
+  density so nobody ever sees 331k undergrowth) is enough to dogfood. `pine_dense` /
+  `flower_grove` etc. follow as one tuning function each.
 
-## Hazards / gaps to carry into build
+## Invariants (violating any of these produced real failures)
 
-- **G30 (the async trap).** A 333k-instance generate is a heavy game-thread op; a larger
-  surface could outrun the HTTP timeout. `generate(force)` may run async (the spike read
-  results a beat later), so the verb likely needs the poll-and-reread pattern G30 has been
-  waiting for a concrete offender to shape — this may be it. Measure generate wall-clock in
-  the first build; if it wedges, this is where G30's job/progress pattern finally gets
-  built.
-- **Motion / WPO.** The spike didn't audit whether `PCG_Tree_*` carry WPO wind (the G40/G58
-  saga). The grow census must run the same `asset.material_motion` classifier the paint
-  path does, and expose the same `rules.wind:"off"` WPO-disable knob if the palette trees
-  float when instanced. Do not assume PCG meshes are static.
-- **World Partition residency.** Generated instances on an Open World map land in
-  partitioned cells; confirm `outliner op=reconcile` and `level op=streaming` see them
-  correctly and that a save persists them (the spike saved without complaint, but 333k
-  instances across external-actor cells wants a residency check).
-- **Palette vetting.** Each palette graph must pass R3/G56 (no plugin-runtime leaf masters
-  that render bare) before it earns a name — the same gate `foliage op=paint` enforces.
-- **Volume must be TALL, not surface-thin (build gotcha, found 2026-07-05).** The
-  SimpleForest sampler ray-hits the world over the volume's Z extent; a volume sized to a
-  terrain's near-flat AABB (≈20 m tall) silently generates **zero** instances. `on=<surface>`
-  must bracket the surface with generous headroom (the spike used ±60 m and worked; ±10 m
-  gave nothing). Also: **spawn the volume already positioned/scaled, then generate** —
-  moving a PCGVolume *after* a generate left stale state and produced zero on regen; a clean
-  spawn at the right transform is reliable. The verb sizes the box from the surface AABB in
-  XY but a fixed tall Z, and never mutates the transform between set_graph and generate.
-- **PCG palette meshes carry `wpo` wind (found 2026-07-05).** `PCG_Tree_*`/`PCG_Seedling_*`
-  classify as `wpo` (per-vertex wind), NOT the `pivot_wpo` rigid-float bug (G40) — they sway
-  correctly on instances. Desirable, not a defect, but the grow census should surface the
-  motion verdict so "this forest moves" is stated, and `rules.wind:"off"` (G58) stays
-  available if a level wants it stilled.
+1. **Volume must be TALL.** Thin volume ⇒ silent zero instances. (±6000 cm worked;
+   ±1000 did not.)
+2. **Spawn at final transform, then generate.** Moving a generated volume then
+   regenerating produced zero. Never mutate the transform between `set_graph` and
+   `generate`.
+3. **Drive `PCGComponent` directly** — no `PCGSubsystem` in 5.8 Python.
+4. **Never mutate a shared palette asset per call** (seeds, densities) — per-grove
+   variation goes through the component or a per-grove duplicate.
+5. **Zero instances is a warning, never a silent success.**
+6. **Every mutating result carries `label`** (the SPATIAL status block depends on it).
 
-## Sequencing
+## Verification plan (live, over the MCP tools, before commit)
 
-Independent of SPEC-09 (runtime lint). Depends on nothing unbuilt — path A rests entirely
-on spike-proven capability. Recommended first build: the palette registry + `op=generate`/
-`op=cleanup` against ONE curated graph, dogfooded on a real level (retire the hand-rolled
-scatter in [[ueb-forest-level-status]] as the proof). `op=regenerate` and any parameter
-work (path B) follow only if dogfooding demands them.
+1. `pcg op=palette` lists the curated entry. `op=generate graph=<bad>` errors with the
+   list.
+2. `op=generate` on a fresh rolling-terrain level: census non-zero, counts match a
+   manual ISM walk, volume is ueb-tagged and visible to `outliner`/`feel`, wall-clock
+   recorded.
+3. `op=cleanup`: instances gone (ISM walk = 0), actor gone, registry pruned,
+   re-`generate` with the same label works.
+4. `seed=` reroll changes the arrangement but not the palette asset (SPIKE-CHECK
+   outcome documented in this spec when known).
+5. `level op=save` → `op=open` (reopen): instances persist (World Partition residency).
+6. `outliner op=reconcile` after a human-deletes-the-volume simulation prunes the
+   registry entry.
+7. Dogfood: rebuild the [[ueb-forest-level-status]] forest through `pcg` and retire the
+   hand-rolled density math — that level is the acceptance test.
+8. Failures found on the way become numbered gaps in `gaps.md` (fix → live-verify →
+   prune), per house discipline.
 
-## Spike trace (2026-07-05, all over the RC bridge)
+## Open spike (not gating the first build)
 
-1. Class probe: `PCGComponent/PCGGraph/PCGVolume/PCGWorldActor` present;
-   `PCGSubsystem` absent; `ProceduralFoliageSpawner.simulate` exists but 0 spawner assets
-   ship and `ProceduralFoliageType` is absent → PCG is the live path, not Procedural
-   Foliage.
-2. `set_graph`/`generate(force)` signatures confirmed; `SimpleForest` graph loads.
-3. Full drive: spawned `pcg_forest_spike` PCGVolume, scaled to ±15000/±6000 box over the
-   terrain, `set_graph(TPL_Showcase_SimpleForest)`, `generate(True)` → **332,941
-   instances**, all z=0 on the terrain surface, own `PCG_*` meshes.
-4. `cleanup(True)` emptied it; regenerated + saved to `/Game/Maps/UEB_PCGSpike` for the
-   user's visual judgment.
-5. Parameter probe: `SimpleForest.user_parameters` is an empty `InstancedPropertyBag`; no
-   `get/set_graph_parameter` in 5.8 Python; `call_method` present on graph + instance
-   (theoretical fallback, unneeded). Richer forest graphs enumerated under
-   `/PCG/SampleContent/…` and `/ProceduralVegetationEditor/…`.
+**From-scratch graph authoring**: can editor Python CREATE a graph (add nodes, wire
+edges — `PCGGraph.add_node`-shaped API), not just duplicate+tune? Decides whether new
+palette *classes* (kit-assembly city, spline-dressing) can be grown entirely in code or
+must start from the nearest stock/marketplace graph. Verb shape is unaffected either
+way. Run it as its own spike before designing the second palette class.
 
-Spike #2 — node-value tuning (2026-07-05, deciding the palette question):
+## Ground truth — spike traces (2026-07-05, all over the RC bridge)
 
-6. `graph.nodes` → 16 nodes; each `node.get_settings()` returns a typed `PCGSettings`
-   subobject (3× `PCGSurfaceSamplerSettings`, `PCGStaticMeshSpawnerSettings`,
-   `PCGSelfPruning`, `PCGTransformPoints`, …). Settings props read fine
-   (`points_per_squared_meter=0.015`, `point_extents`, `point_steepness`, `looseness`,
-   `seed`).
-7. `EditorAssetLibrary.duplicate_asset(SimpleForest → /Game/UEB_PCG/Grow_test)`, then
-   `set_editor_property("points_per_squared_meter", old/8)` on all three samplers, saved.
-   Repointed the spike volume at the copy, `generate(True)` → **44,502 instances**
-   (seedlings 331k → 44k) — the code-authored density propagated through generation
-   exactly. Palette-in-code path proven end to end; no PCG node editor touched.
+Spike #1 (capability), throwaway level `/Game/Maps/UEB_PCGSpike`, 30000 cm flat ueb
+terrain:
+
+1. Class probe: `PCGComponent/PCGGraph/PCGVolume/PCGWorldActor` present; `PCGSubsystem`
+   absent; `ProceduralFoliageSpawner.simulate` exists but 0 spawner assets ship and
+   `ProceduralFoliageType` is absent → PCG is the live path, not Procedural Foliage.
+2. `set_graph`/`generate(force)` signatures confirmed; `SimpleForest` graph loads. The
+   PCG plugin ships 56 graph templates (`TPL_Showcase_SimpleForest`,
+   `…HierarchicalGenerationForest`, `…RuntimeGrassGPU`, sample content under
+   `/PCG/SampleContent/…`, `/ProceduralVegetationEditor/…`).
+3. Full drive: spawned PCGVolume, scaled ±15000 XY / ±6000 Z over the terrain,
+   `set_graph(TPL_Showcase_SimpleForest)`, `generate(True)` → **332,941 instances**
+   across 5 ISM comps (331,412 `PCG_Seedling_01`; 425/489/415 `PCG_Tree_01/02/03`; 200
+   `PCG_Boulder_02`), all on-surface at z=0 — the graph sampled our **DynamicMesh**
+   terrain's collision directly; no Landscape required
+   ([[ue58-python-api-constraints]]).
+4. `cleanup(True)` emptied it cleanly. Component also exposes `regenerate_in_editor`,
+   `dirty_generated`, `get_generated_graph_output`, `override_generation_radii`.
+5. Parameter probe: `SimpleForest.user_parameters` is an empty `InstancedPropertyBag`;
+   no `get/set_graph_parameter` in 5.8; `call_method` exists as a theoretical fallback
+   (unneeded).
+
+Spike #2 (node-value tuning, decided the palette design):
+
+6. `graph.nodes` → 16 nodes; `node.get_settings()` returns typed `PCGSettings`
+   subobjects; properties read fine (`points_per_squared_meter=0.015`, etc.).
+7. `duplicate_asset(SimpleForest → /Game/UEB_PCG/Grow_test)`, cut all three samplers'
+   `points_per_squared_meter` 8×, saved, regenerated → **44,502** instances (seedlings
+   331k → 44k). Code-authored density propagated exactly; no node editor touched.
+
+Hand-grown proof levels (2026-07-05): tuned 8k-instance plot (601 pines / 7.4k
+undergrowth / 28 boulders) on rolling terrain; three-palette variants level
+(`/Game/Maps/UEB_ForestVariants`) — pine (`SM_Pine_Tree_*`), scrub
+(`GV_Vol7_Shrub_*_full`), fantasy (`SM_FlowerTree_*`, pivot_wpo → WPO-disable applied)
+— proving mesh-swap and the vetting gate (Megaplant `Decoration_*` auto-rejected: 0.6 m
+AND `MA_Foliage_Trees`).
