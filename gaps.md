@@ -53,3 +53,37 @@ geometry — nothing reads luminance at a point). Two gaps in one: an authoring 
 and a numeric light-level sense to make "it's too dark in here" a measurable finding
 instead of a human complaint. PIE-tier check candidate for SPEC-09.
 
+### G62 — the agent keeps falling back to raw `scripts/probe.sh` editor Python for whole capability categories the verb surface doesn't cover
+Status: OPEN (found 2026-07-05, UEB_ScenicWood dogfood)
+
+Driving a real level to completion repeatedly forced hand-written editor Python over
+`scripts/probe.sh py '...'` — *outside* the legible intent-driven verb surface: unverifiable
+by the status block / `feel` / `validate`, invisible to `history`, unreplayable, and
+un-requestable by the user (they can only ask ME; there's no verb behind it). Every such
+fallback is the "coordinates, not intent" anti-pattern this project exists to kill, and each
+one is a missing verb the dogfood surfaced *by need, not speculation* — the signal to promote
+it. Categories hit THIS session, all currently shell-only:
+
+- **Lighting** — sun pitch/yaw/intensity/temperature, skylight fill, fog. See G50 (this is
+  its predicted recurrence: sun raised −10→−20 via `set_actor_rotation` over probe; the
+  user then had to be taught the editor Details panel by hand because no verb exposes it).
+- **Ambient audio** — placing `AmbientSound` actors and authoring randomizing `SoundCue`
+  graphs (Loop→Modulator→Random-without-replacement), 2D/looping/volume. No `sound`/`audio`
+  verb. A whole imported SFX pack was wired AND torn down entirely in Python.
+- **Material authoring** — creating/editing Materials & instances via `MaterialEditingLibrary`
+  node graphs (RVT writer master + RVT Output node, RVT-reader mound mat, translucent
+  edge-fade path-blend), reparenting MIs. The `material` verb today only assigns/reads —
+  it cannot AUTHOR. (Also why the path-blend shipped invisible: no way to author+preview a
+  blend through a verb, so a fragile translucent hand-build slipped through unverified.)
+- **Procedural mesh generation** — baking a StaticMesh (cosine-falloff dome) via GeometryScript.
+- **Instanced placement off a data source** — reading a foliage stand's per-instance
+  transforms and co-locating a second instanced mesh at each (the RVT mounds). Foliage
+  can't co-locate two stands or place a non-inventory mesh.
+- **Arbitrary actor/component property edits** — assign a material to any actor, register an
+  RVT on a component, force-dirty+save a light, etc.
+
+Resolution: NOT one mega-verb — triage into SPEC-worthy verbs as each earns it (`light` is
+the clearest next, already G50; a `sound` verb and material-authoring support after). Going
+forward, treat "I had to reach for `probe.sh`" as a first-class gap signal, logged here, not
+a silent convenience.
+
