@@ -3,9 +3,10 @@
 Status: **IMPLEMENTED + live-verified** (2026-07-06) — `runtime/ue_buttons/leveldiff.py`,
 wired into `verbs.py` (auto-bracket on the `DIFFED` verb set) + `outliner op=snapshot|diff`.
 Every SPIKE-CHECK below was resolved live against UE 5.8 and came back green (see
-§Implementation status at the bottom). **One open design decision** (the B16 template-sink
-interaction on first terrain-create) is flagged there for the author — the differ ships
-maximally truthful / verb-blind rather than silently filtered.
+§Implementation status at the bottom). The B16 template-sink decision is **RULED**
+(§Author rulings): flag-attribution under a strict signature, listing stays complete.
+Verification steps 3 (crater sculpt) and 6 (WP stream-out disclosure) remain to be run
+before the spec is considered closed.
 
 The **narrow spatial fingerprint** (class + location + bounds-Z) was **PROVEN** the prior
 session — snapshot/diff over 140 actors, `0/0/0` on a no-op, caught a +1000 cm PlayerStart
@@ -223,22 +224,46 @@ spatial (mode named) ✅. (3) sculpt-the-crater on a REAL Landscape and (6) WP f
 were NOT exercised live (no crater fixture loaded this session); the bounds-Z capture that
 covers (3) is the same one the move test exercised, and (6) is the disclosed WP gap above.
 
-**OPEN DECISION for the author — the B16 template-sink interaction.** On the FIRST
-`terrain create` in a level, the B16 self-heal sinks+hides ~128 template Landscape proxies
-2 km, and — because at snapshot time no ueb terrain exists yet, so `handle()`'s
-`if _state.terrains:` self-heal hasn't run — that sink lands IN the delta: ~128 `changed`
-+ a `max ΔZ 2000 m` OPPENHEIMER flag on a routine create. The spec's timing fix covers the
-steady state but not first-create. The three exits considered, none taken unilaterally
-because each trades against a cardinal principle:
-- **Filter the template Landscape family** → violates verb-blindness AND would hide a real
-  Landscape sculpt (the crater — verification step 3 wants that CAUGHT); the sculpt and the
-  sink are indistinguishable by the diff alone (both are bounds-Z on Landscape proxies).
-- **Extend the timing trick to first-create** (pre-hide before the `before` snapshot) →
-  leaves the template hidden with no ground if the create then fails.
-- **Exempt only the flag** (report the 128 in the delta, don't let the pure template-sink
-  trip the alarm) → keeps the listing fully truthful, tunes only the heuristic alarm.
-Shipped as-is (fully truthful, verb-blind, noisy on that one op) pending the author's ruling;
-the flag-only exemption is the recommendation.
+## Author rulings (2026-07-06, closing the implementation questions)
+
+**1. B16 first-create sink → flag-attribution under a STRICT signature; the listing stays
+complete.** The other two exits are rejected: filtering the template family hides a real
+Landscape sculpt (sink and sculpt are indistinguishable by diff alone — the crater must be
+CAUGHT), and pre-hiding before the `before` snapshot leaves a hidden template with no ground
+if the create then fails. The exemption is an **attribution, not a silence**: an actor joins
+the pure-sink subset iff (i) template Landscape proxy class, (ii) ΔZ exactly the −2 km sink
+constant, (iii) hidden-flag transition consistent with B16, (iv) NO other field deltas.
+Matching actors remain in `changed` but are summarized as a labeled line — "~128 template
+proxies sunk 2 km — B16 self-heal, engine housekeeping, not your op" — and don't count
+toward the flag thresholds. **One actor deviating by one field → the exemption is off and
+the flag trips normally.** A real sculpt never matches (varied ΔZ, no hide, not the
+constant). This is not verb knowledge in the differ; it is the tool attributing its own
+documented side-effect, which truth demands anyway.
+
+**2. `full` as the universal default — confirmed.** Cost was the only reason to hedge and
+it is measured cheap. Recorded caveat: 0.5 s was at 138 actors and scales with actor count;
+if a heavy level hurts, that is a measured re-decision later — the payload names the mode
+either way. Do not pre-optimize add/transform.
+
+**3. OPPENHEIMER trip points confirmed as-is** (any removal; max |ΔZ| ≥ 100 m; ≥ 20 actors
+changed/removed) — **including deliberate large moves tripping.** The flag is a question;
+an occasionally-rhetorical question costs one line, while suppressing "expected" moves would
+require exactly the verb knowledge the differ must not have. Tune with evidence if it nags.
+
+**4. `material` stays in DIFFED.** `+0 −0 ~0` on `op=instance` is not nothing — it is proof
+of no actor side-effect from an asset-authoring op, for ~1 s, and it future-proofs the day
+material assigns to an actor.
+
+**5. Field cap 25 with disclosed `+N more (capped)` — confirmed for the auto-bracket.**
+`outliner op=diff` (the explicit diagnostic) additionally gets `verbose=true` for the
+uncapped dump.
+
+**6. Steps 3 and 6 are REQUIRED before the spec closes.** Step 3 is non-negotiable — the
+spec exists because of the crater: open `/Game/Maps/UEB_SculptCrater`, run a heightmap
+import, see the proxies land in `changed` with bounds-Z deltas + flag. Step 6 is amended
+since the descriptor split is not built: verify a forced stream-out lands in `removed`
+WITH the `removed_note` disclosure firing (the limitation working as disclosed), and log a
+gap for the real `unloaded` split.
 
 ## Provenance
 
