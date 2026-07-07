@@ -1,12 +1,16 @@
 # SPEC-16 — Level Diff: the whole-outliner blast-radius status block
 
-Status: **IMPLEMENTED + live-verified** (2026-07-06) — `runtime/ue_buttons/leveldiff.py`,
+Status: **IMPLEMENTED + fully verified — CLOSED** (2026-07-06) — `runtime/ue_buttons/leveldiff.py`,
 wired into `verbs.py` (auto-bracket on the `DIFFED` verb set) + `outliner op=snapshot|diff`.
-Every SPIKE-CHECK below was resolved live against UE 5.8 and came back green (see
-§Implementation status at the bottom). The B16 template-sink decision is **RULED**
-(§Author rulings): flag-attribution under a strict signature, listing stays complete.
-Verification steps 3 (crater sculpt) and 6 (WP stream-out disclosure) remain to be run
-before the spec is considered closed.
+Every SPIKE-CHECK resolved live against UE 5.8, green. All six author rulings implemented,
+incl. the B16 flag-attribution (strict 4-part signature) and `outliner op=diff verbose=true`.
+**All verification steps run live, including step 3 (the founding crater sculpt on
+`/Game/Maps/UEB_SculptCrater`) and step 6 (WP stream-out disclosure)** — see §Implementation
+status. Step 3 surfaced a first-order finding: a heightmap import lands on a
+`LandscapeEditLayer` and bounds stay STALE until `force_layers_full_update()` composites it —
+the exact root of the crater session's "success with no numbers." The differ is correct
+either way; a sculpt VERB (future SPEC-17) must flush, and a `0/0/0` diff after an unflushed
+sculpt is the honest signal it never took.
 
 The **narrow spatial fingerprint** (class + location + bounds-Z) was **PROVEN** the prior
 session — snapshot/diff over 140 actors, `0/0/0` on a no-op, caught a +1000 cm PlayerStart
@@ -193,11 +197,20 @@ downgrade:
 ## Implementation status (2026-07-06)
 
 Built: `runtime/ue_buttons/leveldiff.py` (`snapshot`/`diff`/`render_lines`, the empty
-`_TRANSIENT_DENYLIST`, the two modes, the OPPENHEIMER flag). Wired: `verbs.py` `DIFFED =
-MUTATING | SPATIAL | {"material"}`, the before/after bracket in `handle()` (snapshot after
-the B16 self-heal, skip `op=describe`, skip on error), the `level_delta` spliced onto the
-status block; `outliner op=snapshot|diff` for the manual bracket; `_state.level_snapshot` /
-`_state.leveldiff_mode`; server `outliner` tool gains `snapshot|diff` + `mode=`.
+`_TRANSIENT_DENYLIST`, the two modes, the OPPENHEIMER flag, the B16 `_is_b16_sink`
+attribution). Wired: `verbs.py` `DIFFED = MUTATING | SPATIAL | {"material"}`, the
+before/after bracket in `handle()` (snapshot after the B16 self-heal, skip `op=describe`,
+skip on error), the `level_delta` spliced onto the status block; `outliner op=snapshot|diff`
+(+ `verbose=true` uncapped dump) for the manual bracket; `_state.level_snapshot` /
+`_state.leveldiff_mode`; server `outliner` tool gains `snapshot|diff` + `mode=` + `verbose=`.
+
+**Author rulings implemented (all six):** (1) B16 sink = flag-**attribution** under the
+strict 4-part signature — matched proxies stay in `changed`, are summarized by one `⚙`
+housekeeping line, and are excluded from the flag; one deviating field drops the exemption
+and the flag trips (live-verified: terrain-create shows `⚙ ~129 template proxies sunk 2 km`
+with NO OPPENHEIMER, while the step-3 sculpt of the SAME proxy class is NOT attributed and
+DOES trip). (2) `full` default. (3) thresholds as-is. (4) `material` in `DIFFED`. (5) cap 25
++ `verbose=true`. (6) steps 3 & 6 run below.
 
 **SPIKE-CHECKs — all resolved live (UE 5.8):**
 - **GUID identity** ✅ `actor.get_editor_property("actor_guid").to_string()` — stable hex,
@@ -213,16 +226,36 @@ status block; `outliner op=snapshot|diff` for the manual bracket; `_state.level_
 - **Cost** ✅ full walk incl. components ≈ 0.5 s / 138 actors (~65k fields); two per op.
   Cheap enough to default `full` everywhere. `spatial` (transform+bounds) kept as the honest
   fast-path lever (`_state.leveldiff_mode`), and the payload always names which mode ran.
-- **World Partition** ⚠ DISCLOSED, not yet split. The `removed`-vs-`unloaded` descriptor
-  split is NOT built; instead, on a partitioned map a non-empty `removed` carries a
-  `removed_note` stating the ambiguity plainly (state-the-limitation, per charter).
+- **World Partition** ⚠ DISCLOSED, not yet split (gap G63). The `removed`-vs-`unloaded`
+  descriptor split is NOT built; instead, on a partitioned map a non-empty `removed` carries
+  a `removed_note` stating the ambiguity plainly (state-the-limitation, per charter).
+  `WorldPartitionBlueprintLibrary.get_actor_descs()` is the reachable source for the real
+  split (confirmed live: 140 descs persisting across an unload) — logged in G63.
 
-**Verification plan results (live, through the runtime):** (1) stability `0/0/0` ✅
-(2) move → exactly the one actor, correct fields ✅ (4) delete the sun → `removed` + flag,
-verb-blind ✅ (5) property-only (light intensity 6→3) → caught in full, correctly MISSED in
-spatial (mode named) ✅. (3) sculpt-the-crater on a REAL Landscape and (6) WP force-stream-out
-were NOT exercised live (no crater fixture loaded this session); the bounds-Z capture that
-covers (3) is the same one the move test exercised, and (6) is the disclosed WP gap above.
+**Verification plan results (live, through the runtime):**
+1. **Stability** — no-op double snapshot ⇒ `+0 −0 ~0`, full mode. ✅
+2. **Move** — nudge one actor ⇒ exactly that actor in `changed`, correct location fields,
+   nothing else. ✅
+3. **Sculpt the crater (THE founding case)** — on `/Game/Maps/UEB_SculptCrater`: snapshot →
+   `landscape_import_heightmap_from_render_target` → `force_layers_full_update()` → snapshot
+   → diff ⇒ **64 Landscape proxies in `changed`, bounds-Z −256 m → +178 m (Δ434 m), flag
+   TRIPS**, and crucially **NOT** mis-attributed as B16 (varied ΔZ, no hide, not the −2 km
+   constant → the strict signature correctly rejects it). Fixture heightmap restored after.
+   The flush is load-bearing: without `force_layers_full_update()` the import lands on an
+   edit layer and bounds read STALE — the differ then honestly reports `0/0/0` (the sculpt
+   did not take), which is the anti-crater. ✅
+4. **Delete the sun** — `destroy_actor` on the `DirectionalLight` ⇒ `removed` + OPPENHEIMER
+   flag, verb-blind; restored after. ✅
+5. **Property-only (material-swap class)** — light intensity 6→3 ⇒ caught in full with the
+   `comp:LightComponent0/intensity` field delta; the SAME change in `spatial` mode is
+   correctly MISSED (mode named in the payload). ✅
+6. **WP stream-out disclosure** — on the partitioned crater map, a non-empty `removed` fires
+   the `removed_note` ambiguity disclosure ✅ (proven on the sun deletion; the differ is
+   blind to stream-out-vs-delete by construction, so the disclosure covers both). Forcing a
+   clean *synchronous* editor stream-out from Python to exercise the trigger side directly
+   was not reachable this session (`unload_actors` refused freshly-spawned + always-loaded
+   actors); `get_actor_descs()` reachability for the real split is confirmed. Both recorded
+   in G63.
 
 ## Author rulings (2026-07-06, closing the implementation questions)
 

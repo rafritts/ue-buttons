@@ -193,20 +193,81 @@ def snapshot(mode=DEFAULT_MODE):
     return out
 
 
-def _field_diff(before, after):
-    """[{path, before, after}] for the fields that differ between two state dicts, capped
-    with an honest overflow marker."""
+def _field_diff(before, after, verbose=False):
+    """[{path, before, after}] for the fields that differ between two state dicts. Capped at
+    _MAX_FIELDS_REPORTED with an honest overflow marker unless verbose (outliner op=diff
+    verbose=true — the uncapped dump)."""
     fields = []
     for path in sorted(set(before) | set(after)):
         b, a = before.get(path), after.get(path)
         if b != a:
             fields.append({"path": path, "before": b, "after": a})
-    if len(fields) > _MAX_FIELDS_REPORTED:
+    if not verbose and len(fields) > _MAX_FIELDS_REPORTED:
         extra = len(fields) - _MAX_FIELDS_REPORTED
         fields = fields[:_MAX_FIELDS_REPORTED]
         fields.append({"path": "…", "before": None,
-                       "after": "+%d more field(s) changed (capped)" % extra})
+                       "after": "+%d more field(s) changed (capped — outliner op=diff "
+                                "verbose=true for the full dump)" % extra})
     return fields
+
+
+# ── B16 self-heal attribution (author ruling 1) ──────────────────────────────────
+# The first `terrain create` in a level sinks + hides ~128 template Landscape proxies 2 km
+# (the B15/B16 collision cure). That is the tool's OWN documented side-effect, not the
+# user's op — so it is ATTRIBUTED (a labeled housekeeping line, kept out of the flag), NOT
+# silenced (the proxies stay in `changed`) and NOT filtered (filtering would hide a real
+# Landscape sculpt — sink and sculpt are indistinguishable by class alone). A changed actor
+# joins the pure-sink subset only under a STRICT 4-part signature; ONE deviating field and
+# the exemption is off and the flag trips normally. A real sculpt never matches (varied ΔZ,
+# no hide, not the exact constant).
+_B16_SINK_CM = 200000.0   # must match terrain._TEMPLATE_SINK_CM (B15) — the exact ±2 km offset
+_B16_CLASSES = frozenset({"Landscape", "LandscapeStreamingProxy", "LandscapeProxy",
+                          "WorldPartitionHLOD"})
+
+
+def _z_shift(before, after):
+    """If two captured values differ ONLY by a uniform shift of their Z component, return
+    that shift (cm); else None. Handles location/relative_* ([x,y,z]) and bounds
+    ([ox,oy,oz,ex,ey,ez] — origin-Z shifts, extents fixed)."""
+    if not (isinstance(before, list) and isinstance(after, list)) or len(before) != len(after):
+        return None
+    if len(before) == 3:
+        keep = (0, 1)
+    elif len(before) == 6:
+        keep = (0, 1, 3, 4, 5)
+    else:
+        return None
+    if any(before[i] != after[i] for i in keep):
+        return None
+    try:
+        return float(after[2]) - float(before[2])
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_b16_sink(entry):
+    """True iff `entry` is a pure template-proxy 2 km sink/raise + hide-flag flip and NOTHING
+    else — the strict signature under which the B16 self-heal is attributed, not flagged."""
+    if entry["cls"] not in _B16_CLASSES:
+        return False
+    saw_z = hidden_ok = False
+    shift = None
+    for f in entry["fields"]:
+        p, b, a = f["path"], f["before"], f["after"]
+        if p == "hidden":
+            if (b, a) not in ((False, True), (True, False)):
+                return False
+            hidden_ok = True
+            continue
+        z = _z_shift(b, a)
+        if z is None or abs(abs(z) - _B16_SINK_CM) > 1.0:
+            return False                       # a non-sink field deviates → exemption off
+        if shift is None:
+            shift = z
+        elif abs(z - shift) > 1.0:
+            return False                       # inconsistent direction/magnitude
+        saw_z = True
+    return saw_z and hidden_ok and shift is not None
 
 
 def _partitioned():
@@ -219,8 +280,10 @@ def _partitioned():
         return False
 
 
-def diff(before, after):
-    """The LevelDelta: added / removed / changed (field-level) + summary + OPPENHEIMER flag."""
+def diff(before, after, verbose=False):
+    """The LevelDelta: added / removed / changed (field-level) + summary + OPPENHEIMER flag.
+    B16 template-proxy self-heal changes are attributed (marked `housekeeping`) but stay in
+    `changed` — the listing is always complete; only the flag ignores them."""
     added = [{"key": k, "label": after[k]["label"], "cls": after[k]["cls"]}
              for k in after if k not in before]
     removed = [{"key": k, "label": before[k]["label"], "cls": before[k]["cls"]}
@@ -229,13 +292,24 @@ def diff(before, after):
     for k in before:
         if k not in after:
             continue
-        fd = _field_diff(before[k]["state"], after[k]["state"])
+        fd = _field_diff(before[k]["state"], after[k]["state"], verbose=verbose)
         if fd:
-            changed.append({"key": k, "label": after[k]["label"], "cls": after[k]["cls"],
-                            "fields": fd})
+            entry = {"key": k, "label": after[k]["label"], "cls": after[k]["cls"], "fields": fd}
+            if _is_b16_sink(entry):
+                entry["housekeeping"] = "b16_sink"
+            changed.append(entry)
+    housekeeping = [c for c in changed if c.get("housekeeping")]
     delta = {"added": added, "removed": removed, "changed": changed}
+    hk = len(housekeeping)
     delta["summary"] = "+%d −%d ~%d" % (len(added), len(removed), len(changed))
-    delta["flag"] = _flag(delta)
+    if hk:
+        delta["housekeeping"] = hk
+        delta["housekeeping_note"] = ("~%d template proxies sunk 2 km — B16 self-heal, engine "
+                                      "housekeeping, not your op" % hk)
+    # The flag ignores attributed housekeeping (ruling 1): a routine terrain-create must not
+    # cry OPPENHEIMER, but ONE proxy deviating by one field falls out of the subset above and
+    # is counted here like anything else.
+    delta["flag"] = _flag(delta, [c for c in changed if not c.get("housekeeping")])
     # WorldPartition honesty (SPIKE-CHECK not yet built as a real removed/unloaded split):
     # on a partitioned map a `removed` key MAY be a stream-out, not a deletion. We cannot
     # yet reach the WP actor-descriptor list from Python to tell them apart, so we DISCLOSE
@@ -275,15 +349,16 @@ def _max_dz(changed):
     return best
 
 
-def _flag(delta):
+def _flag(delta, flaggable_changed):
+    """`flaggable_changed` is `changed` minus the attributed B16 housekeeping (ruling 1)."""
     reasons = []
     if _FLAG_DELETE and delta["removed"]:
         labels = ", ".join(r["label"] for r in delta["removed"][:5])
         reasons.append("%d actor(s) REMOVED (%s)" % (len(delta["removed"]), labels))
-    dz = _max_dz(delta["changed"])
+    dz = _max_dz(flaggable_changed)
     if dz >= _FLAG_MAX_DZ_CM:
         reasons.append("max ΔZ %.1f m" % (dz / 100.0))
-    n = len(delta["changed"]) + len(delta["removed"])
+    n = len(flaggable_changed) + len(delta["removed"])
     if n >= _FLAG_CHANGED_COUNT:
         reasons.append("%d actors changed/removed" % n)
     if not reasons:
@@ -292,28 +367,36 @@ def _flag(delta):
 
 
 # ── status-block rendering ───────────────────────────────────────────────────────
-def render_lines(delta, mode):
+def render_lines(delta, mode, verbose=False):
     """The level_delta block. One line when clean; expands with the flag + a bounded per-
-    bucket listing when anything moved. The mode is always named (honesty about fidelity)."""
+    bucket listing when anything moved. The mode is always named (honesty about fidelity).
+    B16 housekeeping proxies are summarized by one attributed line, not listed individually
+    (they stay in the structured `changed` for programmatic/verbose access). verbose lifts
+    the per-bucket display cap."""
     a, r, c = len(delta["added"]), len(delta["removed"]), len(delta["changed"])
     head = "  level Δ:    %s  (%s)" % (delta["summary"], mode)
     if not (a or r or c):
         return [head]
+    cap = 10 ** 9 if verbose else 8
     lines = ["── level delta (SPEC-16 · %s) ─────────────────" % mode, "  " + delta["summary"]]
     if delta["flag"]:
         lines.append("  ⚠ " + delta["flag"])
+    if delta.get("housekeeping_note"):
+        lines.append("  ⚙ " + delta["housekeeping_note"])
     if delta.get("removed_note"):
         lines.append("  ⓘ " + delta["removed_note"])
-    for r_ in delta["removed"][:8]:
+    shown = [c_ for c_ in delta["changed"] if not c_.get("housekeeping")]
+    for r_ in delta["removed"][:cap]:
         lines.append("  − %s [%s]" % (r_["label"], r_["cls"]))
-    for a_ in delta["added"][:8]:
+    for a_ in delta["added"][:cap]:
         lines.append("  + %s [%s]" % (a_["label"], a_["cls"]))
-    for c_ in delta["changed"][:8]:
-        paths = ", ".join(f["path"] for f in c_["fields"][:4])
-        more = "" if len(c_["fields"]) <= 4 else " +%d" % (len(c_["fields"]) - 4)
+    fcap = (10 ** 9 if verbose else 4)
+    for c_ in shown[:cap]:
+        paths = ", ".join(f["path"] for f in c_["fields"][:fcap])
+        more = "" if len(c_["fields"]) <= fcap else " +%d" % (len(c_["fields"]) - fcap)
         lines.append("  ~ %s [%s]: %s%s" % (c_["label"], c_["cls"], paths, more))
-    dropped = max(0, r - 8) + max(0, a - 8) + max(0, c - 8)
+    dropped = max(0, r - cap) + max(0, a - cap) + max(0, len(shown) - cap)
     if dropped:
-        lines.append("  … +%d more (feel/outliner op=diff for the full list)" % dropped)
+        lines.append("  … +%d more (outliner op=diff verbose=true for the full list)" % dropped)
     lines.append("────────────────────────────────────────────")
     return lines

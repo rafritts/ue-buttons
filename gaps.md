@@ -87,3 +87,26 @@ the clearest next, already G50; a `sound` verb and material-authoring support af
 forward, treat "I had to reach for `probe.sh`" as a first-class gap signal, logged here, not
 a silent convenience.
 
+
+### G63 — SPEC-16 level-diff does not split WorldPartition `removed` into deleted vs streamed-out
+
+Status: OPEN (found 2026-07-06, SPEC-16 verification step 6)
+
+`get_all_level_actors()` enumerates only LOADED actors, so on a World-Partition map an actor
+that merely streamed out of the editor's loaded set is indistinguishable from a real deletion
+— both just leave the loaded set and land in the diff's `removed` bucket. SPEC-16 ships the
+HONEST interim: whenever `removed` is non-empty on a partitioned map, the payload carries a
+`removed_note` disclosing the ambiguity ("a `removed` actor MAY have streamed out rather than
+been deleted…") instead of asserting a deletion that might be streaming. Verified live: the
+disclosure fires on a removal on a partitioned map; the differ is provably blind to the
+stream-out-vs-delete distinction, so the disclosure covers both.
+
+Resolution (the real split, deferred per author ruling 6): `unreal.WorldPartitionBlueprintLibrary.get_actor_descs()`
+is the reachable source — it returns the FULL actor-descriptor list (confirmed live: 140
+descs on the crater map, persisting across an unload) regardless of load state. Split the
+bucket: a key gone from the loaded set but STILL in `get_actor_descs()` → `unloaded`
+(streaming, not loss); gone from the descriptors too → `removed` (real deletion). Wire the
+descriptor GUIDs to the snapshot's GUID keys. Not built yet — the disclosure is the honest
+stand-in until it is. (Note: a clean SYNCHRONOUS editor stream-out could not be forced from
+Python this session — `unload_actors` refused freshly-spawned/unsaved and always-loaded
+actors — so the split's trigger side wants its own live check when built.)

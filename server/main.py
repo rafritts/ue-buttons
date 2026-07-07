@@ -133,7 +133,7 @@ def select(op: Literal["set", "clear", "user"] = "set", labels: list = None,
 
 @mcp.tool()
 def outliner(op: Literal["census", "reconcile", "snapshot", "diff"] = "census",
-             include_all: bool = False, mode: str = None) -> str:
+             include_all: bool = False, mode: str = None, verbose: bool = False) -> str:
     """The Outliner panel — what is in the level.
 
     op=census (default): actors grouped by type, with the level name. Scoped to
@@ -151,11 +151,13 @@ def outliner(op: Literal["census", "reconcile", "snapshot", "diff"] = "census",
       sub-diff). This is the MANUAL bracket; every mutating verb ALSO auto-attaches a
       per-op `level Δ` line to its status block. Observe-and-report only — reverting is
       `history`'s job. The North-Star it exists for: a `DirectionalLight` (the sun) silently
-      deleted as a side-effect lands in `removed`, verb-blind.
+      deleted as a side-effect lands in `removed`, verb-blind. verbose=true dumps the diff
+      uncapped (every changed actor, every field — the per-op status line caps at 25 fields).
     """
     p = {"op": op}
     if include_all: p["include_all"] = True
     if mode is not None: p["mode"] = mode
+    if verbose: p["verbose"] = True
     return render(call_ue("outliner", p))
 
 

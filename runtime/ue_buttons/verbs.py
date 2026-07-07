@@ -531,9 +531,12 @@ def _v_outliner(p):
             return {"error": f"stored snapshot is for level '{stored['level']}' but the editor "
                              f"is now in '{_ue.level_name()}' — snapshot again",
                     "next": "outliner op=snapshot"}
-        delta = leveldiff.diff(stored["snap"], leveldiff.snapshot(stored["mode"]))
+        verbose = bool(p.get("verbose"))
+        delta = leveldiff.diff(stored["snap"], leveldiff.snapshot(stored["mode"]),
+                               verbose=verbose)
         return {"level_diff": delta, "mode": stored["mode"], "against": "stored snapshot",
-                "status": "\n".join(leveldiff.render_lines(delta, stored["mode"]))}
+                "status": "\n".join(leveldiff.render_lines(delta, stored["mode"],
+                                                           verbose=verbose))}
     if op != "census":
         return {"error": f"unknown outliner op '{op}'. known: census|reconcile|snapshot|diff"}
     include_all = p.get("include_all", False)
