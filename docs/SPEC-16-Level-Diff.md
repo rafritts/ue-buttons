@@ -19,22 +19,29 @@ The North-Star worst case, in the user's words: **if the sun (a `DirectionalLigh
 deleted as a side-effect of a landscape edit, the tool MUST know and say so.** No
 verb-specific cleverness can promise that. Only a whole-outliner before/after diff can.
 
-## The prime principle: maximally dumb → maximally truthful
+## The prime principle: maximally truthful (dumbness is the tactic, not the point)
 
-Do **not** reason about what a verb "should" have changed. Snapshot the ENTIRE outliner
-before the op, run it, snapshot after, diff. Report everything that changed, anywhere, on
-any actor — ueb-owned or engine scaffolding. The differ knows **nothing** about landscapes,
-PCG, foliage, or terrain. It watches the whole world and reports what moved. Generality is
-the feature: the same code that catches a sculpt catches a deleted sun, a nudged rock, a
-swapped material, a vanished light — because it special-cases none of them.
+The goal is **truth**; "dumb" is merely how we get it. Do **not** reason about what a verb
+"should" have changed. Snapshot the ENTIRE outliner before the op, run it, snapshot after,
+diff. Report everything that changed, anywhere, on any actor — ueb-owned or engine
+scaffolding. The differ knows **nothing** about landscapes, PCG, foliage, or terrain. It
+watches the whole world and reports what moved. Generality is the feature: the same code
+that catches a sculpt catches a deleted sun, a nudged rock, a swapped material, a vanished
+light — because it special-cases none of them.
 
-"Maximally truthful" has exactly one enemy — **false positives** — and exactly one honest
-defense. We do **not** curate fields by "importance" (that is the smart-and-fragile trap
-that eventually hides a real change). We exclude **only** fields that provably flicker under
-a **literal no-op** — transient render/tick/cache state. That denylist is *empirically
-derived* (§Transient denylist), never hand-picked. A field is filtered **iff it changes
-when nothing changed.** Everything stable-under-no-op is reported, always — because today's
-"who cares" field is tomorrow's silent sun-deletion.
+"Maximally truthful" has two enemies, and pragmatism arbitrates between them. **False
+positives / noise**: a delta that drowns a real change in meaningless ones (a whole-world
+diff across a level transition, engine self-heal motion stamped onto the user's op) fails
+truth just as surely as silence — false alarms teach the reader to skim, and a skimmed
+diff hides the sun-deletion as effectively as no diff. **False negatives / curation**: we
+do **not** filter fields by "importance" (the smart-and-fragile trap that eventually hides
+a real change). We exclude **only** fields that provably flicker under a **literal no-op**
+— transient render/tick/cache state. That denylist is *empirically derived* (§Transient
+denylist), never hand-picked. A field is filtered **iff it changes when nothing changed.**
+Everything stable-under-no-op is reported, always — because today's "who cares" field is
+tomorrow's silent sun-deletion. Pragmatic exemptions on the noise side (level transitions,
+the B16 self-heal — see §Wiring) are legitimate exactly when they are *documented and
+inherently meaningless*, never when they merely seem unimportant.
 
 ## Decisions already made (do not relitigate)
 
@@ -101,6 +108,10 @@ Run once per engine version; record the result as a **documented constant** in c
 Every entry carries a one-line justification: "flickered under a literal no-op." **Nothing
 is denylisted for being 'unimportant.'** If a field is stable under no-op, it is REPORTED.
 
+The ≥5-pair gate won't catch *rare* flickers. A false positive found in the wild is promoted
+into `_TRANSIENT_DENYLIST` under the same discipline — reproduce the flicker under a no-op,
+record the justification — never waved off ad hoc.
+
 ## World Partition — SPIKE-CHECK
 
 Only LOADED actors enumerate, so `removed` is ambiguous: truly deleted vs streamed-out.
@@ -128,7 +139,21 @@ downgrade:
 - `runtime/ue_buttons/leveldiff.py` — `snapshot()`, `diff()`, `_TRANSIENT_DENYLIST`, mode.
 - `verbs.py` — a mutating-verb bracket: capture before → run handler → capture after →
   attach `level_delta`. Applies to terrain / add / transform / foliage / pcg / material /
-  spline / level. Read-only verbs (feel, outliner census, validate, history) skip it.
+  spline. Read-only verbs (feel, outliner census, validate, history) skip it. Notes for
+  the implementer, all found by holding this list against `verbs.py`:
+  - **`level` is exempt.** `op=new/open/clear` swaps the whole world — a whole-outliner
+    diff across a transition is 100% added/removed by definition, pure noise; and
+    `_level_guard` (G23) already clears cross-level bookkeeping precisely because a dead
+    level's state must never stamp a fresh one. `op=save` mutates nothing in-world.
+  - **No existing verb set matches this list.** Runtime classification is
+    `MUTATING = {add, transform}` and `SPATIAL = {terrain, spline, foliage, pcg}`;
+    `material` sits in neither. Introduce a `DIFFED = MUTATING | SPATIAL | {"material"}`
+    set rather than overloading the existing ones.
+  - **Snapshot AFTER the B16 self-heal.** `handle()` re-sinks template Landscape proxies
+    2 km on every dispatch; taking `before` after the self-heal runs keeps that engine
+    housekeeping out of the op's delta (on a fresh template level it would otherwise
+    stamp a massive ΔZ — and trip the flag — on an op the user never asked to move
+    proxies). The sink is B16's disclosure to make, not this diff's noise.
 - `outliner op=snapshot` / `op=diff` — manual bracketing across several ops (snapshot once,
   run many verbs, diff against the stored snapshot).
 - Status block — `level_delta` collapses to one line when clean (`level: +0 −0 ~1`) and
