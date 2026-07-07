@@ -110,3 +110,34 @@ descriptor GUIDs to the snapshot's GUID keys. Not built yet — the disclosure i
 stand-in until it is. (Note: a clean SYNCHRONOUS editor stream-out could not be forced from
 Python this session — `unload_actors` refused freshly-spawned/unsaved and always-loaded
 actors — so the split's trigger side wants its own live check when built.)
+
+### G64 — no verb for sculpting a REAL Landscape; the raw path crashes the editor and bounds can't verify it
+
+Status: OPEN (found 2026-07-07, "four middle tiles" session — a subset of G62, promoted for
+its crash + honesty stakes; SPEC-17 territory)
+
+A user asked to modify a real stock Open-World `Landscape` (not the `terrain` DynamicMesh
+substitute) confined to four selected `LandscapeStreamingProxy` tiles. There is no verb, so
+it fell to raw `scripts/probe.sh` Python — and the naive path **crashed UE twice** (GPU TDR,
+RC bridge "Connection reset by peer"). Root cause: a degenerate whole-landscape heightmap
+(all proxies at the −256 m floor) handed to `force_layers_full_update()` recomposites the
+entire WorldPartition landscape in one synchronous GPU burst. Two traps produce the
+degenerate RT: the **export-trap** (export writes GPU-only; `read_render_target_raw_pixel`
+reads it as zeros and a material `TextureSample`/`draw_material` cannot read/accumulate onto
+it → edges collapse to the floor) and a silently-zeroed material (`TextureSampleParameter2D`
+rejects an RT). Compounding it, **`get_actor_bounds` can't verify the result**: it is a
+bounding BOX, so it reported a clean "+30 m mound" for what a ground-trace-vs-pristine diff
+revealed to be a terraced RING averaging +15 m, 400 m wide — the box did not lie, it was the
+wrong instrument, and the human's eyes caught the over-claim (see [[the-cathedral-principle]]).
+
+Resolution (deferred — SPEC-17): a `terrain op=sculpt_landscape` (or similar) verb that is
+**safe by construction** — builds the height RT via `clear`+additive masked `draw_material`
+(never export-sampling), imports into a **separate additive edit layer** (`edit_layer_idx≥1`)
+at the **native quad resolution** (stock 8×8 default-scale landscape = 2016×2016), with
+neutral `R=128/255,G=0` (`height=R·256+G`, 32768 = zero elevation) and the bump on the low
+byte (G) for smooth steps. It must self-verify with **ground traces, not bounds**, refuse any
+import whose result would drive proxies to the floor, and honestly report that an additive
+bump is NOT spatially confined (wide falloff — ~32/64 proxies moved from a center mask; true
+per-tile confinement is unsolved). Interim rule now enshrined in `GUIDANCE_FOR_LLMS.md`
+("Sculpting a REAL Landscape by raw heightmap import is a CRASH HAZARD" + "an envelope is not
+a shape"): until the verb exists, do not freehand landscape imports.

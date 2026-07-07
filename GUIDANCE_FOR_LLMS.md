@@ -54,6 +54,19 @@ Everything you'd reach an image for is a NUMBER here:
   gating chain + the fix).
 - **What does the ground do at [x,y]?** → `terrain op=describe` (height + slope samples).
 
+**Pick the instrument that measures the QUESTION — an envelope is not a shape.**
+`get_actor_bounds` (and the status block's `bounds:`) is an axis-aligned **bounding box**:
+min/max only. It cannot tell a dome from a ring from a spike from a single tall pixel —
+they can share the exact same box. A landscape sculpt that reads as a clean `+30 m` in
+bounds can be a lumpy, ringed, mostly-flat surface whose bounding box merely *touches*
+`+30 m` at one point. **Never confirm the SHAPE of a surface edit from bounds.** Confirm it
+with the surface itself: a **line of ground traces** (`ue_buttons._ue.trace_ground(x,y)` or
+`terrain op=describe`) across the region, diffed against the pristine surface. Bounds
+answers "how big is the box"; only a trace answers "what is the ground actually doing here".
+This exact confusion cost a session: bounds said "+30 m mound", the trace said "terraced ring
+averaging +15 m, 400 m wide". The human's eyes caught it; the box had not lied — it was the
+wrong instrument, read as if it were the right one.
+
 If an appearance question has **no instrument yet** — "does this pine read as bare?",
 "is the forest dense enough?", "is that foliage bobbing?" — that is a **gap to LOG**
 (gaps.md), not a cue to look. Logging it is how the instrument gets built; that IS the
@@ -144,6 +157,29 @@ Ctrl+Z. The honest flag is a feature; plan around it.
   relaunch. Cleanup order for scratch assets: delete REFERENCERS first (actors, then
   meshes, then materials), polite `delete_asset` only, and tolerate a failed polite
   delete — an unsaved asset evaporates on editor restart anyway.
+- **Sculpting a REAL Landscape by raw heightmap import is a CRASH HAZARD — do not
+  freehand it** (no verb yet; SPEC-17 territory). `landscape_import_heightmap_from_render_target`
+  works, but the naive path CRASHES the editor (GPU TDR → RC bridge dies with "Connection
+  reset by peer"; happened twice in one session). The failure mode is a **degenerate
+  all-proxy heightmap** (e.g. the whole landscape slammed to the −256 m floor) handed to
+  `force_layers_full_update()`, which then recomposites the entire WorldPartition landscape
+  in one synchronous GPU burst. Two traps feed it: (1) the **export-trap** — `landscape_export_heightmap_to_render_target`
+  writes the heightmap **GPU-side only**; `read_render_target_raw_pixel` reads it as all-zeros
+  and a material `TextureSample`/`draw_material_to_render_target` cannot read or build on it
+  (canvas re-inits the RT from its zero CPU state), so any "export → modify via material →
+  re-import" collapses the edges to the floor → crash. (2) A silently-broken material
+  (`TextureSampleParameter2D` rejects a render target → outputs 0) produces the same all-zero
+  RT. The only path that held up: build the RT with `clear` + an **additive** masked draw
+  (never export-sampling), import it into a **separate additive edit layer** (`edit_layer_idx ≥ 1`,
+  the stock Open World ships 2 layers) at the **native quad resolution** (a stock 8×8 proxy
+  landscape at default scale = **2016×2016**, NOT vertex-count 2017), so the untouched base
+  layer preserves the edges and nothing goes degenerate. Encoding (`from_rg=True`): `height =
+  R·256 + G` (R high byte, G low byte), **32768 = zero elevation** → neutral clear = `R=128/255,
+  G=0`; bump the **low byte (G)** for smooth ~0.8 cm steps (bumping R gives coarse ~2 m terraces).
+  Verify every stage in **readable RT-space** (`clear`ed RTs and `draw_material` outputs ARE
+  raw-pixel-readable) before the one real import, and confirm the result with **ground traces,
+  not bounds** (see "an envelope is not a shape"). Even the safe path is not confined — an
+  additive layer bump spreads a wide falloff; treat tight confinement as unsolved.
 - **Creating a level from the Open World template is a trap** (G36): every
   template-copied always-loaded actor (DirectionalLight, SkyLight, SkyAtmosphere,
   VolumetricCloud, ExponentialHeightFog, PlayerStart, SkySphere) LOOKS fine in the
