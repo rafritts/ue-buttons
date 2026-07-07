@@ -26,6 +26,7 @@ from . import validate as validatemod
 from . import level as levelmod
 from . import deixis
 from . import lint as lintmod
+from . import leveldiff
 
 # R4 (SPEC-05): the runtime is verified against this engine version; a session on a
 # different build gets one warning on its first dispatch — trained reflexes may misfire.
@@ -44,6 +45,13 @@ STATUS_ONLY = {"select"}
 SPATIAL = {"terrain", "spline", "foliage", "pcg"}
 # `history` with op=undo_to mutates but manages its own undo accounting — never logs
 # itself (would desync the 1:1 count) and never nests a transaction.
+
+# SPEC-16: the verbs that get a whole-outliner before/after diff (level_delta) auto-attached.
+# `material` mutates the world (assigns surfaces) but sits in neither MUTATING nor SPATIAL,
+# so DIFFED names the union explicitly rather than overloading either. `level` is EXEMPT:
+# op=new/open/clear swap the whole world (a diff across a transition is 100% added/removed
+# by definition — pure noise) and _level_guard already clears cross-level bookkeeping.
+DIFFED = MUTATING | SPATIAL | {"material"}
 
 # Auto-follow camera (G17): after every mutating verb, aim the viewport at what was just
 # touched so the human always sees the agent's hands. Default ON; the flag lives in
@@ -128,7 +136,26 @@ def handle(verb, params):
     # Idempotent and cheap (~130 flag sets); no-op when no ueb terrain exists.
     if _state.terrains:
         terrainmod.set_template_hidden(True)
+    # SPEC-16: bracket a mutating verb with a whole-outliner before/after diff. The `before`
+    # snapshot is taken AFTER the B16 self-heal above, deliberately — re-sinking template
+    # proxies is engine housekeeping, not this op's blast radius, and would otherwise stamp a
+    # massive ΔZ (and trip the flag) on an op the user never asked to move proxies. op=describe
+    # is a read — nothing to bracket. Snapshot failure must never break the verb: diff is
+    # diagnostic, the op is the point.
+    diff_before, diff_mode = None, None
+    if verb in DIFFED and params.get("op") != "describe":
+        diff_mode = getattr(_state, "leveldiff_mode", None) or leveldiff.DEFAULT_MODE
+        try:
+            diff_before = leveldiff.snapshot(diff_mode)
+        except Exception:
+            diff_before = None
     result = fn(params)
+    if diff_before is not None and isinstance(result, dict) and "error" not in result:
+        try:
+            delta = leveldiff.diff(diff_before, leveldiff.snapshot(diff_mode))
+            result["_level_delta"] = {"delta": delta, "mode": diff_mode}
+        except Exception:
+            pass
     if level_note and isinstance(result, dict) and "error" not in result:
         result.setdefault("notes", []).append(level_note)
     # R4 drift tripwire: once per session, on the first successful dispatch.
@@ -142,6 +169,12 @@ def handle(verb, params):
     if (verb in MUTATING or verb in STATUS_ONLY or verb in SPATIAL) \
             and isinstance(result, dict) and "error" not in result:
         result["status"] = _status_block(verb, params, result)
+    # SPEC-16: splice the level_delta into the status block (material carries no block of its
+    # own — the delta becomes its status). Off the head, so it's surfaced exactly once.
+    ld = result.pop("_level_delta", None) if isinstance(result, dict) else None
+    if ld:
+        block = "\n".join(leveldiff.render_lines(ld["delta"], ld["mode"]))
+        result["status"] = (result["status"] + "\n" + block) if result.get("status") else block
     return result
 
 
@@ -480,8 +513,29 @@ def _v_outliner(p):
     op = p.get("op", "census")
     if op == "reconcile":
         return validatemod.reconcile(gc=p.get("gc", True))
+    if op == "snapshot":
+        # SPEC-16 manual bracket: store one whole-outliner snapshot, then run several ops and
+        # `op=diff` to see the cumulative blast radius (the auto-diff on each verb is per-op).
+        mode = p.get("mode", leveldiff.DEFAULT_MODE)
+        snap = leveldiff.snapshot(mode)
+        _state.level_snapshot = {"snap": snap, "mode": mode, "level": _ue.level_name()}
+        return {"snapshot": "stored", "mode": mode, "actors": len(snap),
+                "level": _ue.level_name(),
+                "next": "run any number of ops, then outliner op=diff to compare against this"}
+    if op == "diff":
+        stored = getattr(_state, "level_snapshot", None)
+        if not stored:
+            return {"error": "no stored snapshot — run outliner op=snapshot first",
+                    "next": "outliner op=snapshot"}
+        if stored["level"] != _ue.level_name():
+            return {"error": f"stored snapshot is for level '{stored['level']}' but the editor "
+                             f"is now in '{_ue.level_name()}' — snapshot again",
+                    "next": "outliner op=snapshot"}
+        delta = leveldiff.diff(stored["snap"], leveldiff.snapshot(stored["mode"]))
+        return {"level_diff": delta, "mode": stored["mode"], "against": "stored snapshot",
+                "status": "\n".join(leveldiff.render_lines(delta, stored["mode"]))}
     if op != "census":
-        return {"error": f"unknown outliner op '{op}'. known: census|reconcile"}
+        return {"error": f"unknown outliner op '{op}'. known: census|reconcile|snapshot|diff"}
     include_all = p.get("include_all", False)
     pool = _ue.all_actors() if include_all else _ue.ueb_actors()
     groups = {}

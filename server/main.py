@@ -132,8 +132,8 @@ def select(op: Literal["set", "clear", "user"] = "set", labels: list = None,
 
 
 @mcp.tool()
-def outliner(op: Literal["census", "reconcile"] = "census",
-             include_all: bool = False) -> str:
+def outliner(op: Literal["census", "reconcile", "snapshot", "diff"] = "census",
+             include_all: bool = False, mode: str = None) -> str:
     """The Outliner panel — what is in the level.
 
     op=census (default): actors grouped by type, with the level name. Scoped to
@@ -142,9 +142,20 @@ def outliner(op: Literal["census", "reconcile"] = "census",
     op=reconcile: MACRO ≈ nothing in UE — diff the ueb terrain/spline/foliage registries
       against the editor's own tally (clean / dirty with self|external attribution /
       orphaned / untracked) and GC orphans, so a level change can't leave a phantom (G16).
+    op=snapshot (SPEC-16): capture the WHOLE outliner (every actor + component, engine
+      scaffolding included) as a diff baseline, stored in the runtime. mode=full (default —
+      complete property walk, catches material swaps / light dims / deletions) | spatial
+      (transform+bounds only, the cheap fast-path). Then run any number of ops.
+    op=diff (SPEC-16): re-snapshot and diff against the stored op=snapshot — the cumulative
+      blast radius across everything you did (added / removed / changed, with a field-level
+      sub-diff). This is the MANUAL bracket; every mutating verb ALSO auto-attaches a
+      per-op `level Δ` line to its status block. Observe-and-report only — reverting is
+      `history`'s job. The North-Star it exists for: a `DirectionalLight` (the sun) silently
+      deleted as a side-effect lands in `removed`, verb-blind.
     """
     p = {"op": op}
     if include_all: p["include_all"] = True
+    if mode is not None: p["mode"] = mode
     return render(call_ue("outliner", p))
 
 

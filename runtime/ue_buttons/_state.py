@@ -105,6 +105,15 @@ lint_run = None       # or {"checks", "seconds", "budget_ms", "route", "log_path
 lint_frames = []      # per-frame delta seconds, accumulated by the slate-tick sampler in the PIE window
 lint_sampler = None   # the _DelegateHandle from register_slate_post_tick_callback (None when idle)
 
+# ── SPEC-16 level diff (whole-outliner snapshot/diff) ──────────────────────────────
+# The manual-bracket snapshot (outliner op=snapshot → op=diff): one stored whole-outliner
+# capture the next op=diff compares against. Lives here so a handler hot-reload can't drop
+# it between the snapshot and the diff. leveldiff_mode is the fidelity lever (full|spatial);
+# absent by default (getattr-guarded) → leveldiff.DEFAULT_MODE. Every access is guarded, so
+# a live editor predating these lines still works.
+level_snapshot = None   # or {"snap": {key->fingerprint}, "mode": "full"|"spatial", "level": name}
+leveldiff_mode = None    # None → DEFAULT_MODE; set to force a fidelity mode for the auto-bracket
+
 
 def cache_dims(path, measured):
     dims_cache[path] = measured

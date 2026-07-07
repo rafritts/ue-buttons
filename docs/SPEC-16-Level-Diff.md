@@ -1,10 +1,18 @@
 # SPEC-16 — Level Diff: the whole-outliner blast-radius status block
 
-Status: **DESIGN** (2026-07-06). Audience: the agent implementing it. The **narrow spatial
-fingerprint** (class + location + bounds-Z) is **PROVEN this session** — snapshot/diff over
-140 actors, `0/0/0` on a no-op, caught a +1000 cm PlayerStart move exactly and nothing
-else, sub-second. Everything marked **SPIKE-CHECK** (full-fidelity capture, GUID identity,
-World Partition streaming, cost) is unproven — verify it live before relying on it.
+Status: **IMPLEMENTED + live-verified** (2026-07-06) — `runtime/ue_buttons/leveldiff.py`,
+wired into `verbs.py` (auto-bracket on the `DIFFED` verb set) + `outliner op=snapshot|diff`.
+Every SPIKE-CHECK below was resolved live against UE 5.8 and came back green (see
+§Implementation status at the bottom). **One open design decision** (the B16 template-sink
+interaction on first terrain-create) is flagged there for the author — the differ ships
+maximally truthful / verb-blind rather than silently filtered.
+
+The **narrow spatial fingerprint** (class + location + bounds-Z) was **PROVEN** the prior
+session — snapshot/diff over 140 actors, `0/0/0` on a no-op, caught a +1000 cm PlayerStart
+move exactly and nothing else, sub-second. This session proved **full fidelity** too: the
+reflection property-walk (incl. component recursion) is reachable, ~0.5 s / 138 actors,
+**zero no-op flicker** (the transient denylist ships EMPTY), and it catches property-only
+changes (a light dim, a material swap) the spatial fingerprint misses.
 
 ## Why this exists
 
@@ -180,6 +188,57 @@ downgrade:
 - Not folder / data-layer organization diffing (v2 if wanted).
 - Not per-instance foliage diffing — instances live inside one `InstancedFoliageActor`; the
   actor's state covers gross change. Per-instance is a later refinement.
+
+## Implementation status (2026-07-06)
+
+Built: `runtime/ue_buttons/leveldiff.py` (`snapshot`/`diff`/`render_lines`, the empty
+`_TRANSIENT_DENYLIST`, the two modes, the OPPENHEIMER flag). Wired: `verbs.py` `DIFFED =
+MUTATING | SPATIAL | {"material"}`, the before/after bracket in `handle()` (snapshot after
+the B16 self-heal, skip `op=describe`, skip on error), the `level_delta` spliced onto the
+status block; `outliner op=snapshot|diff` for the manual bracket; `_state.level_snapshot` /
+`_state.leveldiff_mode`; server `outliner` tool gains `snapshot|diff` + `mode=`.
+
+**SPIKE-CHECKs — all resolved live (UE 5.8):**
+- **GUID identity** ✅ `actor.get_editor_property("actor_guid").to_string()` — stable hex,
+  138/138 stable across reads. Fallback `get_path_name()`. `removed` means gone, not renamed.
+- **Capture mechanism** ✅ T3D/actor-export APIs are ABSENT in 5.8 (spiked: every
+  `export_*` candidate missing), so the reflection property-walk is THE mechanism, not a
+  fallback. UPROPERTYs are the class's `getset_descriptor`s (methods are
+  `methodwithclosure_descriptor` → excluded). Component recursion catches material overrides
+  + light params.
+- **Transient denylist** ✅ EMPTY by construction. Actor+component double-snapshot over 138
+  actors → **zero** flickering fields. The no-op ⇒ empty-diff HARD invariant holds out of
+  the box (re-verified end-to-end through the runtime).
+- **Cost** ✅ full walk incl. components ≈ 0.5 s / 138 actors (~65k fields); two per op.
+  Cheap enough to default `full` everywhere. `spatial` (transform+bounds) kept as the honest
+  fast-path lever (`_state.leveldiff_mode`), and the payload always names which mode ran.
+- **World Partition** ⚠ DISCLOSED, not yet split. The `removed`-vs-`unloaded` descriptor
+  split is NOT built; instead, on a partitioned map a non-empty `removed` carries a
+  `removed_note` stating the ambiguity plainly (state-the-limitation, per charter).
+
+**Verification plan results (live, through the runtime):** (1) stability `0/0/0` ✅
+(2) move → exactly the one actor, correct fields ✅ (4) delete the sun → `removed` + flag,
+verb-blind ✅ (5) property-only (light intensity 6→3) → caught in full, correctly MISSED in
+spatial (mode named) ✅. (3) sculpt-the-crater on a REAL Landscape and (6) WP force-stream-out
+were NOT exercised live (no crater fixture loaded this session); the bounds-Z capture that
+covers (3) is the same one the move test exercised, and (6) is the disclosed WP gap above.
+
+**OPEN DECISION for the author — the B16 template-sink interaction.** On the FIRST
+`terrain create` in a level, the B16 self-heal sinks+hides ~128 template Landscape proxies
+2 km, and — because at snapshot time no ueb terrain exists yet, so `handle()`'s
+`if _state.terrains:` self-heal hasn't run — that sink lands IN the delta: ~128 `changed`
++ a `max ΔZ 2000 m` OPPENHEIMER flag on a routine create. The spec's timing fix covers the
+steady state but not first-create. The three exits considered, none taken unilaterally
+because each trades against a cardinal principle:
+- **Filter the template Landscape family** → violates verb-blindness AND would hide a real
+  Landscape sculpt (the crater — verification step 3 wants that CAUGHT); the sculpt and the
+  sink are indistinguishable by the diff alone (both are bounds-Z on Landscape proxies).
+- **Extend the timing trick to first-create** (pre-hide before the `before` snapshot) →
+  leaves the template hidden with no ground if the create then fails.
+- **Exempt only the flag** (report the 128 in the delta, don't let the pure template-sink
+  trip the alarm) → keeps the listing fully truthful, tunes only the heuristic alarm.
+Shipped as-is (fully truthful, verb-blind, noisy on that one op) pending the author's ruling;
+the flag-only exemption is the recommendation.
 
 ## Provenance
 
